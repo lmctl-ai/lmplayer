@@ -16,7 +16,7 @@ import { SessionSummary } from "@/session/summary"
 import { Todo } from "@/session/todo"
 import { MessageID, PartID, SessionID } from "@/session/schema"
 import { NamedError } from "@opencode-ai/core/util/error"
-import { Cause, Effect, Option, Schema, Scope } from "effect"
+import { Cause, Effect, Option, Schema, Scope, Semaphore } from "effect"
 import * as Stream from "effect/Stream"
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiBuilder, HttpApiError, HttpApiSchema } from "effect/unstable/httpapi"
@@ -43,6 +43,21 @@ const tryParseJson = (text: string) =>
     try: () => JSON.parse(text) as unknown,
     catch: () => new HttpApiError.BadRequest({}),
   })
+
+// Process-global FIFO execution gate. lmcode is single-user + sequential: only
+// ONE agent run (prompt/command/init/summarize/shell) may execute at a time
+// across the whole server; concurrent execution requests queue (Effect grants
+// semaphore permits FIFO) and run one after another. Module scope = one permit
+// per process (truly global, independent of instance/location).
+//
+// IMPORTANT: this gate lives strictly at the HTTP handler boundary. Subagents
+// (tool/task.ts) re-enter execution in-process via `ops.prompt`, NOT through
+// these handlers, so they bypass the gate — moving it deeper (into
+// SessionPrompt/Runner) would deadlock (parent holds the permit while the child
+// waits forever). Read-only and control endpoints (list/get/status/abort/cancel/
+// permissionRespond/...) stay ungated so they never block behind a run.
+const executionGate = Semaphore.makeUnsafe(1)
+const serialize = <A, E, R>(effect: Effect.Effect<A, E, R>) => executionGate.withPermits(1)(effect)
 
 export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", (handlers) =>
   Effect.gen(function* () {
@@ -237,15 +252,15 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       payload: typeof InitPayload.Type
     }) {
       yield* requireSession(ctx.params.sessionID)
-      yield* promptSvc
-        .command({
+      yield* serialize(
+        promptSvc.command({
           sessionID: ctx.params.sessionID,
           messageID: ctx.payload.messageID,
           model: `${ctx.payload.providerID}/${ctx.payload.modelID}`,
           command: Command.Default.INIT,
           arguments: "",
-        })
-        .pipe(Effect.mapError(() => new HttpApiError.BadRequest({})))
+        }),
+      ).pipe(Effect.mapError(() => new HttpApiError.BadRequest({})))
       return true
     })
 
@@ -277,16 +292,20 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       const defaultAgent = yield* agentSvc.defaultAgent()
       const currentAgent = messages.findLast((message) => message.info.role === "user")?.info.agent ?? defaultAgent
 
-      yield* compactSvc.create({
-        sessionID: ctx.params.sessionID,
-        agent: currentAgent,
-        model: {
-          providerID: ctx.payload.providerID,
-          modelID: ctx.payload.modelID,
-        },
-        auto: ctx.payload.auto ?? false,
-      })
-      yield* promptSvc.loop({ sessionID: ctx.params.sessionID })
+      yield* serialize(
+        Effect.gen(function* () {
+          yield* compactSvc.create({
+            sessionID: ctx.params.sessionID,
+            agent: currentAgent,
+            model: {
+              providerID: ctx.payload.providerID,
+              modelID: ctx.payload.modelID,
+            },
+            auto: ctx.payload.auto ?? false,
+          })
+          yield* promptSvc.loop({ sessionID: ctx.params.sessionID })
+        }),
+      )
       return true
     })
 
@@ -295,12 +314,12 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       payload: typeof PromptPayload.Type
     }) {
       yield* requireSession(ctx.params.sessionID)
-      const message = yield* promptSvc
-        .prompt({
+      const message = yield* serialize(
+        promptSvc.prompt({
           ...ctx.payload,
           sessionID: ctx.params.sessionID,
-        })
-        .pipe(Effect.mapError(() => new HttpApiError.BadRequest({})))
+        }),
+      ).pipe(Effect.mapError(() => new HttpApiError.BadRequest({})))
       return HttpServerResponse.stream(Stream.make(JSON.stringify(message)).pipe(Stream.encodeText), {
         contentType: "application/json",
       })
@@ -311,7 +330,10 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       payload: typeof PromptPayload.Type
     }) {
       yield* requireSession(ctx.params.sessionID)
-      yield* promptSvc.prompt({ ...ctx.payload, sessionID: ctx.params.sessionID }).pipe(
+      // Acquire the permit INSIDE the forked effect so the queued run is what
+      // serializes — not the immediately-returning handler (which would release
+      // the permit instantly and break serialization).
+      yield* serialize(promptSvc.prompt({ ...ctx.payload, sessionID: ctx.params.sessionID })).pipe(
         Effect.catchCause((cause) =>
           Effect.gen(function* () {
             yield* Effect.logError("prompt_async failed", { sessionID: ctx.params.sessionID, cause })
@@ -331,9 +353,9 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       payload: typeof CommandPayload.Type
     }) {
       yield* requireSession(ctx.params.sessionID)
-      return yield* promptSvc
-        .command({ ...ctx.payload, sessionID: ctx.params.sessionID })
-        .pipe(Effect.mapError(() => new HttpApiError.BadRequest({})))
+      return yield* serialize(
+        promptSvc.command({ ...ctx.payload, sessionID: ctx.params.sessionID }),
+      ).pipe(Effect.mapError(() => new HttpApiError.BadRequest({})))
     })
 
     const shell = Effect.fn("SessionHttpApi.shell")(function* (ctx: {
@@ -341,7 +363,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       payload: typeof ShellPayload.Type
     }) {
       yield* requireSession(ctx.params.sessionID)
-      return yield* SessionError.mapBusy(promptSvc.shell({ ...ctx.payload, sessionID: ctx.params.sessionID }))
+      return yield* SessionError.mapBusy(serialize(promptSvc.shell({ ...ctx.payload, sessionID: ctx.params.sessionID })))
     })
 
     const revert = Effect.fn("SessionHttpApi.revert")(function* (ctx: {
