@@ -70,7 +70,7 @@ export function resolveThreadDirectory(project?: string, envPWD = process.env.PW
 }
 
 export const TuiThreadCommand = cmd({
-  command: "$0 [project]",
+  command: "tui [project]",
   describe: "start opencode tui",
   builder: (yargs) =>
     withNetworkOptions(yargs)

@@ -50,7 +50,7 @@ describe("tui thread", () => {
       const args = await yargs([])
         .command({ ...TuiThreadCommand, handler: () => {} })
         .exitProcess(false)
-        .parse(["--mini", option, "--replay-limit", "10"])
+        .parse(["tui", "--mini", option, "--replay-limit", "10"])
 
       expect(args.replay === false || args.noReplay === true).toBe(true)
       expect(args.replayLimit).toBe(10)
@@ -61,7 +61,7 @@ describe("tui thread", () => {
     const args = await yargs([])
       .command({ ...TuiThreadCommand, handler: () => {} })
       .exitProcess(false)
-      .parse(["--mdns", "--no-mdns"])
+      .parse(["tui", "--mdns", "--no-mdns"])
 
     expect(args.mdns).toBe(false)
   })
@@ -86,10 +86,19 @@ describe("tui thread", () => {
 
   cliIt.live("rejects network options in mini mode", ({ opencode }) =>
     Effect.gen(function* () {
-      const result = yield* opencode.spawn(["--mini", "--port", "4096"])
+      const result = yield* opencode.spawn(["tui", "--mini", "--port", "4096"])
 
       opencode.expectExit(result, 1)
       expect(result.stderr).toContain("--port cannot be used with --mini")
+    }),
+  )
+
+  cliIt.live("rejects root --mini on the default command", ({ opencode }) =>
+    Effect.gen(function* () {
+      const result = yield* opencode.spawn(["--mini"])
+
+      opencode.expectExit(result, 1)
+      expect(result.stderr).toContain("interactive --mini is not available on the default command")
     }),
   )
 })
