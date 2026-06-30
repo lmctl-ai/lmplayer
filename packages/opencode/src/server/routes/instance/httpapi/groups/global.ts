@@ -68,7 +68,12 @@ export const GlobalPaths = {
   config: "/global/config",
   dispose: "/global/dispose",
   upgrade: "/global/upgrade",
+  shutdown: "/shutdown",
 } as const
+
+const ShutdownResult = Schema.Struct({
+  draining: Schema.Literal(true),
+})
 
 export const GlobalApi = HttpApi.make("global").add(
   HttpApiGroup.make("global")
@@ -129,6 +134,16 @@ export const GlobalApi = HttpApi.make("global").add(
           identifier: "global.upgrade",
           summary: "Upgrade opencode",
           description: "Upgrade opencode to the specified version or latest if not specified.",
+        }),
+      ),
+      HttpApiEndpoint.post("shutdown", GlobalPaths.shutdown, {
+        success: described(ShutdownResult, "Drain started"),
+      }).annotateMerge(
+        OpenApi.annotations({
+          identifier: "global.shutdown",
+          summary: "Graceful shutdown",
+          description:
+            "Begin a graceful drain-then-exit: reject new runs (503), wait for the in-flight run to finish (it is NOT interrupted), then exit. Responds immediately.",
         }),
       ),
     )
