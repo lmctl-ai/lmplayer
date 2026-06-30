@@ -86,3 +86,11 @@ Per-agent selected model, `recent[]`, `favorite[]`, and `variant` per model
 - FOLLOW-UP (repo fix, optional): change models.ts so copilot claude models default to
   `@ai-sdk/github-copilot` instead of `@ai-sdk/anthropic`, so claude works out-of-the-box without
   manual config.
+
+## Claude default-routing — VERIFIED working (404 was transient)
+Tested with a MINIMAL global config (no provider override): `lmcode run --model
+github-copilot/claude-haiku-4.5` returns a normal reply (DEFOK) via the DEFAULT auto-catalog
+routing (@ai-sdk/anthropic -> https://api.githubcopilot.com/v1/messages). So claude works
+out-of-the-box; the earlier "Not Found: 404 page not found" was a transient provider-side blip.
+NO repo fix needed. The github-copilot provider override in ~/.config/lmcode/opencode.jsonc is
+optional (explicit claude config) but not required.
