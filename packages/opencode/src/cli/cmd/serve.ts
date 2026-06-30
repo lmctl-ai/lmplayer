@@ -12,12 +12,18 @@ export const ServeCommand = effectCmd({
   instance: false,
   handler: Effect.fn("Cli.serve")(function* (args) {
     const { Server } = yield* Effect.promise(() => import("../../server/server"))
+    const { gracefulShutdown } = yield* Effect.promise(() => import("../../server/execution-gate"))
     if (!Flag.OPENCODE_SERVER_PASSWORD) {
       console.log("Warning: OPENCODE_SERVER_PASSWORD is not set; server is unsecured.")
     }
     const opts = yield* resolveNetworkOptions(args)
     const server = yield* Effect.promise(() => Server.listen(opts))
     console.log(`opencode server listening on http://${server.hostname}:${server.port}`)
+
+    // Graceful drain-then-exit: finish the in-flight run, then exit. Do NOT
+    // interrupt the run (that path aborts it). process.once guards double-fire.
+    process.once("SIGTERM", () => gracefulShutdown("SIGTERM"))
+    process.once("SIGINT", () => gracefulShutdown("SIGINT"))
 
     yield* Effect.never
   }),

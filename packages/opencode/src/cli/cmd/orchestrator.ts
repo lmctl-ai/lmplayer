@@ -237,6 +237,43 @@ const HandoverCommand = cmd({
 })
 
 // ---------------------------------------------------------------------------
+// refresh — drain-then-exit a member (graceful failover trigger)
+// ---------------------------------------------------------------------------
+// Signals a container to finish its in-flight run and exit gracefully (it is
+// NOT interrupted). Thin wrapper over POST <to>/shutdown.
+const RefreshCommand = cmd({
+  command: "refresh",
+  describe: "gracefully drain-then-exit a container (finish in-flight run, then exit)",
+  builder: (yargs: Argv) =>
+    yargs
+      .option("to", { describe: "container id (or url) to refresh", type: "string", demandOption: true })
+      .option("registry", { describe: "path to containers.json", type: "string" })
+      .option("json", { describe: "output as JSON", type: "boolean" }),
+  async handler(args) {
+    const registry = await loadRegistry(args.registry ?? defaultRegistryPath())
+    const to = resolveContainer(registry, args.to)
+    const res = await fetch(`${to.url.replace(/\/$/, "")}/shutdown`, {
+      method: "POST",
+      headers: authHeaders(to),
+      signal: AbortSignal.timeout(10000),
+    })
+    if (!res.ok) throw new Error(`shutdown ${to.id} failed: HTTP ${res.status} ${await res.text()}`)
+    const body = (await res.json()) as { draining?: boolean }
+
+    if (args.json) {
+      process.stdout.write(JSON.stringify({ to: to.id, draining: body.draining === true }, null, 2) + EOL)
+      return
+    }
+    out(
+      UI.Style.TEXT_SUCCESS_BOLD +
+        `refresh ${to.id}` +
+        UI.Style.TEXT_NORMAL +
+        `  draining=${body.draining === true} (will finish in-flight run, then exit)`,
+    )
+  },
+})
+
+// ---------------------------------------------------------------------------
 // assign
 // ---------------------------------------------------------------------------
 const AssignCommand = cmd({
@@ -274,8 +311,13 @@ const AssignCommand = cmd({
 
 export const OrchestratorCommand = cmd({
   command: "orchestrator",
-  describe: "coordinate lmcode agent containers (status, handover, assign)",
+  describe: "coordinate lmcode agent containers (status, handover, refresh, assign)",
   builder: (yargs: Argv) =>
-    yargs.command(StatusCommand).command(HandoverCommand).command(AssignCommand).demandCommand(),
+    yargs
+      .command(StatusCommand)
+      .command(HandoverCommand)
+      .command(RefreshCommand)
+      .command(AssignCommand)
+      .demandCommand(),
   async handler() {},
 })

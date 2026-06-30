@@ -4,6 +4,7 @@ import { EffectBridge } from "@/effect/bridge"
 import { EventV2 } from "@opencode-ai/core/event"
 import { Installation } from "@/installation"
 import { disposeAllInstancesAndEmitGlobalDisposed } from "@/server/global-lifecycle"
+import { gracefulShutdown } from "@/server/execution-gate"
 import { InstallationVersion } from "@opencode-ai/core/installation/version"
 import { Effect, Queue, Schema } from "effect"
 import * as Stream from "effect/Stream"
@@ -94,6 +95,16 @@ export const globalHandlers = HttpApiBuilder.group(RootHttpApi, "global", (handl
       return true
     })
 
+    const shutdown = Effect.fn("GlobalHttpApi.shutdown")(function* () {
+      // Mark draining + schedule drain-then-exit, then respond immediately. The
+      // routine sets the draining flag synchronously (new runs get 503) and waits
+      // a short grace before exiting so this 200 flushes first. The in-flight run
+      // finishes normally — it is not interrupted.
+      yield* Effect.logInfo("shutdown requested; draining")
+      gracefulShutdown("POST /shutdown")
+      return { draining: true as const }
+    })
+
     const upgrade = Effect.fn("GlobalHttpApi.upgrade")(function* (ctx: { payload: typeof GlobalUpgradeInput.Type }) {
       const method = yield* installation.method()
       if (method === "unknown") {
@@ -151,6 +162,7 @@ export const globalHandlers = HttpApiBuilder.group(RootHttpApi, "global", (handl
       .handle("configGet", configGet)
       .handle("configUpdate", configUpdate)
       .handle("dispose", dispose)
+      .handle("shutdown", shutdown)
       .handleRaw("upgrade", upgradeRaw)
   }),
 )
