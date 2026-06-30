@@ -275,12 +275,20 @@ export async function CopilotAuthPlugin(input: PluginInput): Promise<Hooks> {
                     }),
                   })
 
-                  if (!response.ok) return { type: "failed" as const }
-
-                  const data = (await response.json()) as {
+                  // GitHub's device token endpoint returns HTTP 400 for the
+                  // normal pending states (authorization_pending, slow_down), so
+                  // a non-ok status is NOT terminal. Parse the body regardless of
+                  // status and let the error handling below decide. Only a body
+                  // that isn't valid JSON (e.g. an HTML 5xx) is a real failure.
+                  let data: {
                     access_token?: string
                     error?: string
                     interval?: number
+                  }
+                  try {
+                    data = await response.json()
+                  } catch {
+                    return { type: "failed" as const }
                   }
 
                   if (data.access_token) {
