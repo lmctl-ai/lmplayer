@@ -212,3 +212,33 @@ then export). Import idempotent by sessionID. Do NOT reuse heavy sessionWarp/syn
   -> rely on last persisted bundle; failover is lossy-by-design for in-flight not-yet-organized tail).
 - H2 hardening: dangling parentID/tail_start_id at tail window boundary; routing non-ses_ segment general fallback.
 - Optional: promote export/import onto protocol ClientApi for typed SDK; mDNS browse discovery.
+
+## OPERATOR CLARIFICATIONS (authoritative — supersede earlier framing)
+1. ORGANIZE MUST REDUCE SIZE (this is the real /compact replacement). After an organize pass, the model
+   request carries ONLY: index.md (system context) + last N messages. The older history is OFFLOADED (NOT sent).
+   The LLM learns the distilled history via index.md (no hard limit on how long history grows, because it is
+   curated/distilled) plus the latest N messages. => O1+O2 (current, ADDITIVE) are not enough; O3 below is REQUIRED
+   and is the priority: replace the lossy /compact summary HEAD with reliance on index.md; keep only the last-N tail.
+2. CONTAINER / LEAD / ORCHESTRATOR model:
+   - A container (agent = an lmcode instance) is NOT rule-bound software. /organize is its INTERNAL cleanup.
+   - The ORCHESTRATOR SOFTWARE is LIGHT: it only provides COMMUNICATION + OBSERVABILITY + control hooks. It does
+     NOT autonomously decide anything.
+   - The LEAD AGENT (like the lmctl Lead) is the decision-maker. Hub-and-spoke: LEAD<->MEMBERS only, NO
+     member-to-member communication. The Lead observes SESSION SIZE + MEMBER PERFORMANCE and decides to RECYCLE a
+     drifting container = replace it with a FRESH lmcode instance (recycle = organize -> export bundle -> fresh
+     instance import -> retire old). Handover/failover are Lead-driven controls, not autonomous software behavior.
+   - Therefore R2 is NOT heavy auto-failover/epoch-fence. R2 = (a) observability the Lead needs (per-session size /
+     token usage, member health/performance), surfaced via the orchestrator; (b) a RECYCLE control (spin fresh
+     instance + handover + retire). The Lead being the single serial decider largely removes the split-brain need;
+     a lightweight epoch stays only as advisory/observability, not a hard autonomous fence.
+
+## O3 (PRIORITY) — make organize actually reduce the context (replace /compact head)
+- Goal: post-organize, model request = index.md (system, via O1) + last-N retained tail; older history offloaded.
+- V1 approach (Reviewer1 guardrails): at the compaction trigger, run organize SYNCHRONOUSLY (write fresh index.md),
+  keep the compaction MARKER + tail_start_id (filterCompacted needs them), but replace the LOSSY SUMMARY TEXT head
+  with a thin marker pointing to "session memory in system context (durable-memory/index.md)". Net projected head is
+  the marker; the real memory is index.md in system context; only the last-N tail messages follow.
+- FALLBACK: if organize fails/empty, fall back to the existing lossy summary so context is never lost.
+- Overflow correctness: organize must complete BEFORE the next request when over budget (synchronous), not idle-only.
+- Verify: long session triggers compaction; confirm the model request carries index.md + only last-N tail (token
+  count drops; early facts answered from index.md not from offloaded messages); overflow recovery still works.
