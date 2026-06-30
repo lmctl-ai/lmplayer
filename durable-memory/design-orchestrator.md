@@ -190,3 +190,25 @@ then export). Import idempotent by sessionID. Do NOT reuse heavy sessionWarp/syn
 - R SHAPE (decided): separate process (`lmcode orchestrator` or serve --role), static {id,url,headers} registry,
   assignment map {sessionID->{url,epoch}} (durable), health via /global/event heartbeat or ping, control surface
   assign/handover/failover/status. Build on H1 export + H2 import transport (SDK/raw HTTP + ServerAuth Basic).
+
+## R1 DONE (committed) — lightweight orchestrator delivered
+- `lmcode orchestrator status|handover|assign` (packages/opencode/src/cli/cmd/orchestrator.ts):
+  drives H1 export + H2 import over local network; durable assignment map {sessionID->{containerID,url,epoch,updatedAt}}
+  at <data>/orchestrator/assignments.json (temp+rename); static registry <config>/containers.json {containers:[{id,url,username?,password?}]};
+  ServerAuth.headers Basic auth; validates remote responses (validateBundle/validateImportResult) BEFORE mutating
+  assignments (no epoch bump on malformed 200); status marks reachable on any HTTP response (401/500 distinct from unreachable).
+  Proven: A->B->A handover (B answered the fact), epoch 1->2.
+- FULL VERTICAL SLICE of the vision is now working end-to-end: organize (O1+O2) -> portable bundle export/import
+  (H1+H2) -> orchestrator moves sessions between containers (R1). Manual-safe.
+
+## REMAINING (R2 — safety-critical, well-specified above in "R FENCE"):
+- Container-side epoch enforcement: a container must REFUSE to prompt(run) AND to export/write index.md back when
+  its epoch is stale vs the orchestrator's truth (the import-side check is the existing TODO in importSession).
+  Needs: containers learn their epoch (orchestrator pushes it on assign/import, or container queries orchestrator),
+  and check it before provider work + before SessionDurableMemory.write. Add the revive-source-refuses test.
+- Guard durable-memory overwrite by exportedAt/epoch (stale bundle must not regress index.md).
+- Auto-failover: orchestrator daemon (long-running) watching container health (/global/event heartbeat) that, on
+  container death, re-homes its sessions to another container from the last bundle (export may be impossible if dead
+  -> rely on last persisted bundle; failover is lossy-by-design for in-flight not-yet-organized tail).
+- H2 hardening: dangling parentID/tail_start_id at tail window boundary; routing non-ses_ segment general fallback.
+- Optional: promote export/import onto protocol ClientApi for typed SDK; mDNS browse discovery.
