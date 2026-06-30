@@ -19,6 +19,9 @@ export function isLocalWorkspaceRoute(method: string, path: string) {
 
 export function getWorkspaceRouteSessionID(url: URL) {
   if (url.pathname === "/session/status") return null
+  // /session/import carries the target id in the body, not the path; "import"
+  // is not a session id and must not be parsed as one.
+  if (url.pathname === "/session/import") return null
 
   const id =
     url.pathname.match(/^\/session\/([^/]+)(?:\/|$)/)?.[1] ??

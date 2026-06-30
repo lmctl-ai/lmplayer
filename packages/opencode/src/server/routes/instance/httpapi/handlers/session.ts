@@ -26,6 +26,7 @@ import { InstanceHttpApi } from "../api"
 import {
   CommandPayload,
   DiffQuery,
+  ExportBundle,
   ExportQuery,
   ForkPayload,
   InitPayload,
@@ -201,6 +202,58 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
         tail,
         exportedAt: Date.now(),
         tailCount: tail.length,
+      }
+    })
+
+    // Import a portable bundle (H1 export shape) onto THIS container, mutating
+    // state, so it is gated behind serialize() — it must not run concurrently
+    // with a prompt on the same session. Idempotent by session id.
+    //
+    // TODO(orchestrator/H-R): before adopting a session here, validate an
+    // ownership claim / monotonic epoch-lease with the orchestrator and refuse a
+    // stale-epoch import, to fence split-brain across containers. Not in this slice.
+    const importSession = Effect.fn("SessionHttpApi.import")(function* (ctx: {
+      payload: typeof ExportBundle.Type
+    }) {
+      const bundle = ctx.payload
+      const adopted = yield* session.adopt({
+        id: bundle.session.id,
+        title: bundle.session.title ?? undefined,
+        agent: bundle.session.agent ?? undefined,
+        model: bundle.session.model
+          ? { id: bundle.session.model.modelID, providerID: bundle.session.model.providerID }
+          : undefined,
+        directory: bundle.session.directory,
+      })
+
+      // Seed the tail as initial history, preserving original ids (idempotent
+      // upsert across containers since ids are globally unique).
+      for (const msg of bundle.tail) {
+        yield* session.updateMessage(structuredClone({ ...msg.info, sessionID: bundle.session.id }) as SessionV1.Info)
+        for (const part of msg.parts) {
+          yield* session.updatePart(structuredClone({ ...part, sessionID: bundle.session.id }) as SessionV1.Part)
+        }
+      }
+
+      const hadMemory = bundle.durableMemory !== null && bundle.durableMemory.length > 0
+      if (hadMemory) {
+        yield* SessionDurableMemory.write(bundle.session.id, bundle.durableMemory!).pipe(
+          Effect.provideService(FSUtil.Service, fsys),
+          Effect.catchCause((cause) =>
+            Effect.logWarning("import: failed to write durable-memory", {
+              sessionID: bundle.session.id,
+              cause,
+            }),
+          ),
+        )
+      }
+
+      return {
+        sessionID: bundle.session.id,
+        imported: true,
+        existed: adopted.existed,
+        messageCount: bundle.tail.length,
+        hadMemory,
       }
     })
 
@@ -479,6 +532,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       .handle("messages", messages)
       .handle("message", message)
       .handle("export", exportSession)
+      .handle("import", (ctx) => serialize(importSession(ctx)))
       .handleRaw("create", createRaw)
       .handle("remove", remove)
       .handle("update", update)

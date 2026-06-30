@@ -63,6 +63,13 @@ export const ExportBundle = Schema.Struct({
   exportedAt: Schema.Number,
   tailCount: Schema.Number,
 })
+export const ImportResult = Schema.Struct({
+  sessionID: SessionID,
+  imported: Schema.Boolean,
+  existed: Schema.Boolean,
+  messageCount: Schema.Number,
+  hadMemory: Schema.Boolean,
+})
 export const StatusMap = Schema.Record(Schema.String, SessionStatus.Info)
 export const UpdatePayload = Schema.Struct({
   title: Schema.optional(Schema.String),
@@ -103,6 +110,7 @@ export const SessionPaths = {
   messages: `${root}/:sessionID/message`,
   message: `${root}/:sessionID/message/:messageID`,
   export: `${root}/:sessionID/export`,
+  import: `${root}/import`,
   create: root,
   remove: `${root}/:sessionID`,
   update: `${root}/:sessionID`,
@@ -230,6 +238,19 @@ export const SessionApi = HttpApi.make("session")
             summary: "Export session bundle",
             description:
               "Export a lightweight, portable bundle for a session: metadata, durable-memory index, and the last N messages. Read-only.",
+          }),
+        ),
+        HttpApiEndpoint.post("import", SessionPaths.import, {
+          query: WorkspaceRoutingQuery,
+          payload: ExportBundle,
+          success: described(ImportResult, "Imported session"),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.import",
+            summary: "Import session bundle",
+            description:
+              "Reconstruct a session on this container from an exported bundle: ensure the session record (same id), durable-memory index, and tail messages. Idempotent by session id.",
           }),
         ),
         HttpApiEndpoint.post("create", SessionPaths.create, {
