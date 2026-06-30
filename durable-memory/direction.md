@@ -48,3 +48,8 @@ Operator-stated direction for what lmcode is. Use this to judge design decisions
   serve prompt-execution path + where concurrency happens before implementing.
 - OPTIONAL: repo-side claude fix so claude-via-copilot works out-of-the-box (route via @ai-sdk/github-copilot
   in models.ts) — currently works via the user config override in ~/.config/lmcode/opencode.jsonc.
+- DONE: single-user sequential execution gate — commit e5b7033ab. Process-global FIFO semaphore(1)
+  at the session handler boundary serializes prompt/command/init/summarize/shell across the whole
+  server; promptAsync holds the permit inside its fork; abort/permissionRespond ungated; subagents
+  bypass (in-process ops.prompt). Same-session steering replaced by sequential queueing (intended).
+  ALL THREE direction pillars (standalone config, file-based permissions, sequential queue) are DONE.
