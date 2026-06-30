@@ -211,8 +211,10 @@ export const RunCommand = effectCmd({
       })
       .option("variant", {
         type: "string",
-        describe: "model variant (provider-specific reasoning effort, e.g., high, max, minimal)",
+        describe:
+          "reasoning effort / model variant (e.g. low, medium, high, xhigh, max — see `models --json` variants per model)",
       })
+      .alias("variant", "effort")
       .option("thinking", {
         type: "boolean",
         describe: "show thinking blocks",
@@ -690,7 +692,10 @@ export const RunCommand = effectCmd({
               toggles.get("start") !== true
             ) {
               UI.empty()
-              UI.println(`> ${event.properties.info.agent} · ${event.properties.info.modelID}`)
+              UI.println(
+                `> ${event.properties.info.agent} · ${event.properties.info.modelID}` +
+                  (args.variant ? ` · ${args.variant}` : ""),
+              )
               UI.empty()
               toggles.set("start", true)
             }
@@ -979,6 +984,7 @@ export async function runMini(input: MiniCommandInput) {
     dir: input.directory,
     port: undefined,
     variant: undefined,
+    effort: undefined,
     thinking: undefined,
     mini: true,
     replay: input.replay ?? true,
