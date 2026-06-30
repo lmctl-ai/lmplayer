@@ -263,3 +263,18 @@ B. FAILOVER / RECYCLE (Lead-driven) is DISTINCT from H1/H2 tail-carrying handove
    - Implication: need (1) an import/seed mode that carries durable-memory ONLY (no tail), (2) a session
      delete/hide on the old container, (3) Lead-supplied initial task prompt. Orchestrator exposes this as a
      `recycle` control; the Lead decides + preps the task.
+
+## OPERATOR CLARIFICATION (round 3) — DON'T OVERDO THE ORCHESTRATOR
+- The heavy recycle (export -> import -> run task -> delete old) was OVER-BUILT. Reverted (uncommitted, discarded).
+- The orchestrator only needs: COMMUNICATION + agent role. Recycle/refresh is simple:
+  Lead agent sends a REFRESH signal to a target member -> the member WAITS for its in-flight message to FINISH
+  (not interrupted) -> the process EXITS. A fresh instance then comes up (same data dir) and reads durable-memory/.
+- Investigation result: graceful drain-then-exit does NOT exist today. SIGTERM kills serve immediately (no handler;
+  index.ts finally force-exits); the interrupt path ABORTS the run (run-state cancel / prompt onInterrupt). The
+  process-global executionGate (Semaphore(1), handlers/session.ts:63) is the seam: drain = set "draining" (reject
+  new serialize with 503) + executionGate.withPermits(1)(void) to WAIT for the active run to release WITHOUT
+  interrupting it, then process.exit(0).
+- MINIMAL slice to build (REFRESH): (1) graceful drain-then-exit routine triggered by SIGTERM/SIGINT; (2) a
+  lightweight HTTP trigger so the Lead can signal a remote member over the network (e.g. POST /shutdown, ungated,
+  responds 202 then forks drain+exit); (3) a thin `lmcode orchestrator refresh --to <c>` that POSTs it. Keep it
+  small. Do NOT interrupt the in-flight run; wait for it.
