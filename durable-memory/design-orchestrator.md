@@ -242,3 +242,24 @@ then export). Import idempotent by sessionID. Do NOT reuse heavy sessionWarp/syn
 - Overflow correctness: organize must complete BEFORE the next request when over budget (synchronous), not idle-only.
 - Verify: long session triggers compaction; confirm the model request carries index.md + only last-N tail (token
   count drops; early facts answered from index.md not from offloaded messages); overflow recovery still works.
+
+## OPERATOR CLARIFICATIONS (round 2 — authoritative)
+A. ORGANIZE COMPLETELY REPLACES compact/summary. There is NO lossy-summary fallback as a real path. Organize is
+   the SOLE reduction mechanism. Safe rule on organize failure (no lossy summary anywhere):
+   - organize success -> write index.md, complete compaction (thin marker head + truncate to last-N tail).
+   - organize fails BUT a prior index.md exists -> complete compaction using the existing (possibly slightly stale)
+     index.md (marker + truncate); next successful organize catches up.
+   - organize fails AND no prior index.md -> do NOT truncate (retain full history), log/surface, retry next trigger.
+   => remove the SUMMARY_TEMPLATE lossy-summary generation path entirely from the compaction action.
+   (Also: /compact + /summarize are conceptually now /organize; add alias/rename as a follow-up.)
+B. FAILOVER / RECYCLE (Lead-driven) is DISTINCT from H1/H2 tail-carrying handover:
+   - The fresh session reads ONLY durable-memory/ as its history. NO old message tail. "no old memory."
+   - The OLD session is completely hidden/removed on the old container (remote) after recycle.
+   - The LEAD PREPS THE TASK: the Lead supplies the task/prompt for the fresh container (which starts from
+     durable-memory/ + that task). 
+   - Recycle flow: Lead observes drift (session size / member perf) -> ensure organize current (durable-memory/ up
+     to date) -> spin FRESH lmcode container/session that loads ONLY durable-memory/ (no tail) -> Lead provides the
+     task -> hide/remove the old session. This is "recycle a drifting container with a fresh instance."
+   - Implication: need (1) an import/seed mode that carries durable-memory ONLY (no tail), (2) a session
+     delete/hide on the old container, (3) Lead-supplied initial task prompt. Orchestrator exposes this as a
+     `recycle` control; the Lead decides + preps the task.
