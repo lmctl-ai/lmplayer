@@ -4,6 +4,7 @@ import { ModelsDev } from "@opencode-ai/core/models-dev"
 import { effectCmd, fail } from "../effect-cmd"
 import { UI } from "../ui"
 import { ProviderV2 } from "@opencode-ai/core/provider"
+import { createOpencodeClient, type OpencodeClient } from "@opencode-ai/sdk/v2"
 
 export const ModelsCommand = effectCmd({
   command: "models [provider]",
@@ -26,6 +27,20 @@ export const ModelsCommand = effectCmd({
       .option("refresh", {
         describe: "refresh the models cache from models.dev",
         type: "boolean",
+      })
+      .option("test", {
+        describe: "probe each model with a tiny prompt and report which actually work end-to-end",
+        type: "boolean",
+      })
+      .option("timeout", {
+        describe: "per-model timeout in milliseconds when using --test",
+        type: "number",
+        default: 60000,
+      })
+      .option("concurrency", {
+        describe: "number of models to probe in parallel when using --test (default 1, sequential)",
+        type: "number",
+        default: 1,
       }),
   handler: Effect.fn("Cli.models")(function* (args) {
     const { Provider } = yield* Effect.promise(() => import("@/provider/provider"))
@@ -36,6 +51,26 @@ export const ModelsCommand = effectCmd({
 
     const provider = yield* Provider.Service
     const providers = yield* provider.list()
+
+    if (args.test) {
+      if (args.provider && !providers[ProviderV2.ID.make(args.provider)]) {
+        return yield* fail(`Provider not found: ${args.provider}`)
+      }
+      const targets = (args.provider ? [args.provider] : Object.keys(providers))
+        .flatMap((providerID) =>
+          Object.keys(providers[ProviderV2.ID.make(providerID)].models)
+            .sort((a, b) => a.localeCompare(b))
+            .map((modelID) => ({ providerID, modelID })),
+        )
+      yield* Effect.promise(() =>
+        runModelTests(targets, {
+          json: Boolean(args.json),
+          timeout: args.timeout,
+          concurrency: args.concurrency,
+        }),
+      )
+      return
+    }
 
     const print = (providerID: ProviderV2.ID, verbose?: boolean) => {
       const p = providers[providerID]
@@ -105,3 +140,131 @@ export const ModelsCommand = effectCmd({
     for (const providerID of ids) print(ProviderV2.ID.make(providerID), args.verbose)
   }),
 })
+
+type ProbeResult = { id: string; ok: boolean; ms: number; error: string | null }
+
+// Probe each entitled model end-to-end through the same in-process server +
+// SDK client that `run` uses, so a model that 404s at the provider (e.g.
+// claude-* via copilot) shows up as FAIL instead of a green listing.
+async function runModelTests(
+  targets: Array<{ providerID: string; modelID: string }>,
+  opts: { json: boolean; timeout: number; concurrency: number },
+) {
+  const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const { Server } = await import("@/server/server")
+    const { ServerAuth } = await import("@/server/auth")
+    const request = new Request(input, init)
+    const headers = new Headers(request.headers)
+    const auth = ServerAuth.header()
+    if (auth) headers.set("Authorization", auth)
+    return Server.Default().app.fetch(new Request(request, { headers }))
+  }) as typeof globalThis.fetch
+  const sdk = createOpencodeClient({
+    baseUrl: "http://opencode.internal",
+    fetch: fetchFn,
+    directory: process.cwd(),
+  })
+
+  const printLine = (r: ProbeResult) =>
+    process.stdout.write(
+      (r.ok ? `OK   ${r.id}  (${r.ms}ms)` : `FAIL ${r.id}  (${r.ms}ms)  ${r.error ?? ""}`) + EOL,
+    )
+
+  const results: ProbeResult[] = []
+  let next = 0
+  const worker = async () => {
+    while (true) {
+      const index = next++
+      if (index >= targets.length) return
+      const r = await probeModel(sdk, targets[index], opts.timeout)
+      results.push(r)
+      if (!opts.json) printLine(r)
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.max(1, Math.min(opts.concurrency, targets.length)) }, worker),
+  )
+
+  results.sort((a, b) => a.id.localeCompare(b.id))
+  const okCount = results.filter((r) => r.ok).length
+  const failCount = results.length - okCount
+
+  if (opts.json) {
+    process.stdout.write(JSON.stringify(results, null, 2) + EOL)
+  } else {
+    process.stdout.write(EOL + `${okCount} ok, ${failCount} failed` + EOL)
+  }
+
+  if (failCount > 0) process.exitCode = 1
+}
+
+async function probeModel(
+  sdk: OpencodeClient,
+  target: { providerID: string; modelID: string },
+  timeoutMs: number,
+): Promise<ProbeResult> {
+  const id = `${target.providerID}/${target.modelID}`
+  const start = Date.now()
+  const elapsed = () => Date.now() - start
+  try {
+    const created = await sdk.session.create({
+      title: "model-test",
+      // Wildcard deny removes every tool (and question/plan) from the toolset
+      // entirely, not just at execution time, so the model is offered no tools
+      // and the probe is a single provider turn that cannot enter a tool loop.
+      permission: [{ permission: "*", action: "deny", pattern: "*" }],
+    })
+    const sessionID = created.data?.id
+    if (!sessionID) {
+      return { id, ok: false, ms: elapsed(), error: created.error ? errorText(created.error) : "failed to create session" }
+    }
+
+    try {
+      // The Promise.race timeout is the real guarantee the probe returns; the
+      // AbortSignal is best-effort cancellation of in-flight provider work.
+      const timeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error(`timeout after ${timeoutMs}ms`)), timeoutMs).unref?.(),
+      )
+      const result = await Promise.race([
+        sdk.session.prompt(
+          {
+            sessionID,
+            model: { providerID: target.providerID, modelID: target.modelID },
+            parts: [{ type: "text", text: "Reply with: ok" }],
+          },
+          { signal: AbortSignal.timeout(timeoutMs) },
+        ),
+        timeout,
+      ])
+      if (result.error) return { id, ok: false, ms: elapsed(), error: errorText(result.error) }
+      const infoError = result.data?.info?.error
+      if (infoError) return { id, ok: false, ms: elapsed(), error: errorText(infoError) }
+      return { id, ok: true, ms: elapsed(), error: null }
+    } finally {
+      await sdk.session.delete({ sessionID }).catch(() => {})
+    }
+  } catch (error) {
+    return { id, ok: false, ms: elapsed(), error: errorText(error) }
+  }
+}
+
+// Pull a short, human-readable message out of either a tagged API/session
+// error ({ name, data: { message } }) or a thrown Error.
+function errorText(error: unknown): string {
+  if (error instanceof Error) return error.message
+  if (error && typeof error === "object") {
+    if (
+      "data" in error &&
+      error.data &&
+      typeof error.data === "object" &&
+      "message" in error.data &&
+      error.data.message
+    ) {
+      return String(error.data.message)
+    }
+    if ("name" in error && error.name) return String(error.name)
+    return JSON.stringify(error)
+  }
+  return String(error)
+}
+
