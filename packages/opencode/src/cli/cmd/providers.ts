@@ -11,6 +11,7 @@ import path from "path"
 import os from "os"
 import { Config } from "@/config/config"
 import { Global } from "@opencode-ai/core/global"
+import { ProviderV2 } from "@opencode-ai/core/provider"
 import { Plugin } from "../../plugin"
 import type { Hooks } from "@opencode-ai/plugin"
 import { Process } from "@/util/process"
@@ -249,49 +250,109 @@ export const ProvidersListCommand = effectCmd({
   command: "list",
   aliases: ["ls"],
   describe: "list providers and credentials",
-  // Lists global credentials + provider env vars; no project instance needed.
-  instance: false,
-  handler: Effect.fn("Cli.providers.list")(function* (_args) {
+  // Lists global credentials + provider env vars, plus each authed provider's
+  // entitled models via Provider.Service.list() (needs config/instance).
+  instance: true,
+  builder: (yargs) =>
+    yargs.option("json", {
+      type: "boolean",
+      describe: "output as JSON (machine-readable; suppresses human output)",
+    }),
+  handler: Effect.fn("Cli.providers.list")(function* (args) {
     const authSvc = yield* Auth.Service
     const modelsDev = yield* ModelsDev.Service
+    const { Provider } = yield* Effect.promise(() => import("@/provider/provider"))
+    const providerSvc = yield* Provider.Service
 
-    UI.empty()
+    const providers = yield* providerSvc.list()
+    const database = yield* modelsDev.get()
+    const results = Object.entries(yield* Effect.orDie(authSvc.all()))
+
     const authPath = path.join(Global.Path.data, "auth.json")
     const homedir = os.homedir()
     const displayPath = authPath.startsWith(homedir) ? authPath.replace(homedir, "~") : authPath
-    yield* Prompt.intro(`Credentials ${UI.Style.TEXT_DIM}${displayPath}`)
-    const results = Object.entries(yield* Effect.orDie(authSvc.all()))
-    const database = yield* modelsDev.get()
 
-    for (const [providerID, result] of results) {
-      const name = database[providerID]?.name || providerID
-      yield* Prompt.log.info(`${name} ${UI.Style.TEXT_DIM}${result.type}`)
-    }
-
-    yield* Prompt.outro(`${results.length} credentials`)
-
-    const activeEnvVars: Array<{ provider: string; envVar: string }> = []
-
+    const activeEnvVars: Array<{ providerID: string; name: string; envVar: string }> = []
     for (const [providerID, provider] of Object.entries(database)) {
       for (const envVar of provider.env) {
         if (process.env[envVar]) {
-          activeEnvVars.push({
-            provider: provider.name || providerID,
-            envVar,
-          })
+          activeEnvVars.push({ providerID, name: provider.name || providerID, envVar })
         }
       }
     }
 
-    if (activeEnvVars.length > 0) {
+    // Real entitled models for a provider, from the same source as `models`.
+    const modelsFor = (providerID: string) => {
+      const info = providers[ProviderV2.ID.make(providerID)]
+      if (!info) return []
+      return Object.entries(info.models)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([modelID, model]) => ({
+          id: `${providerID}/${modelID}`,
+          variants: Object.keys(model.variants ?? {}),
+        }))
+    }
+
+    const authIDs = new Set(results.map(([id]) => id))
+
+    if (args.json) {
+      const out = {
+        credentials_path: displayPath,
+        providers: [
+          ...results.map(([id, result]) => ({
+            id,
+            name: database[id]?.name || id,
+            type: result.type,
+            source: "auth" as const,
+            models: modelsFor(id),
+          })),
+          // env-only providers (auth wins when a provider is both authed and env)
+          ...activeEnvVars
+            .filter((e) => !authIDs.has(e.providerID))
+            .map((e) => ({
+              id: e.providerID,
+              name: database[e.providerID]?.name,
+              type: "env" as const,
+              source: "env" as const,
+              envVar: e.envVar,
+              models: modelsFor(e.providerID),
+            })),
+        ],
+      }
+      process.stdout.write(JSON.stringify(out, null, 2) + "\n")
+      return
+    }
+
+    const printModels = (providerID: string) =>
+      Effect.gen(function* () {
+        const models = modelsFor(providerID)
+        if (models.length === 0) return yield* Prompt.log.info(`    (no models)`)
+        for (const model of models) yield* Prompt.log.info(`    ${model.id}`)
+      })
+
+    UI.empty()
+    yield* Prompt.intro(`Credentials ${UI.Style.TEXT_DIM}${displayPath}`)
+
+    for (const [providerID, result] of results) {
+      const name = database[providerID]?.name || providerID
+      yield* Prompt.log.info(`${name} ${UI.Style.TEXT_DIM}${result.type}`)
+      yield* printModels(providerID)
+    }
+
+    yield* Prompt.outro(`${results.length} credentials`)
+
+    // auth wins on overlap: only list providers that are env-only here.
+    const envOnly = activeEnvVars.filter((e) => !authIDs.has(e.providerID))
+    if (envOnly.length > 0) {
       UI.empty()
       yield* Prompt.intro("Environment")
 
-      for (const { provider, envVar } of activeEnvVars) {
-        yield* Prompt.log.info(`${provider} ${UI.Style.TEXT_DIM}${envVar}`)
+      for (const { providerID, name, envVar } of envOnly) {
+        yield* Prompt.log.info(`${name} ${UI.Style.TEXT_DIM}${envVar}`)
+        yield* printModels(providerID)
       }
 
-      yield* Prompt.outro(`${activeEnvVars.length} environment variable` + (activeEnvVars.length === 1 ? "" : "s"))
+      yield* Prompt.outro(`${envOnly.length} environment variable` + (envOnly.length === 1 ? "" : "s"))
     }
   }),
 })
