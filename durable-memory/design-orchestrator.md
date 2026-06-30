@@ -278,3 +278,29 @@ B. FAILOVER / RECYCLE (Lead-driven) is DISTINCT from H1/H2 tail-carrying handove
   lightweight HTTP trigger so the Lead can signal a remote member over the network (e.g. POST /shutdown, ungated,
   responds 202 then forks drain+exit); (3) a thin `lmcode orchestrator refresh --to <c>` that POSTs it. Keep it
   small. Do NOT interrupt the in-flight run; wait for it.
+
+## REFRESH + LLM MOCK — DONE (committed)
+- REFRESH (edeee1b91): graceful drain-then-exit. server/execution-gate.ts (serialize w/ authoritative
+  post-permit draining recheck; beginDrain waits for in-flight permit WITHOUT interrupting; gracefulShutdown
+  sets draining + waits + process.exit). SIGTERM/SIGINT + auth-protected ungated POST /shutdown ({draining:true}).
+  promptAsync surfaces drain as 503. `lmcode orchestrator refresh --to <c>`. In-flight run finishes normally;
+  new work -> 503; fresh instance comes up and reads durable-memory/ from disk.
+- LLM MOCK for integration testing: ALREADY EXISTS in repo, now demonstrated for our features.
+  Harness: test/lib/cli-process.ts (cliIt/withCliFixture, opencode.serve() spawns a REAL serve process),
+  test/lib/test-provider.ts (mock provider "test"/"test-model" via OPENCODE_CONFIG_CONTENT), test/lib/llm-server.ts
+  (TestLLMServer: scriptable text/textMatch/tool/hold/hang/wait/calls). NO src changes needed for the mock.
+  Wrote test/cli/refresh/refresh-process.test.ts (e978cea89): deterministic drain-then-exit + cross-process
+  handover tests (mock only, fast). USE THIS HARNESS for future integration tests (permission, app-host).
+
+## SESSION SUMMARY — full vision shipped on dev (no push/PR)
+Organize (O1 inject, O2 write, O3 reduce+replace-compact), Handover (H1 export, H2 import), Orchestrator (R1
+status/handover/assign), Refresh (drain-then-exit). Organize fully replaces lossy /compact: post-organize request
+= durable-memory/index.md (system) + last-N tail, older history offloaded; never loses history. Lead-driven light
+orchestrator (communication + observability + refresh control); recycle = signal refresh -> drain -> exit -> fresh
+instance reads durable-memory/.
+
+## NEXT (to discuss with operator BEFORE implementing):
+1. PERMISSION — revisit the permission model (currently file-based deny/allow at the V1 funnel). Operator wants to
+   go deeper. Open questions for the discussion below.
+2. lmcode AS A REST SERVER TO HOST APPLICATIONS (not just a coding agent) — generalize the microservice to host
+   arbitrary apps/agents, not only the coding workflow. Needs a design conversation.
