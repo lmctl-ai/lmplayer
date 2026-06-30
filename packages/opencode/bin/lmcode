@@ -49,6 +49,9 @@ const scriptPath = fs.realpathSync(__filename)
 const scriptDir = path.dirname(scriptPath)
 
 //
+// NOTE: `.opencode` cache dir and the `opencode-<platform>-<arch>` platform
+// PACKAGE names below stay until the platform packages are renamed (published
+// artifact names, out of scope here).
 const cached = path.join(scriptDir, ".opencode")
 
 const platformMap = {
@@ -71,7 +74,7 @@ if (!arch) {
   arch = os.arch()
 }
 const base = "opencode-" + platform + "-" + arch
-const binary = platform === "windows" ? "opencode.exe" : "opencode"
+const binary = platform === "windows" ? "lmcode.exe" : "lmcode"
 
 function supportsAvx2() {
   if (arch !== "x64") return false
@@ -189,7 +192,7 @@ function findBinary(startDir) {
 const resolved = envPath || (fs.existsSync(cached) ? cached : findBinary(scriptDir))
 if (!resolved) {
   console.error(
-    "It seems that your package manager failed to install the right version of the opencode CLI for your platform. You can try manually installing " +
+    "It seems that your package manager failed to install the right version of the lmcode CLI for your platform. You can try manually installing " +
       names.map((n) => `\"${n}\"`).join(" or ") +
       " package",
   )
