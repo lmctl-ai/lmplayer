@@ -43,7 +43,7 @@ import { Truncate } from "@/tool/truncate"
 import { Image } from "@/image/image"
 import { decodeDataUrl } from "@/util/data-url"
 import { Process } from "@/util/process"
-import { Cause, Effect, Exit, Latch, Layer, Option, Scope, Context, Schema, Semaphore, Types } from "effect"
+import { Cause, Effect, Exit, Latch, Layer, Option, Scope, Context, Schema, Types } from "effect"
 import { InstanceState } from "@/effect/instance-state"
 import { TaskTool, type TaskPromptOps } from "@/tool/task"
 import { SessionRunState } from "./run-state"
@@ -98,22 +98,6 @@ function isOrphanedInterruptedTool(part: SessionV1.ToolPart) {
   // cleanup() marks abandoned tool_use blocks this way after retries/aborts.
   // They are not pending work and must not trigger an assistant-prefill request.
   return part.state.status === "error" && part.state.metadata?.interrupted === true
-}
-
-// Serialize the organize (durable-memory) read-modify-write PER SESSION. Without
-// this, rapid manual/auto compactions can launch overlapping organize passes for
-// the same session that both read the prior index.md and whole-file rewrite it,
-// so the last writer clobbers the other nondeterministically. A per-session
-// permit-1 semaphore (matching the edit.ts:35 lock pattern) queues them so each
-// pass observes the previous one's result; memory always reflects the latest run.
-const organizeLocks = new Map<string, Semaphore.Semaphore>()
-
-function organizeLock(sessionID: string) {
-  const hit = organizeLocks.get(sessionID)
-  if (hit) return hit
-  const next = Semaphore.makeUnsafe(1)
-  organizeLocks.set(sessionID, next)
-  return next
 }
 
 export interface Interface {
@@ -267,63 +251,6 @@ export const layer = Layer.effect(
       yield* sessions
         .setTitle({ sessionID: input.session.id, title: t })
         .pipe(Effect.catchCause((cause) => Effect.logError("failed to generate title", { error: Cause.squash(cause) })))
-    })
-
-    // Organize pass (ORGANIZE / durable-memory): runs ONE non-persisted LLM turn
-    // that rewrites the per-session durable-memory/index.md by merging the prior
-    // index with salient facts from the recent conversation. Forked + ignored at
-    // the compaction seam so it never blocks the run; O1 injects index.md back as
-    // system context on subsequent turns. Additive to the existing summary path.
-    const organize = Effect.fn("SessionPrompt.organize")(function* (input: {
-      sessionID: SessionID
-      lastUser: SessionV1.User
-      model: Provider.Model
-      history: SessionV1.WithParts[]
-    }) {
-      // Whole read-modify-write held under the per-session permit so concurrent
-      // compactions for this session queue instead of clobbering index.md.
-      yield* organizeLock(input.sessionID).withPermits(1)(
-        Effect.gen(function* () {
-          const ag = yield* agents.get("compaction")
-          if (!ag) return
-          const mdl = ag.model
-            ? yield* provider.getModel(ag.model.providerID, ag.model.modelID).pipe(Effect.orDie)
-            : input.model
-          const prior = yield* SessionDurableMemory.read(input.sessionID).pipe(
-            Effect.provideService(FSUtil.Service, fsys),
-            Effect.catchCause((cause) =>
-              Effect.logWarning("organize: failed to read durable-memory; merging without prior", {
-                sessionID: input.sessionID,
-                cause,
-              }).pipe(Effect.as(undefined)),
-            ),
-          )
-          const msgs = yield* MessageV2.toModelMessagesEffect(input.history, mdl, {
-            stripMedia: true,
-            toolOutputMaxChars: 2_000,
-          })
-          const text = yield* llm
-            .stream({
-              agent: ag,
-              user: input.lastUser,
-              system: [],
-              tools: {},
-              model: mdl,
-              sessionID: input.sessionID,
-              retries: 2,
-              messages: [...msgs, { role: "user", content: SessionDurableMemory.buildOrganizePrompt(prior) }],
-            })
-            .pipe(Stream.filter(LLMEvent.is.textDelta), Stream.map((e) => e.text), Stream.mkString, Effect.orDie)
-          const cleaned = text.replace(/<think>[\s\S]*?<\/think>\s*/g, "").trim()
-          if (!cleaned) return
-          yield* SessionDurableMemory.write(input.sessionID, cleaned).pipe(
-            Effect.provideService(FSUtil.Service, fsys),
-            Effect.catchCause((cause) =>
-              Effect.logWarning("organize: failed to write durable-memory", { sessionID: input.sessionID, cause }),
-            ),
-          )
-        }),
-      )
     })
 
     const handleSubtask = Effect.fn("SessionPrompt.handleSubtask")(function* (input: {
@@ -1221,10 +1148,6 @@ export const layer = Layer.effect(
           }
 
           if (task?.type === "compaction") {
-            yield* organize({ sessionID, lastUser, model, history: msgs }).pipe(
-              Effect.ignore,
-              Effect.forkIn(scope),
-            )
             const result = yield* compaction.process({
               messages: msgs,
               parentID: lastUser.id,

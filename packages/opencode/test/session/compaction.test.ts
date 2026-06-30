@@ -3,19 +3,19 @@ import { ConfigV1 } from "@opencode-ai/core/v1/config/config"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
 import { Database } from "@opencode-ai/core/database/database"
 import { EventV2Bridge } from "@/event-v2-bridge"
-import { APICallError } from "ai"
 import { Cause, Deferred, Effect, Exit, Fiber, Layer, Schema } from "effect"
 import * as Stream from "effect/Stream"
 import { Config } from "@/config/config"
 import { LLM } from "../../src/session/llm"
 import { SessionCompaction } from "../../src/session/compaction"
+import { SessionDurableMemory } from "../../src/session/durable-memory"
+import { FSUtil } from "@opencode-ai/core/fs-util"
 import { Token } from "@/util/token"
 import { Plugin } from "../../src/plugin"
 import { provideTmpdirInstance, TestInstance } from "../fixture/fixture"
 import { Session as SessionNs } from "@/session/session"
 import { MessageV2 } from "../../src/session/message-v2"
 import { MessageID, PartID, SessionID } from "../../src/session/schema"
-import { SessionStatus } from "../../src/session/status"
 import { SessionSummary } from "../../src/session/summary"
 import { SessionV2 } from "@opencode-ai/core/session"
 import { SessionExecution } from "@opencode-ai/core/session/execution"
@@ -223,6 +223,37 @@ function cfg(compaction?: ConfigV1.Info["compaction"]) {
 }
 
 const defaultProvider = wide()
+
+// The organize pass is the sole reduction mechanism: compaction calls
+// `llm.stream(...)` once and treats the streamed text as the new
+// durable-memory/index.md. The real LLM.node would need a configured language
+// model (the fake provider's getLanguage dies), so every compaction-process
+// test swaps in this mock. `text` is what the organize pass "writes": a
+// non-empty value drives branch (1) (persist + truncate); "" simulates an
+// empty/failed organize so branches (2)/(3) can be exercised.
+const DEFAULT_ORGANIZE = "ORGANIZED MEMORY"
+
+function organizeLLM(text: string) {
+  return Layer.succeed(
+    LLM.Service,
+    LLM.Service.of({
+      stream: () =>
+        text
+          ? Stream.make(
+              LLMEvent.textStart({ id: "txt-0" }),
+              LLMEvent.textDelta({ id: "txt-0", text }),
+              LLMEvent.textEnd({ id: "txt-0" }),
+              LLMEvent.stepFinish({ index: 0, reason: "stop", usage: basicUsage() }),
+              LLMEvent.finish({ reason: "stop", usage: basicUsage() }),
+            )
+          : Stream.make(
+              LLMEvent.stepFinish({ index: 0, reason: "stop", usage: basicUsage() }),
+              LLMEvent.finish({ reason: "stop", usage: basicUsage() }),
+            ),
+    }),
+  )
+}
+
 const compactionTestNode = LayerNode.group([
   SessionCompaction.node,
   SessionNs.node,
@@ -235,6 +266,7 @@ const env = AppNodeBuilder.build(compactionTestNode, [
   [Provider.node, defaultProvider.layer],
   [SessionProcessorModule.SessionProcessor.node, processorLayer("continue")],
   [RuntimeFlags.node, RuntimeFlags.layer({ experimentalEventSystem: true })],
+  [LLM.node, organizeLLM(DEFAULT_ORGANIZE)],
 ])
 
 const it = testEffect(env)
@@ -247,6 +279,7 @@ const itCompaction = testEffect(compactionEnv)
 type CompactionProcessOptions = {
   result?: "continue" | "compact"
   llm?: Layer.Layer<LLM.Service>
+  organize?: string
   plugin?: Layer.Layer<Plugin.Service>
   provider?: ReturnType<typeof wide>
   config?: Layer.Layer<Config.Service>
@@ -266,6 +299,7 @@ function compactionProcessLayer(options?: CompactionProcessOptions) {
     return AppNodeBuilder.build(compactionTestNode, [
       ...replacements,
       [SessionProcessorModule.SessionProcessor.node, processorLayer(options?.result ?? "continue")],
+      [LLM.node, organizeLLM(options?.organize ?? DEFAULT_ORGANIZE)],
       ...(options?.plugin ? ([[Plugin.node, options.plugin]] as const) : []),
       ...(options?.config ? ([[Config.node, options.config]] as const) : []),
     ])
@@ -290,6 +324,18 @@ function readCompactionPart(sessionID: SessionID) {
         messages.at(-2)?.parts.find((item): item is SessionV1.CompactionPart => item.type === "compaction"),
       ),
     )
+}
+
+// The organize head is a THIN static marker assistant message (summary:true),
+// not a lossy LLM summary. Helpers below assert that invariant.
+function summaryMessage(sessionID: SessionID) {
+  return SessionNs.use
+    .messages({ sessionID })
+    .pipe(Effect.map((messages) => messages.find((msg) => msg.info.role === "assistant" && msg.info.summary)))
+}
+
+function readIndex(sessionID: SessionID) {
+  return SessionDurableMemory.read(sessionID).pipe(Effect.provide(FSUtil.defaultLayer))
 }
 
 function llm() {
@@ -859,35 +905,87 @@ describe("session.compaction.process", () => {
       expect(result).toBe("continue")
       expect(seen).toContain(SessionCompaction.Event.Compacted.type)
       expect(seen.filter((type) => type.startsWith("session.next."))).toEqual([])
+
+      // organize is the reduction mechanism: it writes durable-memory/index.md...
+      expect(yield* readIndex(session.id)).toBe(DEFAULT_ORGANIZE)
+      // ...and the compaction head is the THIN static marker (not a lossy summary).
+      const head = yield* summaryMessage(session.id)
+      expect(head?.info.role).toBe("assistant")
+      if (head?.info.role === "assistant") {
+        expect(head.info.summary).toBe(true)
+        expect(head.info.finish).toBe("stop")
+        expect(head.info.error).toBeUndefined()
+      }
+      const headText = head?.parts.find((part): part is SessionV1.TextPart => part.type === "text")
+      expect(headText?.text).toBe(SessionCompaction.ORGANIZE_MARKER)
     }),
   )
 
   itCompaction.instance(
-    "marks summary message as errored on compact result",
+    "retains full history when organize fails with no prior durable-memory",
     Effect.gen(function* () {
       const ssn = yield* SessionNs.Service
       const session = yield* ssn.create({})
-      const msg = yield* createUserMessage(session.id, "hello")
+      const content = yield* createUserMessage(session.id, "real content")
+      yield* createSummaryCompaction(session.id)
       const msgs = yield* ssn.messages({ sessionID: session.id })
+      const parent = msgs.at(-1)?.info.id
+      expect(parent).toBeTruthy()
 
       const result = yield* SessionCompaction.use.process({
-        parentID: msg.id,
+        parentID: parent!,
         messages: msgs,
         sessionID: session.id,
         auto: false,
       })
 
-      const summary = (yield* ssn.messages({ sessionID: session.id })).find(
-        (msg) => msg.info.role === "assistant" && msg.info.summary,
-      )
-
       expect(result).toBe("stop")
-      expect(summary?.info.role).toBe("assistant")
-      if (summary?.info.role === "assistant") {
-        expect(summary.info.finish).toBe("error")
-        expect(JSON.stringify(summary.info.error)).toContain("Session too large to compact")
+      const all = yield* ssn.messages({ sessionID: session.id })
+      // No marker/summary message created -> nothing truncated.
+      expect(all.some((msg) => msg.info.role === "assistant" && msg.info.summary)).toBe(false)
+      // Pending compaction parent removed so the loop isn't wedged...
+      expect(all.some((msg) => msg.info.id === parent)).toBe(false)
+      // ...and the real conversation history is retained intact.
+      expect(
+        all.some((msg) => msg.parts.some((part) => part.type === "text" && part.text === "real content")),
+      ).toBe(true)
+      expect(content.id).toBeTruthy()
+    }).pipe(withCompaction({ organize: "" })),
+  )
+
+  itCompaction.instance(
+    "completes with stale index.md when organize fails but prior durable-memory exists",
+    Effect.gen(function* () {
+      const ssn = yield* SessionNs.Service
+      const session = yield* ssn.create({})
+      // Seed a usable (stale) prior index so truncation has memory backing it.
+      yield* SessionDurableMemory.write(session.id, "STALE PRIOR INDEX").pipe(Effect.provide(FSUtil.defaultLayer))
+      yield* createUserMessage(session.id, "real content")
+      yield* createSummaryCompaction(session.id)
+      const msgs = yield* ssn.messages({ sessionID: session.id })
+      const parent = msgs.at(-1)?.info.id
+      expect(parent).toBeTruthy()
+
+      const result = yield* SessionCompaction.use.process({
+        parentID: parent!,
+        messages: msgs,
+        sessionID: session.id,
+        auto: false,
+      })
+
+      expect(result).toBe("continue")
+      // Marker head written -> compaction completes (truncates using the stale index).
+      const head = yield* summaryMessage(session.id)
+      expect(head?.info.role).toBe("assistant")
+      if (head?.info.role === "assistant") {
+        expect(head.info.summary).toBe(true)
+        expect(head.info.finish).toBe("stop")
       }
-    }).pipe(withCompaction({ result: "compact" })),
+      const headText = head?.parts.find((part): part is SessionV1.TextPart => part.type === "text")
+      expect(headText?.text).toBe(SessionCompaction.ORGANIZE_MARKER)
+      // The stale index is left in place (organize did not overwrite it).
+      expect(yield* readIndex(session.id)).toBe("STALE PRIOR INDEX")
+    }).pipe(withCompaction({ organize: "" })),
   )
 
   it.instance(
@@ -1186,44 +1284,24 @@ describe("session.compaction.process", () => {
   )
 
   itCompaction.instance(
-    "stops quickly when aborted during retry backoff",
+    "stops quickly when aborted during the organize pass",
     () => {
+      // Organize is the only LLM call compaction makes. While it streams, the
+      // process is interruptible: interrupting the fiber must unwind promptly
+      // and surface an interrupt rather than hang.
       const stub = llm()
-      stub.push(
-        Stream.fromAsyncIterable(
-          {
-            async *[Symbol.asyncIterator]() {
-              yield LLMEvent.stepStart({ index: 0 })
-              throw new APICallError({
-                message: "boom",
-                url: "https://example.com/v1/chat/completions",
-                requestBodyValues: {},
-                statusCode: 503,
-                responseHeaders: { "retry-after-ms": "10000" },
-                responseBody: '{"error":"boom"}',
-                isRetryable: true,
-              })
-            },
-          },
-          (err) => err,
-        ),
-      )
-
       return Effect.gen(function* () {
         const ssn = yield* SessionNs.Service
-        const events = yield* EventV2Bridge.Service
         const ready = yield* Deferred.make<void>()
         const session = yield* ssn.create({})
         const msg = yield* createUserMessage(session.id, "hello")
         const msgs = yield* ssn.messages({ sessionID: session.id })
-        const off = yield* events.listen((evt) => {
-          if (evt.type !== SessionStatus.Event.Status.type) return Effect.void
-          const data = evt.data as typeof SessionStatus.Event.Status.data.Type
-          if (data.sessionID !== session.id || data.status.type !== "retry") return Effect.void
+        // Signal readiness when organize starts streaming, then hang forever so
+        // the only way out is interruption.
+        stub.push(() => {
           Deferred.doneUnsafe(ready, Effect.void)
-          return Effect.void
+          return Stream.concat(Stream.make(LLMEvent.stepStart({ index: 0 })), Stream.never)
         })
-        yield* Effect.addFinalizer(() => off)
 
         const fiber = yield* SessionCompaction.use
           .process({
@@ -1283,17 +1361,17 @@ describe("session.compaction.process", () => {
   )
 
   itCompaction.instance(
-    "silently drops reasoning-delta arriving without prior reasoning-start",
+    "organize ignores reasoning deltas in the stream and emits a clean marker head",
     () => {
-      // Regression: PR initially auto-created a reasoning Part for orphan deltas (no preceding
-      // reasoning-start). Reverted to match dev — drop silently. Pinned here so any future
-      // change to processor.ts reasoning-delta handling triggers this test.
+      // The organize pass consumes only text deltas (Stream.filter textDelta) to
+      // build index.md; reasoning deltas are ignored and never leak into the thin
+      // marker head. Pinned so any change to organize stream handling is caught.
       const stub = llm()
       stub.push(
         Stream.make(
           LLMEvent.reasoningDelta({ id: "orphan-1", text: "stray reasoning" }),
           LLMEvent.textStart({ id: "txt-0" }),
-          LLMEvent.textDelta({ id: "txt-0", text: "summary" }),
+          LLMEvent.textDelta({ id: "txt-0", text: "ORGANIZED FACTS" }),
           LLMEvent.textEnd({ id: "txt-0" }),
           LLMEvent.stepFinish({ index: 0, reason: "stop", usage: basicUsage() }),
           LLMEvent.finish({ reason: "stop", usage: basicUsage() }),
@@ -1304,40 +1382,38 @@ describe("session.compaction.process", () => {
         const session = yield* ssn.create({})
         const msg = yield* createUserMessage(session.id, "hello")
         const msgs = yield* ssn.messages({ sessionID: session.id })
-        yield* SessionCompaction.use.process({
+        const result = yield* SessionCompaction.use.process({
           parentID: msg.id,
           messages: msgs,
           sessionID: session.id,
           auto: false,
         })
 
-        const summary = (yield* ssn.messages({ sessionID: session.id })).find(
-          (item) => item.info.role === "assistant" && item.info.summary,
-        )
-        expect(summary?.parts.some((part) => part.type === "reasoning")).toBe(false)
-        // Sanity: the text part still got through.
-        expect(summary?.parts.some((part) => part.type === "text" && part.text === "summary")).toBe(true)
+        expect(result).toBe("continue")
+        // Only the text deltas were written to durable memory.
+        expect(yield* readIndex(session.id)).toBe("ORGANIZED FACTS")
+        const head = yield* summaryMessage(session.id)
+        expect(head?.parts.some((part) => part.type === "reasoning")).toBe(false)
+        // The head is the static marker, not the streamed organize text.
+        const headText = head?.parts.find((part): part is SessionV1.TextPart => part.type === "text")
+        expect(headText?.text).toBe(SessionCompaction.ORGANIZE_MARKER)
       }).pipe(withCompaction({ llm: stub.llmLayer }))
     },
     { git: true },
   )
 
   itCompaction.instance(
-    "does not allow tool calls while generating the summary",
+    "organize ignores tool calls in the stream and produces no tool parts in the head",
     () => {
       const stub = llm()
       stub.push(
         Stream.make(
           LLMEvent.toolCall({ id: "call-1", name: "_noop", input: {} }),
-          LLMEvent.stepFinish({
-            index: 0,
-            reason: "tool-calls",
-            usage: basicUsage(),
-          }),
-          LLMEvent.finish({
-            reason: "tool-calls",
-            usage: basicUsage(),
-          }),
+          LLMEvent.textStart({ id: "txt-0" }),
+          LLMEvent.textDelta({ id: "txt-0", text: "ORGANIZED FACTS" }),
+          LLMEvent.textEnd({ id: "txt-0" }),
+          LLMEvent.stepFinish({ index: 0, reason: "stop", usage: basicUsage() }),
+          LLMEvent.finish({ reason: "stop", usage: basicUsage() }),
         ),
       )
       return Effect.gen(function* () {
@@ -1345,14 +1421,19 @@ describe("session.compaction.process", () => {
         const session = yield* ssn.create({})
         const msg = yield* createUserMessage(session.id, "hello")
         const msgs = yield* ssn.messages({ sessionID: session.id })
-        yield* SessionCompaction.use.process({ parentID: msg.id, messages: msgs, sessionID: session.id, auto: false })
+        const result = yield* SessionCompaction.use.process({
+          parentID: msg.id,
+          messages: msgs,
+          sessionID: session.id,
+          auto: false,
+        })
 
-        const summary = (yield* ssn.messages({ sessionID: session.id })).find(
-          (item) => item.info.role === "assistant" && item.info.summary,
-        )
-
-        expect(summary?.info.role).toBe("assistant")
-        expect(summary?.parts.some((part) => part.type === "tool")).toBe(false)
+        expect(result).toBe("continue")
+        const head = yield* summaryMessage(session.id)
+        expect(head?.info.role).toBe("assistant")
+        expect(head?.parts.some((part) => part.type === "tool")).toBe(false)
+        const headText = head?.parts.find((part): part is SessionV1.TextPart => part.type === "text")
+        expect(headText?.text).toBe(SessionCompaction.ORGANIZE_MARKER)
       }).pipe(withCompaction({ llm: stub.llmLayer }))
     },
     { git: true },
@@ -1396,7 +1477,7 @@ describe("session.compaction.process", () => {
   )
 
   itCompaction.instance(
-    "anchors repeated compactions with the previous summary",
+    "anchors repeated compactions with the prior durable-memory index",
     () => {
       const stub = llm()
       let captured = ""
@@ -1427,11 +1508,14 @@ describe("session.compaction.process", () => {
         expect(parent).toBeTruthy()
         yield* SessionCompaction.use.process({ parentID: parent!, messages: msgs, sessionID: session.id, auto: false })
 
-        expect(captured).toContain("<previous-summary>")
+        // The first organize wrote "summary one" to index.md; the second
+        // organize pass merges that prior index (not the previous summary
+        // message) via buildOrganizePrompt, and is handed the merge template.
+        expect(captured).toContain("Here is the current durable memory")
         expect(captured).toContain("summary one")
         expect(captured.match(/summary one/g)?.length).toBe(1)
         expect(captured).toContain("## Constraints & Preferences")
-        expect(captured).toContain("## Progress")
+        expect(captured).toContain("## Current State")
       }).pipe(withCompaction({ llm: stub.llmLayer }))
     },
     { git: true },
