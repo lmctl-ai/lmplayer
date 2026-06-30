@@ -103,3 +103,39 @@ drives H. Each phase ships in reviewable slices via Coder->Reviewer->commit.
 4. Handover transport: NEW lightweight bundle export/import vs reuse experimental sessionWarp/sync. (Recommend new lightweight.)
 5. Orchestrator: separate process vs lmcode role; discovery static-now vs mDNS-later.
 6. Is the existing per-session "durable-memory" the SAME concept as our team's repo durable-memory/, or a new per-session brain? (operator said per-session "internal durable-memory directory".) -> per-session, new.
+
+## REVIEW CORRECTIONS (all 3 reviewers; supersede conflicting draft notes)
+Phase O (Reviewer1):
+- Inject index.md as system context at the V1 REQUEST-ASSEMBLY seam `packages/opencode/src/session/prompt.ts:1256-1285`
+  (where `system` is built), NOT `filterCompacted` (that only reorders messages).
+- KEEP the existing summary/compaction-marker + `tail_start_id` machinery (V1 infers compaction state from the
+  assistant summary message: compaction.ts:62-78, message-v2.ts:531-569). AUGMENT, don't replace, in slice 1.
+- Organize must run SYNCHRONOUSLY in the overflow/compaction path (idle-only breaks overflow recovery);
+  idle organize is an additional pass, not the only one.
+- index.md = bounded REWRITE each organize (not append-only). Keep it structured + bounded; spill to topic files later.
+- V2 compaction schema is `packages/schema/src/session-message.ts:191`; lowering `core/src/session/runner/to-llm-message.ts:147`.
+- SMALLEST FIRST SLICE (O1): per-session durable-memory/index.md accessor + inject index.md into the V1 system
+  prompt (prompt.ts:1256-1285), leaving summary/tail unchanged. Then O2: organize LLM pass writes index.md at compaction.
+
+Phase H/R ownership fence (Reviewer3 — THE crux; resolves the draft contradiction):
+- The lightweight bundle path BYPASSES the event-log replay that propagates owner_id across instances, so
+  owner_id/claim ALONE does NOT prevent split-brain for the lightweight path.
+- FENCE = orchestrator-held single authoritative assignment + MONOTONIC EPOCH/LEASE per session. export bumps the
+  epoch; import adopts it. EVERY container validates its epoch with the orchestrator BEFORE provider work AND
+  BEFORE writing the bundle (index.md) back. A revived/stale-epoch container MUST refuse to run/write.
+- Bundle is LOSSY BY DESIGN (last N + index.md): failover loses any in-flight not-yet-organized tail. State it.
+- De-risk FIRST (before polishing O): a two-container handover walking skeleton WITH the epoch lease, including a
+  deliberate "revive the source" test proving the stale-epoch container refuses to resume.
+
+Orchestrator (Reviewer3): SEPARATE process (same binary, e.g. `lmcode serve --role orchestrator`), own failure
+domain (must outlive a dead container). Minimal = durable assignment map {sessionID->{url,epoch}} + health (reuse
+SSE heartbeat) + epoch/lease + assign/handover/failover triggers. No load balancing.
+Discovery: static {id,url,headers} list now; mDNS browse drop-in later; never conflate configured with reachable.
+
+Handover transport (Reviewer2/3): build NEW lightweight `POST /session/:id/export` + `POST /session/import`
+(metadata + index.md + last-N tail); import = factory that writes the per-session dir + persists tail as initial
+history + registers in SessionStore + claims ownership. Graceful drain (finish current turn, reject new prompts,
+then export). Import idempotent by sessionID. Do NOT reuse heavy sessionWarp/sync transport; steal only its fencing idea.
+
+## DECISION (Lead): implement Phase O slice O1 first (safe, self-contained), then O2, then de-risk H with the
+## epoch-lease handover skeleton, then R. Operator: confirm direction or redirect.
