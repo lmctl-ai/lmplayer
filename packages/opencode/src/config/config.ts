@@ -127,6 +127,7 @@ export interface Interface {
   readonly getConsoleState: () => Effect.Effect<ConsoleState>
   readonly update: (config: Info) => Effect.Effect<void>
   readonly updateGlobal: (config: Info) => Effect.Effect<{ info: Info; changed: boolean }>
+  readonly unsetGlobal: (pathSegments: string[]) => Effect.Effect<{ info: Info; changed: boolean }>
   readonly invalidate: () => Effect.Effect<void>
   readonly directories: () => Effect.Effect<string[]>
   readonly waitForDependencies: () => Effect.Effect<void>
@@ -163,6 +164,17 @@ function patchJsonc(input: string, patch: unknown, path: string[] = []): string 
 function writable(info: Info) {
   const { plugin_origins: _plugin_origins, ...next } = info
   return next
+}
+
+function deletePath<T>(input: T, segments: string[]): T {
+  if (segments.length === 0 || !isRecord(input)) return input
+  const [head, ...rest] = segments
+  if (!(head in input)) return input
+  if (rest.length === 0) {
+    const { [head]: _removed, ...next } = input
+    return next as T
+  }
+  return { ...input, [head]: deletePath(input[head], rest) } as T
 }
 
 function writableGlobal(info: Info) {
@@ -658,12 +670,41 @@ export const layer = Layer.effect(
       return { info: next, changed }
     })
 
+    const unsetGlobal = Effect.fn("Config.unsetGlobal")(function* (pathSegments: string[]) {
+      const file = globalConfigFile()
+      const before = (yield* readConfigFile(file)) ?? "{}"
+
+      let next: Info
+      let changed: boolean
+      if (!file.endsWith(".jsonc")) {
+        const existing = ConfigParse.schema(ConfigV1.Info, ConfigParse.jsonc(before, file), file)
+        const merged = deletePath(writable(existing), pathSegments)
+        // Re-validate the post-delete config before writing so a delete that
+        // would make config invalid throws and leaves the file unchanged.
+        ConfigParse.schema(ConfigV1.Info, merged, file)
+        const serialized = JSON.stringify(merged, null, 2)
+        changed = serialized !== before
+        if (changed) yield* fs.writeFileString(file, serialized).pipe(Effect.orDie)
+        next = merged
+      } else {
+        // patchJsonc with an undefined value deletes the key at pathSegments.
+        const updated = patchJsonc(before, undefined, pathSegments)
+        next = ConfigParse.schema(ConfigV1.Info, ConfigParse.jsonc(updated, file), file)
+        changed = updated !== before
+        if (changed) yield* fs.writeFileString(file, updated).pipe(Effect.orDie)
+      }
+
+      if (changed) yield* invalidate()
+      return { info: next, changed }
+    })
+
     return Service.of({
       get,
       getGlobal,
       getConsoleState,
       update,
       updateGlobal,
+      unsetGlobal,
       invalidate,
       directories,
       waitForDependencies,
