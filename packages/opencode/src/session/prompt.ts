@@ -38,6 +38,7 @@ import { LLM } from "./llm"
 import { Shell } from "@opencode-ai/core/shell"
 import { ShellID } from "@/tool/shell/id"
 import { FSUtil } from "@opencode-ai/core/fs-util"
+import { SessionDurableMemory } from "@/session/durable-memory"
 import { Truncate } from "@/tool/truncate"
 import { Image } from "@/image/image"
 import { decodeDataUrl } from "@/util/data-url"
@@ -1260,9 +1261,23 @@ export const layer = Layer.effect(
               sys.mcp(agent, session.permission),
               MessageV2.toModelMessagesEffect(msgs, model),
             ])
+            const memory = yield* SessionDurableMemory.read(sessionID).pipe(
+              Effect.provideService(FSUtil.Service, fsys),
+              Effect.catchCause((cause) =>
+                Effect.logWarning("failed to read durable-memory; proceeding without session memory", {
+                  sessionID,
+                  cause,
+                }).pipe(Effect.as(undefined)),
+              ),
+            )
             const system = [
               ...env,
               ...instructions,
+              ...(memory && memory.trim()
+                ? [
+                    `## Session memory (durable-memory/index.md)\n\nThis is your curated, persistent memory for this session. Treat it as authoritative context.\n\n${memory}`,
+                  ]
+                : []),
               ...(mcpInstructions ? [mcpInstructions] : []),
               ...(skills ? [skills] : []),
             ]
