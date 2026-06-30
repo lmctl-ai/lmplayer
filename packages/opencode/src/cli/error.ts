@@ -32,6 +32,36 @@ function configIssues(input: Record<string, unknown>): ConfigIssue[] {
     : []
 }
 
+/**
+ * Render a config InvalidError/JsonError as a readable report: the file path on
+ * the first line, then one `  <dot.path>: <message>` line per issue. Shared by
+ * FormatError (launch-time catch in index.ts) and the `config verify` command so
+ * both surfaces format invalid config identically. Returns undefined if `input`
+ * is not a recognised config error.
+ */
+export function FormatConfigError(input: unknown): string | undefined {
+  // ConfigInvalidError: { path?: string, message?: string, issues?: Array<{ message, path[] }> }
+  const configInvalid = configData(input, "ConfigInvalidError")
+  if (configInvalid) {
+    const path = stringField(configInvalid, "path")
+    const message = stringField(configInvalid, "message")
+    const issues = configIssues(configInvalid)
+    return [
+      `Configuration is invalid${path && path !== "config" ? ` at ${path}` : ""}` + (message ? `: ${message}` : ""),
+      ...issues.map((issue) => (issue.path.length ? `  ${issue.path.join(".")}: ${issue.message}` : `  ${issue.message}`)),
+    ].join("\n")
+  }
+
+  // ConfigJsonError: { path: string, message?: string }
+  const configJson = configData(input, "ConfigJsonError")
+  if (configJson) {
+    const message = stringField(configJson, "message")
+    return `Config file at ${stringField(configJson, "path")} is not valid JSON(C)` + (message ? `: ${message}` : "")
+  }
+
+  return undefined
+}
+
 export function FormatError(input: unknown): string | undefined {
   if (input instanceof Error && isRecord(input.cause) && "body" in input.cause) {
     const formatted = FormatError(input.cause.body)
@@ -77,10 +107,7 @@ export function FormatError(input: unknown): string | undefined {
 
   // ConfigJsonError: { path: string, message?: string }
   const configJson = configData(input, "ConfigJsonError")
-  if (configJson) {
-    const message = stringField(configJson, "message")
-    return `Config file at ${stringField(configJson, "path")} is not valid JSON(C)` + (message ? `: ${message}` : "")
-  }
+  if (configJson) return FormatConfigError(input)
 
   // ConfigDirectoryTypoError: { dir: string, path: string, suggestion: string }
   const configDirectoryTypo = configData(input, "ConfigDirectoryTypoError")
@@ -108,15 +135,7 @@ export function FormatError(input: unknown): string | undefined {
 
   // ConfigInvalidError: { path?: string, message?: string, issues?: Array<{ message: string, path: string[] }> }
   const configInvalid = configData(input, "ConfigInvalidError")
-  if (configInvalid) {
-    const path = stringField(configInvalid, "path")
-    const message = stringField(configInvalid, "message")
-    const issues = configIssues(configInvalid)
-    return [
-      `Configuration is invalid${path && path !== "config" ? ` at ${path}` : ""}` + (message ? `: ${message}` : ""),
-      ...issues.map((issue) => "↳ " + issue.message + " " + issue.path.join(".")),
-    ].join("\n")
-  }
+  if (configInvalid) return FormatConfigError(input)
 
   // UICancelledError: user cancelled an interactive CLI prompt
   if (isTaggedError(input, "UICancelledError") || NamedError.hasName(input, "UICancelledError")) {
