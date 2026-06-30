@@ -139,3 +139,31 @@ then export). Import idempotent by sessionID. Do NOT reuse heavy sessionWarp/syn
 
 ## DECISION (Lead): implement Phase O slice O1 first (safe, self-contained), then O2, then de-risk H with the
 ## epoch-lease handover skeleton, then R. Operator: confirm direction or redirect.
+
+## PROGRESS (committed)
+- O1 (5c19b536c): per-session durable-memory accessor (`packages/opencode/src/session/durable-memory.ts`,
+  <data>/session/<id>/durable-memory/index.md) + inject index.md into V1 system context at prompt.ts:1256-1278.
+  Proven: a session with index.md "codeword BANANA42" answered BANANA42.
+- O2 (2312506dd): at each compaction (manual /summarize + auto-overflow) a FORKED, per-session-SERIALIZED
+  one-off LLM "organize" turn rewrites a bounded curated index.md (merge prior+recent, drop stale). Additive:
+  summary/compaction/tail untouched. Proven: /summarize wrote index.md (make ship/Dana), later turn used it;
+  two back-to-back /summarize -> single consistent index.md (no clobber).
+- Phase O foundation is functional. index.md is written at compaction and injected every turn.
+
+## REMAINING PLAN (for continuation — well-specified)
+- O3 (optional, riskier): make index.md the actual context-REDUCER (next context = index.md + last-N tail;
+  reduce/remove the lossy summary HEAD while keeping the compaction MARKER so projection still finds the tail
+  start — Reviewer1: keep marker, change content). Organize MUST be synchronous-before-continue on overflow then.
+- H (handover/failover): lightweight `POST /session/:id/export` (bundle = metadata{id,agent,model,directory} +
+  index.md + last-N tail) + `POST /session/import` (factory: write per-session dir, persist tail as initial
+  history, register in SessionStore, CLAIM ownership). Graceful drain (finish turn, reject new prompts, export).
+  Import idempotent by sessionID. THE FENCE (Reviewer3, critical): orchestrator-held monotonic EPOCH/LEASE per
+  session; export bumps epoch, import adopts it; every container validates epoch with orchestrator BEFORE
+  provider work AND BEFORE writing index.md back; a revived/stale-epoch container REFUSES. De-risk FIRST with a
+  two-container handover walking skeleton + a deliberate "revive the source -> refuses to resume" test.
+- R (orchestrator): SEPARATE process (own failure domain). Minimal = durable assignment map {sessionID->{url,epoch}}
+  + health (reuse SSE /global/event heartbeat) + epoch/lease + assign/handover/failover. Discovery: static
+  {id,url,headers} list now (mDNS browse later). Build NEW lightweight export/import; do NOT reuse heavy
+  sessionWarp/sync transport (steal only its fencing idea). Bundle is LOSSY BY DESIGN (failover loses in-flight
+  not-yet-organized tail) — accepted, state it.
+- Sequencing: O done -> de-risk H fence (walking skeleton + revive test) -> R orchestrator. Each as a reviewed slice.
