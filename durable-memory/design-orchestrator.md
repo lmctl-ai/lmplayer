@@ -167,3 +167,26 @@ then export). Import idempotent by sessionID. Do NOT reuse heavy sessionWarp/syn
   sessionWarp/sync transport (steal only its fencing idea). Bundle is LOSSY BY DESIGN (failover loses in-flight
   not-yet-organized tail) — accepted, state it.
 - Sequencing: O done -> de-risk H fence (walking skeleton + revive test) -> R orchestrator. Each as a reviewed slice.
+
+## H2 DONE (committed) + follow-ups for R (Reviewer3 signed off)
+- H2: Session.adopt (same-id idempotent reconstruct) + POST /session/import (seed tail id-preserving +
+  write index.md, serialize-gated) + workspace-routing exclusion for /session/import. Proven A->B handover
+  over local network (separate containers/data dirs): B answered from imported tail + durable-memory; idempotent.
+- R FENCE — minimum the orchestrator slice MUST add (Reviewer3, the crux; not just the import check):
+  1. Orchestrator holds a monotonic per-session EPOCH/lease; assignment carries the epoch.
+  2. Import-side: validate epoch with orchestrator; REFUSE stale-epoch import (the current TODO in importSession).
+  3. Run-side + write-back: a revived/stale container must REFUSE to prompt(run) AND to export/write index.md
+     back when its epoch is stale. H2 fences NEITHER — R must add both (container-side epoch check before
+     provider work and before SessionDurableMemory.write).
+  4. Guard the durable-memory overwrite by exportedAt/epoch so a STALE bundle re-import can't regress index.md
+     (messages are id-keyed/safe; the index.md full-overwrite is not).
+- H2 non-blocking hardening (track before automation):
+  - Export/import: tail window boundary can leave dangling parentID (tail assistant) or compaction tail_start_id
+    pointing outside the included tail -> threading/projection oddness (not corruption). Fix: export include
+    referenced anchors, or import drop/repair (mirror fork's conditional remap). 
+  - Routing: future root-level /session/<verb> must be added to the exclusion; optional: treat non-ses_ first
+    segment as null generally (parse-and-fallback) instead of a per-verb denylist.
+  - Prefer exporting at idle (export is ungated -> can read a torn tail mid-prompt; acceptable lossy-by-design).
+- R SHAPE (decided): separate process (`lmcode orchestrator` or serve --role), static {id,url,headers} registry,
+  assignment map {sessionID->{url,epoch}} (durable), health via /global/event heartbeat or ping, control surface
+  assign/handover/failover/status. Build on H1 export + H2 import transport (SDK/raw HTTP + ServerAuth Basic).
