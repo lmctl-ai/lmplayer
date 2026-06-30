@@ -132,3 +132,11 @@ lmcode is for AGENT interaction, not humans. Make it a plain CLI:
 ## Non-goals / keep
 - `core`, `server`, `sdk` untouched (no TUI deps).
 - `run`, `serve`, `acp`, `models`, `stats`, `export/import`, `session list/delete`, `db`, `mcp`, `auth/providers` stay.
+
+## 5-minute timeout — EMPIRICAL RESULT (resolved)
+Test: `lmcode --dangerously-skip-permissions run "<run bash sleep 420s with bash timeout 480000>"`.
+Result: bash slept the full 420s (SLEEP_START->SLEEP_END = 420s), model replied DONE, RUN_EXIT=0.
+Total run ~433s (~7.2 min), well past 5 min. CONCLUSION: lmcode's default (in-process) `run` path has
+NO 5-minute timeout — long autonomous runs are unbounded. (Bash tool caps a single command at
+MAX_TIMEOUT_MS=10min; default 2min — pass a higher `timeout` per call for longer commands.)
+If a 5-min cutoff is ever observed, it is environment/provider/proxy-side, not lmcode's run path.
