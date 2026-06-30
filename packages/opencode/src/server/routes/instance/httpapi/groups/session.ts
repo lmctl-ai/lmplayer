@@ -45,6 +45,24 @@ export const MessagesQuery = Schema.Struct({
   limit: Schema.optional(Schema.NumberFromString.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0))),
   before: Schema.optional(Schema.String),
 })
+export const ExportQuery = Schema.Struct({
+  ...WorkspaceRoutingQueryFields,
+  tail: Schema.optional(Schema.NumberFromString.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0))),
+})
+const ExportModelRef = Schema.Struct({ providerID: ProviderV2.ID, modelID: ModelV2.ID })
+export const ExportBundle = Schema.Struct({
+  session: Schema.Struct({
+    id: SessionID,
+    agent: Schema.NullOr(Schema.String),
+    model: Schema.NullOr(ExportModelRef),
+    directory: Schema.String,
+    title: Schema.NullOr(Schema.String),
+  }),
+  durableMemory: Schema.NullOr(Schema.String),
+  tail: Schema.Array(SessionV1.WithParts),
+  exportedAt: Schema.Number,
+  tailCount: Schema.Number,
+})
 export const StatusMap = Schema.Record(Schema.String, SessionStatus.Info)
 export const UpdatePayload = Schema.Struct({
   title: Schema.optional(Schema.String),
@@ -84,6 +102,7 @@ export const SessionPaths = {
   diff: `${root}/:sessionID/diff`,
   messages: `${root}/:sessionID/message`,
   message: `${root}/:sessionID/message/:messageID`,
+  export: `${root}/:sessionID/export`,
   create: root,
   remove: `${root}/:sessionID`,
   update: `${root}/:sessionID`,
@@ -198,6 +217,19 @@ export const SessionApi = HttpApi.make("session")
             identifier: "session.message",
             summary: "Get message",
             description: "Retrieve a specific message from a session by its message ID.",
+          }),
+        ),
+        HttpApiEndpoint.get("export", SessionPaths.export, {
+          params: { sessionID: SessionID },
+          query: ExportQuery,
+          success: described(ExportBundle, "Portable session bundle"),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.export",
+            summary: "Export session bundle",
+            description:
+              "Export a lightweight, portable bundle for a session: metadata, durable-memory index, and the last N messages. Read-only.",
           }),
         ),
         HttpApiEndpoint.post("create", SessionPaths.create, {

@@ -15,6 +15,8 @@ import { SessionStatus } from "@/session/status"
 import { SessionSummary } from "@/session/summary"
 import { Todo } from "@/session/todo"
 import { MessageID, PartID, SessionID } from "@/session/schema"
+import { SessionDurableMemory } from "@/session/durable-memory"
+import { FSUtil } from "@opencode-ai/core/fs-util"
 import { NamedError } from "@opencode-ai/core/util/error"
 import { Cause, Effect, Option, Schema, Scope, Semaphore } from "effect"
 import * as Stream from "effect/Stream"
@@ -24,6 +26,7 @@ import { InstanceHttpApi } from "../api"
 import {
   CommandPayload,
   DiffQuery,
+  ExportQuery,
   ForkPayload,
   InitPayload,
   ListQuery,
@@ -73,6 +76,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     const todoSvc = yield* Todo.Service
     const summary = yield* SessionSummary.Service
     const events = yield* EventV2Bridge.Service
+    const fsys = yield* FSUtil.Service
     const scope = yield* Scope.Scope
 
     const list = Effect.fn("SessionHttpApi.list")(function* (ctx: { query: typeof ListQuery.Type }) {
@@ -163,6 +167,41 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       return yield* SessionError.mapStorageNotFound(
         MessageV2.get({ sessionID: ctx.params.sessionID, messageID: ctx.params.messageID }),
       )
+    })
+
+    // Read-only lightweight handover bundle: session metadata + durable-memory
+    // index + last N messages. Ungated (no execution semaphore) so it never
+    // queues behind a running prompt. No state change, no ownership fence (H2).
+    const exportSession = Effect.fn("SessionHttpApi.export")(function* (ctx: {
+      params: { sessionID: SessionID }
+      query: typeof ExportQuery.Type
+    }) {
+      const info = yield* requireSession(ctx.params.sessionID)
+      const all = yield* SessionError.mapStorageNotFound(session.messages({ sessionID: ctx.params.sessionID }))
+      const tailN = ctx.query.tail ?? 20
+      const tail = tailN <= 0 ? [] : all.slice(-tailN)
+      const durableMemory = yield* SessionDurableMemory.read(ctx.params.sessionID).pipe(
+        Effect.provideService(FSUtil.Service, fsys),
+        Effect.catchCause((cause) =>
+          Effect.logWarning("export: failed to read durable-memory", {
+            sessionID: ctx.params.sessionID,
+            cause,
+          }).pipe(Effect.as(undefined)),
+        ),
+      )
+      return {
+        session: {
+          id: info.id,
+          agent: info.agent ?? null,
+          model: info.model ? { providerID: info.model.providerID, modelID: info.model.id } : null,
+          directory: info.directory,
+          title: info.title ?? null,
+        },
+        durableMemory: durableMemory ?? null,
+        tail,
+        exportedAt: Date.now(),
+        tailCount: tail.length,
+      }
     })
 
     const create = Effect.fn("SessionHttpApi.create")(function* (ctx: { payload?: Session.CreateInput }) {
@@ -439,6 +478,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       .handle("diff", diff)
       .handle("messages", messages)
       .handle("message", message)
+      .handle("export", exportSession)
       .handleRaw("create", createRaw)
       .handle("remove", remove)
       .handle("update", update)
