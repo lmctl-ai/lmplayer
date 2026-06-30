@@ -6,6 +6,7 @@ import { Deferred, Effect, Layer, Context } from "effect"
 import os from "os"
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import { EventV2Bridge } from "@/event-v2-bridge"
+import { Config } from "@/config/config"
 
 export const Event = PermissionV1.Event
 
@@ -43,6 +44,7 @@ export const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const events = yield* EventV2Bridge.Service
+    const config = yield* Config.Service
     const state = yield* InstanceState.make<State>(
       Effect.fn("Permission.state")(function* (ctx) {
         void ctx
@@ -67,6 +69,11 @@ export const layer = Layer.effect(
     const ask = Effect.fn("Permission.ask")(function* (input: PermissionV1.AskInput) {
       const { approved, pending } = yield* InstanceState.get(state)
       const { ruleset, ...request } = input
+      // Permissions are fully file-based: anything that would otherwise prompt
+      // interactively (explicit "ask" rule, or no rule matched) collapses to the
+      // configured fallback BEFORE anything blocks or emits an Asked event.
+      // Default "deny" (least privilege); the user opts into "allow" via config.
+      const fallback = (yield* config.get()).permission_ask ?? "deny"
       let needsAsk = false
 
       for (const pattern of request.patterns) {
@@ -78,9 +85,18 @@ export const layer = Layer.effect(
           })
         }
         if (rule.action === "allow") continue
-        needsAsk = true
+        // Residual "ask" — collapse to the file-based fallback, never block.
+        if (fallback === "deny") {
+          return yield* new PermissionV1.DeniedError({
+            ruleset: ruleset.filter((rule) => Wildcard.match(request.permission, rule.permission)),
+          })
+        }
+        // fallback === "allow": auto-approve this pattern without prompting.
       }
 
+      // With the collapse above, `needsAsk` is never set; the interactive
+      // Asked/Deferred machinery below is retained as a harmless safety net for
+      // any future explicitly-interactive caller but is unreachable here.
       if (!needsAsk) return
 
       const id = request.id ?? PermissionV1.ID.ascending()
@@ -213,8 +229,8 @@ export function disabled(tools: string[], ruleset: PermissionV1.Ruleset): Set<st
   )
 }
 
-export const defaultLayer = layer.pipe(Layer.provide(EventV2Bridge.defaultLayer))
+export const defaultLayer = layer.pipe(Layer.provide(EventV2Bridge.defaultLayer), Layer.provide(Config.defaultLayer))
 
-export const node = LayerNode.make({ service: Service, layer: layer, deps: [EventV2Bridge.node] })
+export const node = LayerNode.make({ service: Service, layer: layer, deps: [EventV2Bridge.node, Config.node] })
 
 export * as Permission from "."

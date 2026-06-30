@@ -123,6 +123,10 @@ export const Info = Schema.Struct({
   }),
   layout: Schema.optional(ConfigLayoutV1.Layout).annotate({ description: "@deprecated Always uses stretch layout." }),
   permission: Schema.optional(ConfigPermissionV1.Info),
+  permission_ask: Schema.optional(Schema.Literals(["deny", "allow"])).annotate({
+    description:
+      "Fallback for any permission that would otherwise prompt interactively (no rule matched, or an explicit 'ask' rule). 'deny' (default) rejects without prompting; 'allow' auto-approves. Explicit allow/deny rules are still honored.",
+  }),
   tools: Schema.optional(Schema.Record(Schema.String, Schema.Boolean)),
   attachment: Schema.optional(ConfigAttachmentV1.Info).annotate({
     description: "Attachment processing configuration, including image size limits and resizing behavior",
