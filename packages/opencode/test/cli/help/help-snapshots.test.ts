@@ -8,9 +8,12 @@
 // diff tells you exactly which command(s) changed.
 //
 // Snapshots are taken at COLUMNS=120 so wrapping is stable across
-// terminal sizes. The default opencode tui command is excluded —
-// `opencode --help` includes an ASCII banner that pulls in the install
-// version (changes per release), so we'd snapshot a moving target.
+// terminal sizes. The default command is now "send a prompt" (a thin
+// reuse of `run`), so `opencode --help` shows the run-style options at
+// the root. The interactive TUI is the explicit `tui` command. The
+// `opencode --help` banner pulls in the install version (changes per
+// release), so the root help body is asserted on flags only rather than
+// snapshotted as a moving target.
 import { describe, expect } from "bun:test"
 import { Effect } from "effect"
 import { cliIt } from "../../lib/cli-process"
@@ -45,6 +48,7 @@ function normalize(text: string): string {
 const TOP_LEVEL = [
   "acp",
   "mcp",
+  "tui",
   "attach",
   "run",
   "debug",
@@ -101,9 +105,13 @@ describe("opencode CLI help-text snapshots", () => {
         const topLevel = yield* opencode.spawn(["--help"], { env: SNAPSHOT_ENV })
         expect(topLevel.exitCode).toBe(0)
         expect(topLevel.stderr.endsWith("\n")).toBe(true)
-        expect(topLevel.stderr).toContain("--mini")
-        expect(topLevel.stderr).not.toContain("--thinking")
-        expect(topLevel.stderr).not.toContain("--variant")
+        // Default command is now "send a prompt" (run-style options at root).
+        expect(topLevel.stderr).toContain("[message..]")
+        expect(topLevel.stderr).toContain("--model")
+        expect(topLevel.stderr).toContain("--variant")
+        expect(topLevel.stderr).toContain("--thinking")
+        // Interactive options stay hidden on the default command.
+        expect(topLevel.stderr).not.toContain("--mini")
         expect(topLevel.stderr).not.toContain("--demo")
 
         const argvs: Array<readonly string[]> = [...TOP_LEVEL.map((c) => [c] as const), ...SUBCOMMANDS]

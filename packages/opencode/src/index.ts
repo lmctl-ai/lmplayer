@@ -43,9 +43,32 @@ function show(out: string) {
   process.stderr.write(out)
 }
 
+// Default action: `lmcode <message>` runs a non-interactive prompt (same as
+// `lmcode run <message>`). With no message and nothing piped on stdin, print
+// help instead of launching anything. Reuses RunCommand's builder/handler so
+// the run loop is not duplicated; mini defaults to false here, so run's
+// interactive guard stays inert.
+const DefaultCommand = {
+  command: "$0 [message..]",
+  describe: "send a prompt (run non-interactively); use a subcommand for other actions",
+  builder: RunCommand.builder,
+  handler: async (argv: Parameters<NonNullable<typeof RunCommand.handler>>[0]) => {
+    if (argv.mini) {
+      UI.error("interactive --mini is not available on the default command; use 'lmcode tui' or 'lmcode run --mini'")
+      process.exit(1)
+    }
+    const hasMessage = (argv.message ?? []).length > 0 || (argv["--"] ?? []).length > 0
+    if (!hasMessage && !argv.command && process.stdin.isTTY) {
+      cli.showHelp(show)
+      return
+    }
+    await RunCommand.handler!(argv)
+  },
+}
+
 const cli = yargs(args)
   .parserConfiguration({ "populate--": true })
-  .scriptName("opencode")
+  .scriptName("lmcode")
   .wrap(100)
   .help("help", "show help")
   .alias("help", "h")
@@ -82,6 +105,7 @@ const cli = yargs(args)
   .command(AcpCommand)
   .command(McpCommand)
   .command(TuiThreadCommand)
+  .command(DefaultCommand)
   .command(AttachCommand)
   .command(RunCommand)
   .command(GenerateCommand)
@@ -118,8 +142,8 @@ const cli = yargs(args)
   .strict()
 
 try {
-  if (args.includes("-h") || args.includes("--help")) {
-    await cli.parse(args, (err: Error | undefined, _argv: unknown, out: string) => {
+  if ((args.length === 0 && process.stdin.isTTY) || args.includes("-h") || args.includes("--help")) {
+    await cli.parse(args.length === 0 ? ["--help"] : args, (err: Error | undefined, _argv: unknown, out: string) => {
       if (err) throw err
       if (!out) return
       show(out)
