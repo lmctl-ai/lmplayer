@@ -13,6 +13,7 @@ reachable via commands + editable config (with a verify step). The TUI is kept b
 the default.
 
 ## Docs in this portal (each a focused, LLM-friendly file)
+- `direction.md` — operator north star: CLI + single-user sequential REST microservice, file-based permissions (no popup), standalone config (no parent/sibling merge).
 - `runbook.md` — how to run/auth/test lmcode in dev (toolchain, copilot OAuth device flow, default model, wrapper).
 - `cli-commands.md` — the agent-facing CLI surface added in this work (models, auth list, run --effort, config, default command).
 - `models-and-effort.md` — model selection, variants/effort tiers (xhigh = "extra high"), entitled list + which models actually work.

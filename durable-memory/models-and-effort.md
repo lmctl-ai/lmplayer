@@ -71,3 +71,18 @@ Per-agent selected model, `recent[]`, `favorite[]`, and `variant` per model
 - TODO: claude-via-copilot 404 — they route via `${url}/v1` + @ai-sdk/anthropic /v1/messages shim
   (models.ts:88-99). The 404 suggests a wrong endpoint path/base in the dev build. Worth investigating
   to unlock claude-opus-4.8 etc.
+
+## Claude-via-copilot 404 — ROOT CAUSE + FIX (resolved)
+- Root cause: the plugin auto-catalog (models.ts:88-99) routes copilot models whose
+  supported_endpoints include `/v1/messages` (the claude-* models) through `@ai-sdk/anthropic`
+  with `api.url = ${url}/v1` -> hits a wrong endpoint -> `Not Found: 404 page not found`.
+- FIX (config-based, matches the real opencode config at ~/.config/opencode/opencode.json):
+  route copilot claude models through `@ai-sdk/github-copilot` via a per-model provider override.
+  Add to user config `provider.github-copilot`: `api: "https://api.githubcopilot.com"`,
+  `options.baseURL: ""`, and per claude model `provider: { npm: "@ai-sdk/github-copilot" }` plus
+  adaptive-thinking `variants` (high/xhigh/max with `thinking: {type:"adaptive", display:"summarized"}`).
+- Verified: `lmcode run --model github-copilot/claude-haiku-4.5 "..."` now returns output (was 404).
+- Applied to `~/.config/lmcode/opencode.jsonc` (claude-opus-4.8, claude-sonnet-4.6, claude-haiku-4.5).
+- FOLLOW-UP (repo fix, optional): change models.ts so copilot claude models default to
+  `@ai-sdk/github-copilot` instead of `@ai-sdk/anthropic`, so claude works out-of-the-box without
+  manual config.
