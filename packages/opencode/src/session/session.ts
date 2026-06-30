@@ -428,6 +428,16 @@ export interface Interface {
     workspaceID?: WorkspaceV2.ID
   }) => Effect.Effect<Info>
   readonly fork: (input: { sessionID: SessionID; messageID?: MessageID }) => Effect.Effect<Info, NotFound>
+  // Reconstruct a session record with a SPECIFIC id (handover import). Idempotent:
+  // if the id already exists locally, reconciles agent/model/title instead of
+  // creating a duplicate. Returns whether the session already existed.
+  readonly adopt: (input: {
+    id: SessionID
+    title?: string
+    agent?: string
+    model?: Schema.Schema.Type<typeof Model>
+    directory?: string
+  }) => Effect.Effect<{ info: Info; existed: boolean }>
   readonly touch: (sessionID: SessionID) => Effect.Effect<void>
   readonly get: (id: SessionID) => Effect.Effect<Info, NotFound>
   readonly setTitle: (input: { sessionID: SessionID; title: string }) => Effect.Effect<void>
@@ -755,6 +765,36 @@ export const layer: Layer.Layer<
       yield* patch(sessionID, { time: { updated: Date.now() } }).pipe(Effect.orDie)
     })
 
+    const adopt = Effect.fn("Session.adopt")(function* (input: {
+      id: SessionID
+      title?: string
+      agent?: string
+      model?: Schema.Schema.Type<typeof Model>
+      directory?: string
+    }) {
+      const ctx = yield* InstanceState.context
+      const directory = input.directory ?? ctx.directory
+      const existing = yield* get(input.id).pipe(Effect.catchTag("NotFoundError", () => Effect.succeed(undefined)))
+      if (existing) {
+        yield* patch(input.id, {
+          ...(input.title ? { title: input.title } : {}),
+          ...(input.agent ? { agent: input.agent } : {}),
+          ...(input.model ? { model: input.model } : {}),
+          time: { updated: Date.now() },
+        }).pipe(Effect.orDie)
+        return { info: yield* get(input.id).pipe(Effect.orDie), existed: true }
+      }
+      const info = yield* createNext({
+        id: input.id,
+        directory,
+        path: sessionPath(ctx.worktree, directory),
+        title: input.title,
+        agent: input.agent,
+        model: input.model,
+      })
+      return { info, existed: false }
+    })
+
     const setTitle = Effect.fn("Session.setTitle")(function* (input: { sessionID: SessionID; title: string }) {
       yield* patch(input.sessionID, { title: input.title }).pipe(Effect.orDie)
     })
@@ -913,6 +953,7 @@ export const layer: Layer.Layer<
       listGlobal,
       create,
       fork,
+      adopt,
       touch,
       get,
       setTitle,
