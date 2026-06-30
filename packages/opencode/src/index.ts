@@ -26,6 +26,7 @@ import { WebCommand } from "./cli/cmd/web"
 import { PrCommand } from "./cli/cmd/pr"
 import { SessionCommand } from "./cli/cmd/session"
 import { ConfigCommand } from "./cli/cmd/config"
+import { OrchestratorCommand } from "./cli/cmd/orchestrator"
 import { DbCommand } from "./cli/cmd/db"
 import { errorMessage } from "./util/error"
 import { PluginCommand } from "./cli/cmd/plug"
@@ -125,6 +126,7 @@ const cli = yargs(args)
   .command(PrCommand)
   .command(SessionCommand)
   .command(ConfigCommand)
+  .command(OrchestratorCommand)
   .command(PluginCommand)
   .command(DbCommand)
   .fail((msg, err) => {
