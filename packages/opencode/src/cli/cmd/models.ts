@@ -19,6 +19,10 @@ export const ModelsCommand = effectCmd({
         describe: "use more verbose model output (includes metadata like costs)",
         type: "boolean",
       })
+      .option("json", {
+        describe: "output models as a JSON array (id, limits, capabilities, reasoning-effort variants)",
+        type: "boolean",
+      })
       .option("refresh", {
         describe: "refresh the models cache from models.dev",
         type: "boolean",
@@ -46,9 +50,39 @@ export const ModelsCommand = effectCmd({
       }
     }
 
+    // --json wins over --verbose. `variants` keys are the reasoning-effort
+    // choices (e.g. low/medium/high/xhigh/max) an agent can select per model.
+    const toJson = (providerID: ProviderV2.ID) => {
+      const p = providers[providerID]
+      return Object.entries(p.models)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([modelID, model]) => ({
+          id: `${providerID}/${modelID}`,
+          provider: providerID as string,
+          name: model.name,
+          limit: {
+            context: model.limit.context ?? null,
+            input: model.limit.input ?? null,
+            output: model.limit.output ?? null,
+          },
+          capabilities: {
+            reasoning: model.capabilities.reasoning,
+            toolcall: model.capabilities.toolcall,
+            attachment: model.capabilities.attachment,
+            temperature: model.capabilities.temperature,
+          },
+          variants: Object.keys(model.variants ?? {}),
+        }))
+    }
+
     if (args.provider) {
       const providerID = ProviderV2.ID.make(args.provider)
       if (!providers[providerID]) return yield* fail(`Provider not found: ${args.provider}`)
+      if (args.json) {
+        process.stdout.write(JSON.stringify(toJson(providerID), null, 2))
+        process.stdout.write(EOL)
+        return
+      }
       print(providerID, args.verbose)
       return
     }
@@ -60,6 +94,13 @@ export const ModelsCommand = effectCmd({
       if (!aIsOpencode && bIsOpencode) return 1
       return a.localeCompare(b)
     })
+
+    if (args.json) {
+      const all = ids.flatMap((providerID) => toJson(ProviderV2.ID.make(providerID)))
+      process.stdout.write(JSON.stringify(all, null, 2))
+      process.stdout.write(EOL)
+      return
+    }
 
     for (const providerID of ids) print(ProviderV2.ID.make(providerID), args.verbose)
   }),
