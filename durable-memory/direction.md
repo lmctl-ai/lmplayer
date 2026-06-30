@@ -35,3 +35,16 @@ Operator-stated direction for what lmcode is. Use this to judge design decisions
 - Default command sends a prompt (not TUI); `lmcode tui` explicit.
 - Config is editable + has `config get/set/unset/verify`.
 - Models/effort/auth are all CLI-discoverable.
+
+## Progress on the direction
+- DONE: standalone config (no parent/ancestor merge) — commit d66fb70c7 (paths.ts).
+- DONE: file-based permissions, no popup — commit b1f0e9612. Config field `permission_ask: deny|allow`
+  (default deny) collapses any residual "ask" at the V1 permission `ask` funnel (the live path for
+  run/serve) to the fallback; explicit allow/deny still honored; nothing blocks on a human. V2 core
+  permission left unchanged (not on the run/serve live path). Verify covers the field.
+  - Live permission path = V1 (`packages/opencode/src/permission/index.ts`), reached via
+    SessionPrompt.loop + V1 tools (ctx.ask). V2 (`packages/core/src/permission.ts`) NOT reached by run/serve.
+- NEXT: single-user sequential request queue for `serve` (one agent run at a time, FIFO). Research the
+  serve prompt-execution path + where concurrency happens before implementing.
+- OPTIONAL: repo-side claude fix so claude-via-copilot works out-of-the-box (route via @ai-sdk/github-copilot
+  in models.ts) — currently works via the user config override in ~/.config/lmcode/opencode.jsonc.
