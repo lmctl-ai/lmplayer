@@ -27,6 +27,7 @@ import { GhTool } from "./linux/gh"
 import { FindTool } from "./linux/find"
 import { RgTool } from "./linux/rg"
 import { TarTool } from "./linux/tar"
+import { CurlTool } from "./linux/curl"
 import * as Tool from "./tool"
 import { Config } from "@/config/config"
 import { type ToolContext as PluginToolContext, type ToolDefinition } from "@opencode-ai/plugin"
@@ -127,6 +128,7 @@ export const layer = Layer.effect(
     const findtool = yield* FindTool
     const rgtool = yield* RgTool
     const tartool = yield* TarTool
+    const curltool = yield* CurlTool
     const agent = yield* Agent.Service
 
     const state = yield* InstanceState.make<State>(
@@ -245,6 +247,7 @@ export const layer = Layer.effect(
           find: Tool.init(findtool),
           rg: Tool.init(rgtool),
           tar: Tool.init(tartool),
+          curl: Tool.init(curltool),
         })
 
         return {
@@ -275,6 +278,7 @@ export const layer = Layer.effect(
             tool.find,
             tool.rg,
             tool.tar,
+            tool.curl,
             ...(flags.experimentalLspTool ? [tool.lsp] : []),
             ...(flags.experimentalPlanMode && flags.client === "cli" ? [tool.plan] : []),
           ],

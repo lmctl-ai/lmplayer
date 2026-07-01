@@ -101,7 +101,7 @@ describe("tool.registry", () => {
       const registry = yield* ToolRegistry.Service
       const ids = yield* registry.ids()
 
-      for (const id of ["mkdir", "rm", "mv", "cp", "touch", "ls", "gh", "find", "rg", "tar"]) {
+      for (const id of ["mkdir", "rm", "mv", "cp", "touch", "ls", "gh", "find", "rg", "tar", "curl"]) {
         expect(ids).toContain(id)
       }
     }),
