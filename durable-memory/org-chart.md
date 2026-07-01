@@ -17,7 +17,7 @@
 - Model: github-copilot/gpt-5.4 (works). Bun: /tmp/opencode/.bun/bin/bun. Dev wrapper: ~/.local/bin/lmcode.
 
 ## Instance registry (instance | role | worktree dir | sessionID | status)
-- instance-1 | orientation trial | /niceapps/mma/oc/lmcode-wt/orientation | <pending> | trial
+- instance-1 | tool-calls coder (trial) | /tmp/lmcode-inst1 (empty-dir trial) | ses_0e22cf969ffeHc8Xl5JXKxaARF | VALIDATED
 (more added as the team grows)
 
 ## Roster plan (grow incrementally)
@@ -34,3 +34,12 @@
 - memory: organize/durable-memory refinements (topic files, bounded index tuning).
 - cli-parse: CLI hardening, --json outputs, config UX.
 - QA: tests for all of the above via the mock-LLM harness + real-model dogfood.
+
+## TRIAL RESULT (instance-1) — mechanism VALIDATED
+- Empty dir /tmp/lmcode-inst1. Task: create NOTES.md + confirm ready -> DONE (used write tool, EXIT 0).
+- Resume via `run --session ses_0e22cf969ffeHc8Xl5JXKxaARF` -> answered its role + created file FROM MEMORY
+  (0 tools), same sessionID. Persistent, resumable instance confirmed.
+- MODEL NOTE: github-copilot/gpt-5.4 now 'not found' (catalog shifted; suggests gpt-5.3-codex, gpt-5.5).
+  Using github-copilot/gpt-5.3-codex for instances (works). Verify available models before big runs.
+- NEXT (trial-error, incremental): give instance-1 a small REAL task, then add instance-2 as REVIEWER/QA.
+- Cleanup note: removed orientation worktree (unused; the big-repo read errored on the bad model, not the tree).
