@@ -63,3 +63,17 @@ Unknown / unparseable / undeclared -> DENY. Nothing opaque executes.
   - Then POLICY ENGINE (IAM statements, semantic verbs read/create/modify/delete + folder/repo/network, default-deny,
     engineer config) wired at the Permission.ask funnel (permission/index.ts) reusing core/src/policy.ts evaluate.
   - Then REMOVE bash from the secured toolset (registry or agent permission bash:deny) once coverage is sufficient.
+
+## LINTOOLS-3 (git) DONE + REAL-MODEL DOGFOOD (committed)
+- git tool (a6072060c) + title cosmetic fix (24ea5d414). Reviewer1 signed off.
+- COPILOT DOGFOOD (bash disabled via config {tools:{bash:false}, permission:{read/edit allow, bash deny}}):
+  ran `lmcode run --model github-copilot/gpt-5.4` on a real task (mkdir src; write src/greet.py; git add; git
+  commit) in a temp repo. The real model completed the ENTIRE task using ONLY the structured tools (mkdir, touch,
+  write/patch, git) with NO bash — file created + committed (2e7f44f). Proves the secured toolset is sufficient
+  for real coding. (Lesson: run from the TARGET cwd; a first run from packages/opencode accidentally committed to
+  the lmcode repo — cleaned up via reset.)
+- OBSERVATION: the model sometimes prefixes args with a redundant "git" thought, but passed correct args (the
+  double-"git" was only a title cosmetic, now fixed). Consider: git tool description should state args EXCLUDE the
+  leading "git"; optionally strip a leading "git" token defensively. (minor, iterate.)
+## REMAINING ITERATIONS: gh tool (parse-as-is), ls (read), then lmprobe wires the IAM policy engine + we remove
+## bash from the secured toolset once coverage is enough. Then dogfood other projects.
