@@ -152,3 +152,15 @@
 - To run the multi-project autopilot fleet at reasonable speed, the host needs CPU headroom (or dedicated
   resources). Everything is captured/continuable (project specs, runbook, org chart, resumable sessions) so the
   fleet executes cleanly once there's capacity.
+
+## AUTOPILOT RUNNING (fire-and-forget; check via session ls/tail + git log on branch)
+- P-external-cli: ses_0e171f9fa, worktree lmcode-wt/external-cli, branch vertical-external-cli, gpt-5.5.
+  Directive: implement SAFE parse-as-is CLI tools one at a time (rg, tar, curl, wget, unzip), each mirror git.ts +
+  tests, self-verify (typecheck+tests), COMMIT each on the branch. DEFER bun/npm/pnpm/yarn/docker (untrusted code
+  execution -> separate policy; writes NOTES-defer.md). Grinds slowly under host load — that's fine (no deadline).
+  Sanity-review pattern: `git -C lmcode-wt/external-cli log --oneline`, spot-check a tool + tests, then merge the
+  green branch to dev (regular merge; dev has advanced).
+- P-observability: specced (project-observability.md) incl. small-compaction-trigger stress test. Ready to launch
+  as its own autopilot instance (same worktree+bun install+clarify->autopilot pattern) when I cycle to it.
+- FIRE-AND-FORGET PATTERN (for loaded host / no deadline): launch autopilot detached (setsid ... &), do NOT
+  tight-poll; check infrequently via `lmcode session ls` / `session tail <id>` + branch git log; retry on crash.
