@@ -16,6 +16,11 @@ import { WebFetchTool } from "./webfetch"
 import { WriteTool } from "./write"
 import { InvalidTool } from "./invalid"
 import { SkillTool } from "./skill"
+import { MkdirTool } from "./linux/mkdir"
+import { RmTool } from "./linux/rm"
+import { MvTool } from "./linux/mv"
+import { CpTool } from "./linux/cp"
+import { TouchTool } from "./linux/touch"
 import * as Tool from "./tool"
 import { Config } from "@/config/config"
 import { type ToolContext as PluginToolContext, type ToolDefinition } from "@opencode-ai/plugin"
@@ -105,6 +110,11 @@ export const layer = Layer.effect(
     const greptool = yield* GrepTool
     const patchtool = yield* ApplyPatchTool
     const skilltool = yield* SkillTool
+    const mkdirtool = yield* MkdirTool
+    const rmtool = yield* RmTool
+    const mvtool = yield* MvTool
+    const cptool = yield* CpTool
+    const touchtool = yield* TouchTool
     const agent = yield* Agent.Service
 
     const state = yield* InstanceState.make<State>(
@@ -212,6 +222,11 @@ export const layer = Layer.effect(
           question: Tool.init(question),
           lsp: Tool.init(lsptool),
           plan: Tool.init(plan),
+          mkdir: Tool.init(mkdirtool),
+          rm: Tool.init(rmtool),
+          mv: Tool.init(mvtool),
+          cp: Tool.init(cptool),
+          touch: Tool.init(touchtool),
         })
 
         return {
@@ -231,6 +246,11 @@ export const layer = Layer.effect(
             tool.search,
             tool.skill,
             tool.patch,
+            tool.mkdir,
+            tool.rm,
+            tool.mv,
+            tool.cp,
+            tool.touch,
             ...(flags.experimentalLspTool ? [tool.lsp] : []),
             ...(flags.experimentalPlanMode && flags.client === "cli" ? [tool.plan] : []),
           ],
