@@ -101,3 +101,16 @@
   toolset (validates the replace-bash goal end-to-end); (b) remove/gate bash in secured mode (config/agent
   permission bash:deny by default in a 'secured' agent) — keep bash for dev instances; (c) more CLIs (aws-style
   MCP-wrap), verticals (memory/permission/cli-parse). lmprobe wires the IAM policy against the tools' classify().
+
+## FLEET CYCLE 4 — session ls/tail (WIP, on branch cli-session-cmds f3b439f16)
+- instance-5 (cli-parse coder, ses_0e1eeeec2, gpt-5.5): implemented `lmcode session ls` (list sessions:
+  id/title/dir/messageCount via sdk.session.list()+messages()) and `lmcode session tail <id> [-n N]` (last N
+  messages via sdk.session.messages(limit)) in cli/cmd/session.ts. Mirrors lmctl ls/tail for fleet management.
+- STATUS: code written + committed on branch cli-session-cmds; NOT yet typecheck/test-verified — the instance
+  hung on self-verification and the HOST became externally saturated. VERIFY + ff-merge to dev when load subsides:
+  cd worktree; re-add node_modules symlinks; `bun run typecheck`; run `session ls`/`session tail <id>`; then
+  remove symlinks + `git merge --ff-only cli-session-cmds` in MAIN.
+- ENV BLOCKER (not mine): host CPU saturated by EXTERNAL processes — java (155%), the real /usr/local/bin/opencode
+  (106%), k8s, another claude. My lmcode instances were killed and are NOT the cause. Heavy commands (cold bun
+  test/typecheck, big git scans) intermittently hit the 120s tool timeout; simple commands work. Skip heavy ops
+  until load drops. Worktree lmcode-wt/cli left intact for pickup.
