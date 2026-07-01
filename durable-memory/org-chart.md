@@ -43,3 +43,18 @@
   Using github-copilot/gpt-5.3-codex for instances (works). Verify available models before big runs.
 - NEXT (trial-error, incremental): give instance-1 a small REAL task, then add instance-2 as REVIEWER/QA.
 - Cleanup note: removed orientation worktree (unused; the big-repo read errored on the bad model, not the tree).
+
+## FLEET CYCLE 1 — ls tool — SHIPPED (dev e7b24634a)
+- instance-1 (coder, ses_0e228ce80, worktree lmcode-wt/tool-calls, gpt-5.3-codex): implemented structured ls tool
+  (exec wrap, -- guard, external_directory gate, permission read) + tests. Self-verified typecheck+tests.
+- instance-2 (QA reviewer, ses_0e220bbc0, gpt-5.3-codex): reviewed the diff vs mkdir/rm pattern -> SIGNED OFF.
+- meta-lead (me): objective verify (typecheck + 16 tests green) -> committed on worktree branch -> ff-merge to dev
+  -> removed worktree. I wrote no code.
+- LEARNINGS: (a) run instances DETACHED (setsid ... &) and POLL a jsonl file; the bash-tool 120s timeout can't
+  block long runs. (b) combined bun test can flake on first run (timing) -> re-run to confirm. (c) integrate =
+  commit on worktree branch + `git merge --ff-only <branch>` into dev + `git worktree remove`. (d) instances need
+  PATH incl /tmp/opencode/.bun/bin and symlinked node_modules in the worktree to self-verify. (e) gpt-5.3-codex
+  works (5.4 catalog-gone; revisit).
+- NEXT: fleet cycle 2 = gh tool (external-CLI, parse-as-is + deny-list + classify like git). If gh binary/auth
+  unavailable -> instance implements classify + deny-list + UNIT tests (no gh-run needed); skip behavioral. Then
+  reviewer. Then continue: remove-bash slice, memory/permission/cli verticals.
