@@ -71,6 +71,17 @@ describe("tool.registry", () => {
     }),
   )
 
+  it.instance("registers the linux file tools", () =>
+    Effect.gen(function* () {
+      const registry = yield* ToolRegistry.Service
+      const ids = yield* registry.ids()
+
+      for (const id of ["mkdir", "rm", "mv", "cp", "touch"]) {
+        expect(ids).toContain(id)
+      }
+    }),
+  )
+
   it.instance("hides task background parameter unless experimental background subagents are enabled", () =>
     Effect.gen(function* () {
       const registry = yield* ToolRegistry.Service
