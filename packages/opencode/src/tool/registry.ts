@@ -29,6 +29,7 @@ import { RgTool } from "./linux/rg"
 import { TarTool } from "./linux/tar"
 import { CurlTool } from "./linux/curl"
 import { WgetTool } from "./linux/wget"
+import { UnzipTool } from "./linux/unzip"
 import * as Tool from "./tool"
 import { Config } from "@/config/config"
 import { type ToolContext as PluginToolContext, type ToolDefinition } from "@opencode-ai/plugin"
@@ -131,6 +132,7 @@ export const layer = Layer.effect(
     const tartool = yield* TarTool
     const curltool = yield* CurlTool
     const wgettool = yield* WgetTool
+    const unziptool = yield* UnzipTool
     const agent = yield* Agent.Service
 
     const state = yield* InstanceState.make<State>(
@@ -251,6 +253,7 @@ export const layer = Layer.effect(
           tar: Tool.init(tartool),
           curl: Tool.init(curltool),
           wget: Tool.init(wgettool),
+          unzip: Tool.init(unziptool),
         })
 
         return {
@@ -283,6 +286,7 @@ export const layer = Layer.effect(
             tool.tar,
             tool.curl,
             tool.wget,
+            tool.unzip,
             ...(flags.experimentalLspTool ? [tool.lsp] : []),
             ...(flags.experimentalPlanMode && flags.client === "cli" ? [tool.plan] : []),
           ],
