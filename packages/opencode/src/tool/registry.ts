@@ -23,6 +23,7 @@ import { CpTool } from "./linux/cp"
 import { TouchTool } from "./linux/touch"
 import { GitTool } from "./linux/git"
 import { LsTool } from "./linux/ls"
+import { GhTool } from "./linux/gh"
 import * as Tool from "./tool"
 import { Config } from "@/config/config"
 import { type ToolContext as PluginToolContext, type ToolDefinition } from "@opencode-ai/plugin"
@@ -119,6 +120,7 @@ export const layer = Layer.effect(
     const touchtool = yield* TouchTool
     const gittool = yield* GitTool
     const lstool = yield* LsTool
+    const ghtool = yield* GhTool
     const agent = yield* Agent.Service
 
     const state = yield* InstanceState.make<State>(
@@ -233,6 +235,7 @@ export const layer = Layer.effect(
           touch: Tool.init(touchtool),
           git: Tool.init(gittool),
           ls: Tool.init(lstool),
+          gh: Tool.init(ghtool),
         })
 
         return {
@@ -259,6 +262,7 @@ export const layer = Layer.effect(
             tool.touch,
             tool.git,
             tool.ls,
+            tool.gh,
             ...(flags.experimentalLspTool ? [tool.lsp] : []),
             ...(flags.experimentalPlanMode && flags.client === "cli" ? [tool.plan] : []),
           ],
