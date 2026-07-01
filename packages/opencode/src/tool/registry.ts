@@ -28,6 +28,7 @@ import { FindTool } from "./linux/find"
 import { RgTool } from "./linux/rg"
 import { TarTool } from "./linux/tar"
 import { CurlTool } from "./linux/curl"
+import { WgetTool } from "./linux/wget"
 import * as Tool from "./tool"
 import { Config } from "@/config/config"
 import { type ToolContext as PluginToolContext, type ToolDefinition } from "@opencode-ai/plugin"
@@ -129,6 +130,7 @@ export const layer = Layer.effect(
     const rgtool = yield* RgTool
     const tartool = yield* TarTool
     const curltool = yield* CurlTool
+    const wgettool = yield* WgetTool
     const agent = yield* Agent.Service
 
     const state = yield* InstanceState.make<State>(
@@ -248,6 +250,7 @@ export const layer = Layer.effect(
           rg: Tool.init(rgtool),
           tar: Tool.init(tartool),
           curl: Tool.init(curltool),
+          wget: Tool.init(wgettool),
         })
 
         return {
@@ -279,6 +282,7 @@ export const layer = Layer.effect(
             tool.rg,
             tool.tar,
             tool.curl,
+            tool.wget,
             ...(flags.experimentalLspTool ? [tool.lsp] : []),
             ...(flags.experimentalPlanMode && flags.client === "cli" ? [tool.plan] : []),
           ],
