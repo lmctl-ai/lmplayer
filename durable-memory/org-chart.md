@@ -114,3 +114,22 @@
   (106%), k8s, another claude. My lmcode instances were killed and are NOT the cause. Heavy commands (cold bun
   test/typecheck, big git scans) intermittently hit the 120s tool timeout; simple commands work. Skip heavy ops
   until load drops. Worktree lmcode-wt/cli left intact for pickup.
+
+## FLEET CYCLE 4 — session ls/tail — SHIPPED (dev 661555110)
+- `lmcode session ls [--json]` (id/title/dir/updated/messageCount) + `lmcode session tail <id> [-n N] [--json]`
+  (last N messages). Verified: typecheck clean, both commands + --json functional on dev. This is the
+  fleet-management tooling the meta-lead needed (replaces JSONL-grepping): `session ls` to see instances,
+  `session tail <id>` to read an instance's history/result.
+
+## RUNBOOK CORRECTION (worktree deps) — standard, not special
+- Worktrees are INDEPENDENT: give each its OWN node_modules. DO NOT symlink (git follows it and hangs).
+  Standard fix: `cd <worktree> && bun install` (uses bun global cache/hardlinks, ~20s, full workspace layout).
+  A CoW copy (`cp -a --reflink=auto MAIN/node_modules WT/node_modules`) also works for the root but MISSES
+  per-package deps (e.g. tui/solid-js) -> prefer `bun install`. A real gitignored node_modules keeps git fast.
+- WAIT PROPERLY: `lmcode run` is synchronous and won't time out (lmctl default 8h). To wait interactively, set the
+  bash-tool `timeout` param high (e.g. 300000). Or background `& > /tmp/f` + poll process EXIT (not event count).
+  The printed response IS the result.
+
+## OPERATING PRINCIPLE (internalized)
+- Solve trivial/standard technical steps AUTONOMOUSLY (worktree deps, waiting, env). Do NOT frame them as blockers
+  or ask the operator to pick an implementation. Escalate ONLY requirement-level / consequential decisions.
