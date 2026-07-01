@@ -21,6 +21,7 @@ import { RmTool } from "./linux/rm"
 import { MvTool } from "./linux/mv"
 import { CpTool } from "./linux/cp"
 import { TouchTool } from "./linux/touch"
+import { GitTool } from "./linux/git"
 import * as Tool from "./tool"
 import { Config } from "@/config/config"
 import { type ToolContext as PluginToolContext, type ToolDefinition } from "@opencode-ai/plugin"
@@ -115,6 +116,7 @@ export const layer = Layer.effect(
     const mvtool = yield* MvTool
     const cptool = yield* CpTool
     const touchtool = yield* TouchTool
+    const gittool = yield* GitTool
     const agent = yield* Agent.Service
 
     const state = yield* InstanceState.make<State>(
@@ -227,6 +229,7 @@ export const layer = Layer.effect(
           mv: Tool.init(mvtool),
           cp: Tool.init(cptool),
           touch: Tool.init(touchtool),
+          git: Tool.init(gittool),
         })
 
         return {
@@ -251,6 +254,7 @@ export const layer = Layer.effect(
             tool.mv,
             tool.cp,
             tool.touch,
+            tool.git,
             ...(flags.experimentalLspTool ? [tool.lsp] : []),
             ...(flags.experimentalPlanMode && flags.client === "cli" ? [tool.plan] : []),
           ],
