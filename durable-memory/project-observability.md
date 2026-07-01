@@ -30,6 +30,14 @@ Operator intent: ballpark per-instance PERFORMANCE visibility + TROUBLESHOOTING,
 - GOAL: numbers showing organize keeps more information at similar/lower context cost than summary — since
   /organize is novel, instrument it thoroughly (index.md size over time, tokens/turn, needle-retention %).
 
+## STRESS TEST — small compaction trigger (operator)
+- Add a config to force the compaction TRIGGER at a small fixed size (e.g. `compaction.trigger_tokens: 100000`),
+  instead of firing only near the model's ~1M context limit. Wire it into the overflow predicate
+  (packages/opencode/src/session/overflow.ts isOverflow): if `trigger_tokens` is set, trigger when total tokens
+  >= trigger_tokens (a hard cap), else the existing limit-based logic.
+- Purpose: make organize (and, behind compaction.mode:"summary", compact) fire FREQUENTLY -> a stress test on
+  context management + lots of data points to compare organize vs compact. Set trigger ~100K for fleet stress runs.
+
 ## Data sources (already present)
 - tokens: assistant message `tokens` field. Context projection: filterCompacted + the system assembly in
   prompt.ts (the request built each turn). Files touched: tool events (write/edit/apply_patch/mkdir/touch/rm/mv/cp).
