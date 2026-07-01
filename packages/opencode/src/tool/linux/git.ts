@@ -290,7 +290,7 @@ export const GitTool = Tool.define(
           const shaped = report({
             binary: "git",
             result,
-            title: "git " + params.args.join(" "),
+            title: params.args.join(" "),
             success: `git ${classification.subcommand} completed`,
           })
           return {
