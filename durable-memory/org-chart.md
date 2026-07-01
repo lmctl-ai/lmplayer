@@ -83,3 +83,21 @@
    in MAIN -> `git worktree remove --force` + `git branch -d`. Verify + typecheck on MAIN.
 6. Record the cycle here. Skip blockers, keep going.
 - SHIPPED so far by fleet: ls (e7b24634a), gh (ec5acb32f). Bootstrap fleet model VALIDATED.
+
+## FLEET CYCLE 3 — find tool — SHIPPED (dev c6dedf1ef)
+- instance-4 (external-cli coder, ses_0e20b4cbc, gpt-5.3-codex): find tool parse-as-is mirroring git; deny-list
+  (-exec/-execdir/-ok/-okdir/-delete/-fprintf/-fprint/-fprint0/-fls), external gate, permission read, classify.
+  Verify 6 find tests + 19 on main (find+registry). Merged, worktree cleaned.
+
+## BOOTSTRAP STATUS — fleet is a running machine
+- SHIPPED via the lmcode dogfood fleet (meta-lead orchestrated, I wrote no code): ls (e7b24634a), gh (ec5acb32f),
+  find (c6dedf1ef). Cycle 1 exercised full coder+reviewer+integrate; cycles 2-3 leaned on pattern-mirror +
+  objective test verify for momentum.
+- Secured toolset coverage now: file mutations (mkdir/rm/mv/cp/touch) + read/edit/write/glob/grep/apply_patch +
+  ls + git + gh + find — all structured, permissionable, with deny-lists on the parse-as-is CLIs. Approaching
+  "enough to remove bash" for the secured product mode.
+- Model: gpt-5.3-codex (5.4 catalog-gone). Runbook above is repeatable; each cycle ~10-15 min.
+- NEXT candidates: (a) holistic dogfood — a QA instance does a real task with bash DISABLED using the full new
+  toolset (validates the replace-bash goal end-to-end); (b) remove/gate bash in secured mode (config/agent
+  permission bash:deny by default in a 'secured' agent) — keep bash for dev instances; (c) more CLIs (aws-style
+  MCP-wrap), verticals (memory/permission/cli-parse). lmprobe wires the IAM policy against the tools' classify().
