@@ -44,3 +44,22 @@ Unknown / unparseable / undeclared -> DENY. Nothing opaque executes.
 - POLICY (engineer-owned config) vs RUNTIME (agent operates inside it). Keep them cleanly separate.
 - This is the SECURED mode; the current permission funnel (file-based deny/allow) is the enforcement point to
   build on.
+
+## LINTOOLS iteration (bash replacement toolset) — progress
+- LINTOOLS-1 DONE (d38fb73da): structured mkdir/rm/mv/cp/touch under src/tool/linux/ (+exec.ts helper),
+  wrap real coreutils via ChildProcessSpawner with TYPED params (no shell). Security: `--` before path operands
+  (flag-injection defense) + external_directory gating mirrored from write/edit (cp gates source read+external,
+  dest edit+external). Registered in registry.ts. Tests test/tool/linux/linux.test.ts (behavior + `--` + external
+  gating; 30 pass). Bash still present (iterating). Reviewer1 signed off.
+- Pattern to reuse for next batches: exec.ts (spawn real binary, structured params, `--` before operands,
+  external_directory assert then ctx.ask). Existing tools already cover read/edit/write/glob/grep/apply_patch.
+- NEXT ITERATIONS (planned):
+  - LINTOOLS-2 read/listing: `ls` (directory listing — not covered by glob), + maybe cat/head/tail/wc (some overlap
+    with read tool). verb=read, low risk.
+  - LINTOOLS-3 GIT (parse-as-is, flagship of the well-known-CLI approach): structured git tool that runs real git
+    and PARSES subcommand -> (verb, resource): status/log/diff=read, add/commit/checkout=modify, push=network+repo,
+    pull/fetch=network+modify, rm=delete. Start with common subcommands.
+  - LINTOOLS-4 GH (parse-as-is): gh pr/issue/repo -> (verb, resource) incl. network+repo.
+  - Then POLICY ENGINE (IAM statements, semantic verbs read/create/modify/delete + folder/repo/network, default-deny,
+    engineer config) wired at the Permission.ask funnel (permission/index.ts) reusing core/src/policy.ts evaluate.
+  - Then REMOVE bash from the secured toolset (registry or agent permission bash:deny) once coverage is sufficient.
