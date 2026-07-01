@@ -10,9 +10,12 @@ import { Flag } from "@opencode-ai/core/flag/flag"
 import { Filesystem } from "@/util/filesystem"
 import { Process } from "@/util/process"
 import { NotFoundError } from "@/storage/storage"
+import { createOpencodeClient, type OpencodeClient } from "@opencode-ai/sdk/v2"
 import { EOL } from "os"
 import path from "path"
 import { which } from "@opencode-ai/core/util/which"
+
+type SessionMessage = NonNullable<Awaited<ReturnType<OpencodeClient["session"]["messages"]>>["data"]>[number]
 
 function pagerCmd(): string[] {
   const lessOptions = ["-R", "-S"]
@@ -44,8 +47,100 @@ function pagerCmd(): string[] {
 export const SessionCommand = cmd({
   command: "session",
   describe: "manage sessions",
-  builder: (yargs: Argv) => yargs.command(SessionListCommand).command(SessionDeleteCommand).demandCommand(),
+  builder: (yargs: Argv) =>
+    yargs
+      .command(SessionLsCommand)
+      .command(SessionTailCommand)
+      .command(SessionListCommand)
+      .command(SessionDeleteCommand)
+      .demandCommand(),
   async handler() {},
+})
+
+export const SessionLsCommand = effectCmd({
+  command: "ls",
+  describe: "list sessions",
+  builder: (yargs) =>
+    yargs.option("json", {
+      describe: "output JSON",
+      type: "boolean",
+    }),
+  handler: Effect.fn("Cli.session.ls")(function* (args) {
+    const sdk = yield* localSdk()
+    yield* Effect.promise(async () => {
+      const response = await sdk.session.list()
+      const sessions = (response.data ?? []).toSorted((a, b) => b.time.updated - a.time.updated)
+      const rows = await Promise.all(
+        sessions.map(async (session) => ({
+          session,
+          messageCount: (await sdk.session.messages({ sessionID: session.id })).data?.length ?? 0,
+        })),
+      )
+
+      if (args.json) {
+        console.log(
+          JSON.stringify(
+            rows.map((row) => ({
+              id: row.session.id,
+              title: row.session.title,
+              directory: row.session.directory,
+              updated: row.session.time.updated,
+              messageCount: row.messageCount,
+            })),
+            null,
+            2,
+          ),
+        )
+        return
+      }
+
+      rows.forEach((row) => {
+        UI.println(row.session.id, row.session.title, row.session.directory)
+      })
+    })
+  }),
+})
+
+export const SessionTailCommand = effectCmd({
+  command: "tail <sessionID>",
+  describe: "print recent session messages",
+  builder: (yargs) =>
+    yargs
+      .positional("sessionID", {
+        describe: "session ID to inspect",
+        type: "string",
+        demandOption: true,
+      })
+      .option("n", {
+        describe: "number of messages to print",
+        type: "number",
+        default: 20,
+      })
+      .option("json", {
+        describe: "output JSON",
+        type: "boolean",
+      }),
+  handler: Effect.fn("Cli.session.tail")(function* (args) {
+    const sdk = yield* localSdk()
+    yield* Effect.promise(async () => {
+      const limit = Number.isInteger(args.n) && args.n >= 0 ? args.n : 20
+      const response = await sdk.session.messages({ sessionID: args.sessionID, limit })
+      const rows = (response.data ?? []).map((message) => ({
+        role: message.info.role,
+        text: messageText(message),
+        time: message.info.time.created,
+      }))
+
+      if (args.json) {
+        console.log(JSON.stringify(rows, null, 2))
+        return
+      }
+
+      rows.forEach((row) => {
+        UI.println(`${row.role}: ${row.text}`)
+      })
+    })
+  }),
 })
 
 export const SessionDeleteCommand = effectCmd({
@@ -144,4 +239,39 @@ function formatSessionJSON(sessions: Session.Info[]): string {
     directory: session.directory,
   }))
   return JSON.stringify(jsonData, null, 2)
+}
+
+const localSdk = Effect.fn("Cli.session.localSdk")(function* () {
+  const { ServerAuth } = yield* Effect.promise(() => import("@/server/auth"))
+  return createOpencodeClient({
+    baseUrl: "http://opencode.internal",
+    fetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const { Server } = await import("@/server/server")
+      const request = new Request(input, init)
+      const headers = new Headers(request.headers)
+      const auth = ServerAuth.header()
+      if (auth) headers.set("Authorization", auth)
+      return Server.Default().app.fetch(new Request(request, { headers }))
+    }) as typeof globalThis.fetch,
+    directory: process.cwd(),
+  })
+})
+
+function messageText(message: SessionMessage) {
+  const text = message.parts
+    .flatMap((part) => (part.type === "text" && !part.synthetic ? [part.text] : []))
+    .join("")
+    .trim()
+  if (text) return text
+
+  const tools = message.parts.flatMap((part) => (part.type === "tool" ? [toolMarker(part)] : []))
+  if (tools.length > 0) return tools.join(" ")
+
+  return ""
+}
+
+function toolMarker(part: Extract<SessionMessage["parts"][number], { type: "tool" }>) {
+  if (part.state.status === "completed") return `[tool:${part.tool} completed]`
+  if (part.state.status === "error") return `[tool:${part.tool} error]`
+  return `[tool:${part.tool} ${part.state.status}]`
 }
