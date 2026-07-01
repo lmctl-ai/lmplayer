@@ -133,3 +133,22 @@
 ## OPERATING PRINCIPLE (internalized)
 - Solve trivial/standard technical steps AUTONOMOUSLY (worktree deps, waiting, env). Do NOT frame them as blockers
   or ask the operator to pick an implementation. Escalate ONLY requirement-level / consequential decisions.
+
+## PROJECTS QUEUED (autopilot backlog)
+- P-external-cli (vertical): retire bash by covering common CLIs (more coreutils, parse-as-is/MCP-wrap, deny-lists).
+  Clarify run launched (ses_0e1ae7887) but TIMED OUT under host load mid-exploration — RESUMABLE.
+- P-observability (durable-memory/project-observability.md): `session report` (tokens/files/msg-size) + `session
+  health` (context size, like lmctl health) + /organize-vs-/compact CONFIGURABLE (compaction.mode) + MEASURED
+  (context reduction + needle-retention via mock harness). Validates the novel /organize with real numbers.
+- Each project: clarify goal -> instance states understanding+plan -> sanity-review/nudge -> autopilot -> nudge +
+  sanity-review. QA = find bugs, not gate.
+
+## CONSEQUENTIAL OPERATIONAL CHALLENGE (escalate) — HOST SATURATION limits fleet throughput
+- The shared host is CPU-saturated by EXTERNAL processes (measured: java ~155%, the real /usr/local/bin/opencode
+  ~106%, k8s components, another claude). My lmcode instances are NOT the cause.
+- Effect: model+local runs that should take ~1 min are exceeding 5-7 min or hitting timeouts (a simple external-cli
+  CLARIFY/plan run exceeded 400s). This directly throttles running MULTIPLE concurrent autopilot instances — the
+  near-term goal. It is outside my control (can't kill other tenants' processes).
+- To run the multi-project autopilot fleet at reasonable speed, the host needs CPU headroom (or dedicated
+  resources). Everything is captured/continuable (project specs, runbook, org chart, resumable sessions) so the
+  fleet executes cleanly once there's capacity.
