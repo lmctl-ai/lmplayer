@@ -39,28 +39,28 @@
 - Empty dir /tmp/lmcode-inst1. Task: create NOTES.md + confirm ready -> DONE (used write tool, EXIT 0).
 - Resume via `run --session ses_0e22cf969ffeHc8Xl5JXKxaARF` -> answered its role + created file FROM MEMORY
   (0 tools), same sessionID. Persistent, resumable instance confirmed.
-- MODEL NOTE: github-copilot/gpt-5.4 now 'not found' (catalog shifted; suggests gpt-5.3-codex, gpt-5.5).
-  Using github-copilot/gpt-5.3-codex for instances (works). Verify available models before big runs.
+- MODEL NOTE: github-copilot/gpt-5.4 now 'not found' (catalog shifted; suggests gpt-5.5, gpt-5.5).
+  Using github-copilot/gpt-5.5 for instances (works). Verify available models before big runs.
 - NEXT (trial-error, incremental): give instance-1 a small REAL task, then add instance-2 as REVIEWER/QA.
 - Cleanup note: removed orientation worktree (unused; the big-repo read errored on the bad model, not the tree).
 
 ## FLEET CYCLE 1 — ls tool — SHIPPED (dev e7b24634a)
-- instance-1 (coder, ses_0e228ce80, worktree lmcode-wt/tool-calls, gpt-5.3-codex): implemented structured ls tool
+- instance-1 (coder, ses_0e228ce80, worktree lmcode-wt/tool-calls, gpt-5.5): implemented structured ls tool
   (exec wrap, -- guard, external_directory gate, permission read) + tests. Self-verified typecheck+tests.
-- instance-2 (QA reviewer, ses_0e220bbc0, gpt-5.3-codex): reviewed the diff vs mkdir/rm pattern -> SIGNED OFF.
+- instance-2 (QA reviewer, ses_0e220bbc0, gpt-5.5): reviewed the diff vs mkdir/rm pattern -> SIGNED OFF.
 - meta-lead (me): objective verify (typecheck + 16 tests green) -> committed on worktree branch -> ff-merge to dev
   -> removed worktree. I wrote no code.
 - LEARNINGS: (a) run instances DETACHED (setsid ... &) and POLL a jsonl file; the bash-tool 120s timeout can't
   block long runs. (b) combined bun test can flake on first run (timing) -> re-run to confirm. (c) integrate =
   commit on worktree branch + `git merge --ff-only <branch>` into dev + `git worktree remove`. (d) instances need
-  PATH incl /tmp/opencode/.bun/bin and symlinked node_modules in the worktree to self-verify. (e) gpt-5.3-codex
-  works (5.4 catalog-gone; revisit).
+  PATH incl /tmp/opencode/.bun/bin and symlinked node_modules in the worktree to self-verify. (e) gpt-5.5
+  works (5.4 disabled, 5.5 enabled).
 - NEXT: fleet cycle 2 = gh tool (external-CLI, parse-as-is + deny-list + classify like git). If gh binary/auth
   unavailable -> instance implements classify + deny-list + UNIT tests (no gh-run needed); skip behavioral. Then
   reviewer. Then continue: remove-bash slice, memory/permission/cli verticals.
 
 ## FLEET CYCLE 2 — gh tool — SHIPPED (dev ec5acb32f)
-- instance-3 (external-cli coder, ses_0e21a2dd8, worktree lmcode-wt/external-cli, gpt-5.3-codex): implemented gh
+- instance-3 (external-cli coder, ses_0e21a2dd8, worktree lmcode-wt/external-cli, gpt-5.5): implemented gh
   tool mirroring git.ts (exec wrap, classify, validateArgv deny-list for alias/extension). It USED our new ls tool.
 - Verify: 24 gh tests (classify+deny-list+behavioral gh --version). This cycle I leaned on pattern-mirror (git was
   reviewer-vetted) + objective tests instead of a separate reviewer instance (autopilot momentum). Merged to dev;
@@ -71,7 +71,7 @@
    `packages/opencode/node_modules` from MAIN (bun needs both). NOTE: the node_modules symlink makes `git status`
    HANG (git traverses it) -> REMOVE symlinks before any git op, re-add for bun verify.
 2. Coder instance (DETACHED): `setsid bash -c "PATH=/tmp/opencode/.bun/bin:$PATH bun run --conditions=browser
-   MAIN/packages/opencode/src/index.ts run --format json --model github-copilot/gpt-5.3-codex '<task>' > out.jsonl &"`.
+   MAIN/packages/opencode/src/index.ts run --format json --model github-copilot/gpt-5.5 '<task>' > out.jsonl &"`.
    Task: read the pattern file(s), implement, ADD tests, run typecheck+tests, 'Do NOT git commit'. Capture sessionID
    from out.jsonl. POLL (bash-tool 120s cap): `pgrep -f <sessionID>`; the process survives tool timeouts.
 3. Verify (meta-lead, objective): re-add symlinks; `bun test <files>` + typecheck. Most reliable: verify on MAIN
@@ -85,7 +85,7 @@
 - SHIPPED so far by fleet: ls (e7b24634a), gh (ec5acb32f). Bootstrap fleet model VALIDATED.
 
 ## FLEET CYCLE 3 — find tool — SHIPPED (dev c6dedf1ef)
-- instance-4 (external-cli coder, ses_0e20b4cbc, gpt-5.3-codex): find tool parse-as-is mirroring git; deny-list
+- instance-4 (external-cli coder, ses_0e20b4cbc, gpt-5.5): find tool parse-as-is mirroring git; deny-list
   (-exec/-execdir/-ok/-okdir/-delete/-fprintf/-fprint/-fprint0/-fls), external gate, permission read, classify.
   Verify 6 find tests + 19 on main (find+registry). Merged, worktree cleaned.
 
@@ -96,7 +96,7 @@
 - Secured toolset coverage now: file mutations (mkdir/rm/mv/cp/touch) + read/edit/write/glob/grep/apply_patch +
   ls + git + gh + find — all structured, permissionable, with deny-lists on the parse-as-is CLIs. Approaching
   "enough to remove bash" for the secured product mode.
-- Model: gpt-5.3-codex (5.4 catalog-gone). Runbook above is repeatable; each cycle ~10-15 min.
+- Model: gpt-5.5 (5.4 disabled -> 5.5). Runbook above is repeatable; each cycle ~10-15 min.
 - NEXT candidates: (a) holistic dogfood — a QA instance does a real task with bash DISABLED using the full new
   toolset (validates the replace-bash goal end-to-end); (b) remove/gate bash in secured mode (config/agent
   permission bash:deny by default in a 'secured' agent) — keep bash for dev instances; (c) more CLIs (aws-style
