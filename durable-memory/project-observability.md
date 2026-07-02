@@ -49,3 +49,11 @@ Operator intent: ballpark per-instance PERFORMANCE visibility + TROUBLESHOOTING,
 - `compaction.mode` config flag; restore the lossy summary path behind it (organize stays default).
 - A measurement harness (mock-LLM) comparing organize vs summary: context reduction + needle-retention, emitting
   a small report. Tests + a short written finding (organize vs compact numbers).
+
+## STATUS 2026-07-02 session-health slice
+- Team branch: `team-observability` in `/niceapps/mma/oc/lmcode-wt/observability`.
+- Worker session: `ses_0df61b134ffeMRHwmbw3lO4n75`; worker branch commit `b7f5d6a56`, integrated as `190703fd9`.
+- Shipped `session health <sessionID> [--json]`, reusing `createSessionReport` aggregation for text size/token totals and adding model-limit/default context headroom output.
+- Added focused CLI test `packages/opencode/test/cli/session-health.test.ts`.
+- Verified on worker and integration branch with `bun run typecheck` plus `bun test test/cli/session-health.test.ts test/cli/session-report.test.ts` from `packages/opencode`.
+- QA note: current context size is a practical token-usage approximation, not yet exact reconstruction of the next provider request including system/durable-memory injection.
