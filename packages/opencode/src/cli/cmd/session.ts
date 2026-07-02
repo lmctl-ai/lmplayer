@@ -14,11 +14,14 @@ import { createOpencodeClient, type OpencodeClient } from "@opencode-ai/sdk/v2"
 import { EOL } from "os"
 import path from "path"
 import { which } from "@opencode-ai/core/util/which"
+import { ProviderV2 } from "@opencode-ai/core/provider"
+import { ModelV2 } from "@opencode-ai/core/model"
 
 export type SessionMessage = NonNullable<Awaited<ReturnType<OpencodeClient["session"]["messages"]>>["data"]>[number]
 
 type FileOperation = "write" | "edit" | "add" | "update" | "delete" | "mkdir" | "touch" | "rm" | "mv" | "cp"
 type TokenUsage = Extract<SessionMessage["info"], { role: "assistant" }>["tokens"]
+const DEFAULT_CONTEXT_LIMIT = 128_000
 
 function pagerCmd(): string[] {
   const lessOptions = ["-R", "-S"]
@@ -55,6 +58,7 @@ export const SessionCommand = cmd({
       .command(SessionLsCommand)
       .command(SessionTailCommand)
       .command(SessionReportCommand)
+      .command(SessionHealthCommand)
       .command(SessionListCommand)
       .command(SessionDeleteCommand)
       .demandCommand(),
@@ -173,6 +177,38 @@ export const SessionReportCommand = effectCmd({
       }
 
       console.log(formatSessionReport(report))
+    })
+  }),
+})
+
+export const SessionHealthCommand = effectCmd({
+  command: "health <sessionID>",
+  describe: "report session context health",
+  builder: (yargs) =>
+    yargs
+      .positional("sessionID", {
+        describe: "session ID to inspect",
+        type: "string",
+        demandOption: true,
+      })
+      .option("json", {
+        describe: "output JSON",
+        type: "boolean",
+      }),
+  handler: Effect.fn("Cli.session.health")(function* (args) {
+    const sdk = yield* localSdk()
+    const { Provider } = yield* Effect.promise(() => import("@/provider/provider"))
+    const providers = yield* Provider.Service.use((provider) => provider.list()).pipe(Effect.orElseSucceed(() => undefined))
+    yield* Effect.promise(async () => {
+      const response = await sdk.session.messages({ sessionID: args.sessionID })
+      const health = createSessionHealth(args.sessionID, response.data ?? [], providers)
+
+      if (args.json) {
+        console.log(JSON.stringify(health, null, 2))
+        return
+      }
+
+      console.log(formatSessionHealth(health))
     })
   }),
 })
@@ -340,6 +376,37 @@ export function createSessionReport(sessionID: string, messages: SessionMessage[
   }
 }
 
+export function createSessionHealth(
+  sessionID: string,
+  messages: SessionMessage[],
+  providers?: Record<ProviderV2.ID, { models: Record<ModelV2.ID, { limit: { context?: number } }> }>,
+) {
+  const report = createSessionReport(sessionID, messages)
+  const model = latestModel(messages)
+  const contextLimit = model ? providers?.[ProviderV2.ID.make(model.providerID)]?.models[ModelV2.ID.make(model.modelID)]?.limit.context : undefined
+  const limit = contextLimit && contextLimit > 0 ? contextLimit : DEFAULT_CONTEXT_LIMIT
+  const usedTokens = report.tokens.input + report.tokens.output + report.tokens.reasoning
+  return {
+    sessionID,
+    messageCount: report.messageCount,
+    text: report.text,
+    tokens: report.tokens,
+    context: {
+      used: usedTokens,
+      limit,
+      limitSource: contextLimit && contextLimit > 0 ? ("model" as const) : ("default" as const),
+      percentUsed: limit > 0 ? Math.round((usedTokens / limit) * 10_000) / 100 : null,
+      headroom: Math.max(limit - usedTokens, 0),
+    },
+    model: model ?? null,
+    state: {
+      hasMessages: messages.length > 0,
+      firstMessageAt: report.duration.start,
+      lastMessageAt: report.duration.end,
+    },
+  }
+}
+
 function formatSessionReport(report: ReturnType<typeof createSessionReport>) {
   const lines = [
     `Session: ${report.sessionID}`,
@@ -354,6 +421,31 @@ function formatSessionReport(report: ReturnType<typeof createSessionReport>) {
   )
   const pathLines = report.files.paths.map((filePath) => `  ${filePath}`)
   return [...lines, ...(operationLines.length > 0 ? ["Operations:", ...operationLines] : []), ...pathLines].join(EOL)
+}
+
+export function formatSessionHealth(health: ReturnType<typeof createSessionHealth>) {
+  return [
+    `Session: ${health.sessionID}`,
+    `Messages: ${health.messageCount}`,
+    `Text: ${health.text.chars} chars, ${health.text.bytes} bytes`,
+    `Tokens: total ${health.tokens.total}, input ${health.tokens.input}, output ${health.tokens.output}, reasoning ${health.tokens.reasoning}, cache-read ${health.tokens.cache.read}, cache-write ${health.tokens.cache.write}`,
+    `Context: ${health.context.used} / ${health.context.limit} tokens (${formatPercent(health.context.percentUsed)} used, ${health.context.headroom} headroom, ${health.context.limitSource} limit)`,
+    `Model: ${health.model ? `${health.model.providerID}/${health.model.modelID}` : "unknown"}`,
+    `State: ${health.state.hasMessages ? "has messages" : "empty"}, first ${health.state.firstMessageAt ?? "n/a"}, last ${health.state.lastMessageAt ?? "n/a"}`,
+  ].join(EOL)
+}
+
+function formatPercent(value: number | null) {
+  if (value === null) return "unknown"
+  return `${value.toFixed(2).replace(/\.00$/, "")}%`
+}
+
+function latestModel(messages: SessionMessage[]) {
+  return messages
+    .toReversed()
+    .flatMap((message) =>
+      message.info.role === "assistant" ? [{ providerID: message.info.providerID, modelID: message.info.modelID }] : [],
+    )[0]
 }
 
 function emptyTokens() {
