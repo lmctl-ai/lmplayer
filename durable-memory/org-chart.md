@@ -164,3 +164,25 @@
   as its own autopilot instance (same worktree+bun install+clarify->autopilot pattern) when I cycle to it.
 - FIRE-AND-FORGET PATTERN (for loaded host / no deadline): launch autopilot detached (setsid ... &), do NOT
   tight-poll; check infrequently via `lmcode session ls` / `session tail <id>` + branch git log; retry on crash.
+
+## RESUME 2026-07-02 (post nightly-reboot) + TEAM PIVOT (hierarchical fleet)
+- REBOOT RECOVERY: VM auto-shuts-down each evening to save cost; `/tmp` is WIPED. bun was in /tmp -> GONE.
+  FIX (persistent): `BUN_INSTALL=/home/mma/.bun curl -fsSL https://bun.sh/install | bash` -> bun now at
+  `/home/mma/.bun/bin/bun` (v1.3.14, survives reboot). Auth (~/.local/share/lmcode/auth.json) + all node_modules
+  (on /niceapps) + git branches all PERSIST. Smoke test green (gpt-5.5 -> PONG). NEVER symlink node_modules.
+- MERGED to dev after resume: external-cli batch `fe931ff74` (rg/tar/curl/wget/unzip = 15 linux tools total, 151
+  tool tests pass) and observability slice-1 `7f1d92535` (`session report <id> [--json]`: tokens/duration/touched
+  files; convention-matching, test green).
+- TEAM PIVOT (operator directive): stop micromanaging individual workers; SEED a TEAM-LEAD instance (like lmctl
+  `seed`, but simpler: no MCP, the `run` command IS the whole interface) and COACH it with my runbook so leads
+  drive workers and I only manage leads. Coaching manual = `durable-memory/team-lead-brief.md`.
+- SEED GOTCHA (learned): passing a prompt with backticks through `bash -c "... \"$VAR\""` triggers command
+  substitution -> corrupts the prompt AND executes fragments. SAFE PATTERN: write prompt to a file, run via
+  single-quoted body: `setsid bash -c 'cd MAIN && PATH=/home/mma/.bun/bin:$PATH bun run --conditions=browser
+  packages/opencode/src/index.ts run --format json --model github-copilot/gpt-5.5 "$(< /tmp/task.txt)" > log 2>&1' &`
+  ("$(< file)" output is NOT re-scanned for backticks). Verify no "command not found" in the log after seeding.
+- ACTIVE: observability team-lead seeded ses_0df62c098ffe6WO5RddN1jthJx (log /tmp/lead-observability.log). Bounded
+  first cycle: create team-observability branch+worktree, drive ONE worker on the `session health` slice (context
+  size like lmctl health, reuse session report aggregation), review+integrate on team-observability, report back.
+  When it reports green, meta-lead merges team-observability -> dev. Then continue observability backlog
+  (compaction.mode organize|summary A/B + needle-retention via mock harness + ~100K small-trigger stress test).
