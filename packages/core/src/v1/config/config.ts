@@ -149,6 +149,9 @@ export const Info = Schema.Struct({
   }),
   compaction: Schema.optional(
     Schema.Struct({
+      mode: Schema.optional(Schema.Literals(["organize", "summary"])).annotate({
+        description: "Compaction reduction mode. Defaults to organize.",
+      }),
       auto: Schema.optional(Schema.Boolean).annotate({
         description: "Enable automatic compaction when context is full (default: true)",
       }),
