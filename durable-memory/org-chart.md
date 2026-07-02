@@ -181,8 +181,17 @@
   single-quoted body: `setsid bash -c 'cd MAIN && PATH=/home/mma/.bun/bin:$PATH bun run --conditions=browser
   packages/opencode/src/index.ts run --format json --model github-copilot/gpt-5.5 "$(< /tmp/task.txt)" > log 2>&1' &`
   ("$(< file)" output is NOT re-scanned for backticks). Verify no "command not found" in the log after seeding.
-- ACTIVE: observability team-lead seeded ses_0df62c098ffe6WO5RddN1jthJx (log /tmp/lead-observability.log). Bounded
-  first cycle: create team-observability branch+worktree, drive ONE worker on the `session health` slice (context
-  size like lmctl health, reuse session report aggregation), review+integrate on team-observability, report back.
-  When it reports green, meta-lead merges team-observability -> dev. Then continue observability backlog
-  (compaction.mode organize|summary A/B + needle-retention via mock harness + ~100K small-trigger stress test).
+- TEAM-LEAD VALIDATED end-to-end: observability lead ses_0df62c098ffe6WO5RddN1jthJx drove worker
+  ses_0df61b134ffeMRHwmbw3lO4n75 on `session health`, verified, integrated on team-observability, reported honestly
+  (with a QA caveat: health is a token approximation, not exact next-turn projection). Meta-lead independently
+  re-verified (typecheck + 2 tests green) and MERGED slice 2 `82493138a` (session health) -> dev. The
+  lead-drives-worker recursion works with only seed+coach.
+- OBSERVABILITY slices on dev: slice1 `session report` (7f1d92535), slice2 `session health` (82493138a).
+- ACTIVE: lead resumed (same session, log /tmp/lead-observability2.log) on slice 3 = `compaction.mode` config flag
+  (organize default | summary restores the removed lossy path behind the flag). Directed to ESCALATE design
+  ambiguity (reintroducing removed summary code) rather than guess. When green, meta-lead merges team-observability
+  -> dev. Remaining: measurement harness (organize vs summary: context reduction + needle-retention via mock-LLM)
+  + ~100K small-trigger stress test.
+- SEED/RESUME COMMANDS (reuse): seed new lead = setsid bash -c '... run --format json --model
+  github-copilot/gpt-5.5 "$(< /tmp/task.txt)" > log 2>&1' &  ; resume same lead = add --session <leadID>. Always
+  file-based prompt (no backticks in the bash -c string). Check: grep -c "command not found" log (want 0).
