@@ -66,3 +66,12 @@ Operator intent: ballpark per-instance PERFORMANCE visibility + TROUBLESHOOTING,
 - Added focused compaction routing tests and invalid-mode config schema tests.
 - Verified on worker and integration branch with `bun run typecheck` from `packages/opencode`, `bun test test/session/compaction.test.ts` from `packages/opencode`, and `bun test test/config/config.test.ts` from `packages/core`.
 - QA note: config schemas are surfaced by server config routes; generated SDK/schema artifacts were not regenerated in this slice and should be checked before meta-merge if required.
+
+## STATUS 2026-07-03 measurement-harness slice
+- Team branch: `team-observability` in `/niceapps/mma/oc/lmcode-wt/observability`.
+- Worker session: `ses_0daa51122ffeGdSNXGcA5R9Fv9`; worker branch commit `5199cc63f`, integrated as `0738591e6`.
+- Shipped deterministic in-process compaction measurement tests comparing `organize` and `summary` retained context plus needle retention.
+- Added repeated organize compaction stress coverage to assert bounded retained context and durable-memory needle survival across cycles.
+- Added `durable-memory/finding-organize-vs-summary.md` with fixture numbers: organize `3862 -> 482` tokens (`87.5%`, needle yes), summary `3862 -> 420` tokens (`89.1%`, needle no).
+- Verified on worker and integration branch with `bun test test/session/compaction.test.ts` and `bun run typecheck` from `packages/opencode`.
+- QA note: the harness drives `SessionCompaction.process` directly with deterministic mock services instead of a full CLI auto-overflow run; this avoids provider/network nondeterminism while exercising the real mode routing and compaction persistence paths.
