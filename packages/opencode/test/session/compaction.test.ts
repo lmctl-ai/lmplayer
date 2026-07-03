@@ -208,6 +208,37 @@ function fake(
   } satisfies SessionProcessorModule.SessionProcessor.Handle
 }
 
+function summaryFake(
+  input: Parameters<SessionProcessorModule.SessionProcessor.Interface["create"]>[0],
+  text: string,
+  ssn: SessionNs.Interface,
+) {
+  const msg = input.assistantMessage
+  return {
+    get message() {
+      return msg
+    },
+    updateToolCall: Effect.fn("TestSessionProcessor.updateToolCall")(() => Effect.succeed(undefined)),
+    completeToolCall: Effect.fn("TestSessionProcessor.completeToolCall")(() => Effect.void),
+    process: Effect.fn("TestSessionProcessor.process")(() =>
+      Effect.gen(function* () {
+        yield* ssn.updatePart({
+          id: PartID.ascending(),
+          messageID: msg.id,
+          sessionID: msg.sessionID,
+          type: "text",
+          text,
+          time: { start: Date.now(), end: Date.now() },
+        })
+        msg.finish = "stop"
+        msg.time.completed = Date.now()
+        yield* ssn.updateMessage(msg)
+        return "continue" as const
+      }),
+    ),
+  } satisfies SessionProcessorModule.SessionProcessor.Handle
+}
+
 function processorLayer(result: "continue" | "compact") {
   return Layer.succeed(
     SessionProcessorModule.SessionProcessor.Service,
@@ -215,6 +246,22 @@ function processorLayer(result: "continue" | "compact") {
       create: Effect.fn("TestSessionProcessor.create")((input) => Effect.succeed(fake(input, result))),
     }),
   )
+}
+
+function summaryProcessorLayer(text: string) {
+  return LayerNode.make({
+    service: SessionProcessorModule.SessionProcessor.Service,
+    layer: Layer.effect(
+      SessionProcessorModule.SessionProcessor.Service,
+      Effect.gen(function* () {
+        const ssn = yield* SessionNs.Service
+        return SessionProcessorModule.SessionProcessor.Service.of({
+          create: Effect.fn("TestSessionProcessor.create")((input) => Effect.succeed(summaryFake(input, text, ssn))),
+        })
+      }),
+    ),
+    deps: [SessionNs.node],
+  })
 }
 
 function cfg(compaction?: ConfigV1.Info["compaction"]) {
@@ -283,6 +330,7 @@ type CompactionProcessOptions = {
   plugin?: Layer.Layer<Plugin.Service>
   provider?: ReturnType<typeof wide>
   config?: Layer.Layer<Config.Service>
+  processor?: LayerNode.Node<SessionProcessorModule.SessionProcessor.Service>
 }
 
 function withCompaction(options?: CompactionProcessOptions) {
@@ -298,7 +346,7 @@ function compactionProcessLayer(options?: CompactionProcessOptions) {
   if (!options?.llm) {
     return AppNodeBuilder.build(compactionTestNode, [
       ...replacements,
-      [SessionProcessorModule.SessionProcessor.node, processorLayer(options?.result ?? "continue")],
+      [SessionProcessorModule.SessionProcessor.node, options?.processor ?? processorLayer(options?.result ?? "continue")],
       [LLM.node, organizeLLM(options?.organize ?? DEFAULT_ORGANIZE)],
       ...(options?.plugin ? ([[Plugin.node, options.plugin]] as const) : []),
       ...(options?.config ? ([[Config.node, options.config]] as const) : []),
@@ -307,6 +355,7 @@ function compactionProcessLayer(options?: CompactionProcessOptions) {
   return AppNodeBuilder.build(compactionTestNode, [
     ...replacements,
     [LLM.node, options.llm],
+    ...(options?.processor ? ([[SessionProcessorModule.SessionProcessor.node, options.processor]] as const) : []),
     ...(options?.plugin ? ([[Plugin.node, options.plugin]] as const) : []),
     ...(options?.config ? ([[Config.node, options.config]] as const) : []),
   ])
@@ -919,6 +968,72 @@ describe("session.compaction.process", () => {
       const headText = head?.parts.find((part): part is SessionV1.TextPart => part.type === "text")
       expect(headText?.text).toBe(SessionCompaction.ORGANIZE_MARKER)
     }),
+  )
+
+  itCompaction.instance(
+    "defaults to organize mode when compaction mode is omitted",
+    Effect.gen(function* () {
+      const ssn = yield* SessionNs.Service
+      const session = yield* ssn.create({})
+      const msg = yield* createUserMessage(session.id, "hello")
+      const msgs = yield* ssn.messages({ sessionID: session.id })
+
+      yield* SessionCompaction.use.process({
+        parentID: msg.id,
+        messages: msgs,
+        sessionID: session.id,
+        auto: false,
+      })
+
+      expect(yield* readIndex(session.id)).toBe(DEFAULT_ORGANIZE)
+      const head = yield* summaryMessage(session.id)
+      const headText = head?.parts.find((part): part is SessionV1.TextPart => part.type === "text")
+      expect(headText?.text).toBe(SessionCompaction.ORGANIZE_MARKER)
+    }).pipe(withCompaction({ config: cfg({}) })),
+  )
+
+  itCompaction.instance(
+    "routes explicit organize mode to durable memory marker compaction",
+    Effect.gen(function* () {
+      const ssn = yield* SessionNs.Service
+      const session = yield* ssn.create({})
+      const msg = yield* createUserMessage(session.id, "hello")
+      const msgs = yield* ssn.messages({ sessionID: session.id })
+
+      yield* SessionCompaction.use.process({
+        parentID: msg.id,
+        messages: msgs,
+        sessionID: session.id,
+        auto: false,
+      })
+
+      expect(yield* readIndex(session.id)).toBe(DEFAULT_ORGANIZE)
+      const head = yield* summaryMessage(session.id)
+      const headText = head?.parts.find((part): part is SessionV1.TextPart => part.type === "text")
+      expect(headText?.text).toBe(SessionCompaction.ORGANIZE_MARKER)
+    }).pipe(withCompaction({ config: cfg({ mode: "organize" }) })),
+  )
+
+  itCompaction.instance(
+    "routes summary mode to streamed lossy summary without durable memory",
+    Effect.gen(function* () {
+      const ssn = yield* SessionNs.Service
+      const session = yield* ssn.create({})
+      const msg = yield* createUserMessage(session.id, "hello")
+      const msgs = yield* ssn.messages({ sessionID: session.id })
+
+      yield* SessionCompaction.use.process({
+        parentID: msg.id,
+        messages: msgs,
+        sessionID: session.id,
+        auto: false,
+      })
+
+      const head = yield* summaryMessage(session.id)
+      const headText = head?.parts.find((part): part is SessionV1.TextPart => part.type === "text")
+      expect(headText?.text).toBe("LOSSY SUMMARY")
+      expect(yield* readIndex(session.id)).toBeUndefined()
+    }).pipe(withCompaction({ config: cfg({ mode: "summary" }), processor: summaryProcessorLayer("LOSSY SUMMARY") })),
   )
 
   itCompaction.instance(
