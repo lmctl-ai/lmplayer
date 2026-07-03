@@ -197,6 +197,27 @@
   variant (organize fires repeatedly, retained context stays bounded, index.md needle survives), plus a short
   written finding durable-memory/finding-organize-vs-summary.md. When green, meta-lead merges -> dev; that
   CLOSES the observability project. Reuse test/lib/{llm-server,cli-process,test-provider}.ts (no real providers).
+
+## OBSERVABILITY PROJECT — CLOSED (all 4 slices on dev)
+- slice1 session report (7f1d92535), slice2 session health (82493138a), slice3 compaction.mode organize|summary
+  (e71d2f786), slice4 measurement harness (dcef0d02f) + durable-memory/finding-organize-vs-summary.md.
+- KEY FINDING (deterministic mock harness, worker ses_0daa51122): organize 3862->482 tok (87.5% reduction),
+  needle RETAINED=yes; summary 3862->420 tok (89.1%), needle RETAINED=NO. => organize keeps slightly more context
+  but does NOT lose the injected needle; summary compresses marginally more but LOSES it. Empirically justifies
+  organize-as-default. QA caveat: measured via direct SessionCompaction.process, not full CLI auto-overflow.
+- TEAM MODEL PROVEN: one team-lead (ses_0df62c098) delivered a full 4-slice project via workers, with meta-lead
+  only seeding/coaching/independently-verifying/merging. Each slice: seed/resume lead -> lead drives worker in own
+  worktree -> lead verifies+integrates on team branch -> meta-lead re-verifies -> merge to dev.
+
+## ACTIVE PROJECT — QA bash-free validation (team-lead seeded)
+- Fresh QA team-lead seeded (log /tmp/lead-qa.log). Goal: worker does a REAL multi-step engineering task with BASH
+  DISABLED (worktree-local .opencode/opencode.jsonc harness denies bash), using ONLY the 15 structured linux tools
+  + read/write/edit. PRIMARY deliverable = catalog of tool GAPS (missing CLIs/flags/workflows) ->
+  durable-memory/finding-bash-free-validation.md. Validates the replace-bash thesis end-to-end + feeds next CLI
+  vertical. When green, meta-lead merges any real code (not harness files) -> dev.
+- STILL DEFERRED / TO ESCALATE when it next blocks: trusted-execution policy for bun/npm/pnpm/yarn/docker (tools
+  that run untrusted code) — gates both more CLI coverage and the permissions engine. Consequential; get operator
+  input before wrapping those.
 - SEED/RESUME COMMANDS (reuse): seed new lead = setsid bash -c '... run --format json --model
   github-copilot/gpt-5.5 "$(< /tmp/task.txt)" > log 2>&1' &  ; resume same lead = add --session <leadID>. Always
   file-based prompt (no backticks in the bash -c string). Check: grep -c "command not found" log (want 0).
