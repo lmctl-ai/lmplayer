@@ -186,12 +186,17 @@
   (with a QA caveat: health is a token approximation, not exact next-turn projection). Meta-lead independently
   re-verified (typecheck + 2 tests green) and MERGED slice 2 `82493138a` (session health) -> dev. The
   lead-drives-worker recursion works with only seed+coach.
-- OBSERVABILITY slices on dev: slice1 `session report` (7f1d92535), slice2 `session health` (82493138a).
-- ACTIVE: lead resumed (same session, log /tmp/lead-observability2.log) on slice 3 = `compaction.mode` config flag
-  (organize default | summary restores the removed lossy path behind the flag). Directed to ESCALATE design
-  ambiguity (reintroducing removed summary code) rather than guess. When green, meta-lead merges team-observability
-  -> dev. Remaining: measurement harness (organize vs summary: context reduction + needle-retention via mock-LLM)
-  + ~100K small-trigger stress test.
+- OBSERVABILITY slices on dev: slice1 `session report` (7f1d92535), slice2 `session health` (82493138a),
+  slice3 `compaction.mode` organize|summary flag (e71d2f786). Slice3 worker ses_0df3ede29ffeWb2uI5yhWfuJsA
+  restored the historical lossy summary path behind the flag (organize stays default); did NOT need to escalate.
+  Meta-lead re-verified (typecheck + 56 compaction + 15 config tests) AND ran `bun run generate` (packages/client)
+  -> NO drift, so config-schema change needs no SDK regen. Merged.
+- ACTIVE: lead resumed (same session) on slice 4 = MEASUREMENT HARNESS (payoff): mock-LLM harness driving a
+  session past a compaction trigger under both compaction.mode=organize and =summary; record post-compaction
+  context size + needle-retention (inject MAGIC token early, assert survival), plus ~100K small-trigger STRESS
+  variant (organize fires repeatedly, retained context stays bounded, index.md needle survives), plus a short
+  written finding durable-memory/finding-organize-vs-summary.md. When green, meta-lead merges -> dev; that
+  CLOSES the observability project. Reuse test/lib/{llm-server,cli-process,test-provider}.ts (no real providers).
 - SEED/RESUME COMMANDS (reuse): seed new lead = setsid bash -c '... run --format json --model
   github-copilot/gpt-5.5 "$(< /tmp/task.txt)" > log 2>&1' &  ; resume same lead = add --session <leadID>. Always
   file-based prompt (no backticks in the bash -c string). Check: grep -c "command not found" log (want 0).
