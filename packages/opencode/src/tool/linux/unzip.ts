@@ -4,7 +4,7 @@ import { Effect, Schema } from "effect"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { InstanceState } from "@/effect/instance-state"
 import { Tool } from "../tool"
-import { exec, report } from "./exec"
+import { exec, report, resolveWorkdir, resourceWithWorkdir, Workdir } from "./exec"
 
 export const Parameters = Schema.Struct({
   args: Schema.Array(Schema.String).annotate({
@@ -12,13 +12,14 @@ export const Parameters = Schema.Struct({
       "Run unzip with structured argv (no shell). Provide unzip arguments as an array. Absolute paths, traversal, " +
       "and symlink operands are denied.",
   }),
+  workdir: Workdir,
 })
 
 export type Verb = "read" | "modify"
 
 export type Classification = {
   verb: Verb
-  resource: "archive"
+  resource: string
   network: false
   dangerous?: true
 }
@@ -78,8 +79,8 @@ export function validateArgv(args: readonly string[], cwd = process.cwd()): void
   if (bad) throw new Error(`unzip: '${bad}' is not permitted (absolute path, traversal, or symlink)`)
 }
 
-export function classify(args: readonly string[], cwd = process.cwd()): Classification {
-  const base = dangerousArgv(args, cwd) ? { resource: "archive" as const, network: false as const, dangerous: true as const } : { resource: "archive" as const, network: false as const }
+export function classify(args: readonly string[], cwd = process.cwd(), resource = "archive"): Classification {
+  const base = dangerousArgv(args, cwd) ? { resource, network: false as const, dangerous: true as const } : { resource, network: false as const }
   return { ...base, verb: isReadMode(args) ? "read" : "modify" }
 }
 
@@ -92,21 +93,22 @@ export const UnzipTool = Tool.define(
         "Run unzip with structured argv (no shell). Lists or extracts archives while denying absolute paths, " +
         "traversal, and symlink operands.",
       parameters: Parameters,
-      execute: (params: { args: readonly string[] }, ctx: Tool.Context) =>
+      execute: (params: { args: readonly string[]; workdir?: string }, ctx: Tool.Context) =>
         Effect.gen(function* () {
           const instance = yield* InstanceState.context
           if (params.args.length === 0) throw new Error("unzip requires arguments")
-          validateArgv(params.args, instance.directory)
+          const cwd = resolveWorkdir(instance.directory, params.workdir)
+          validateArgv(params.args, cwd)
 
-          const classification = classify(params.args, instance.directory)
+          const classification = classify(params.args, cwd, resourceWithWorkdir("archive", path.relative(instance.directory, cwd) || "."))
           yield* ctx.ask({
             permission: classification.verb === "read" ? "read" : "edit",
             patterns: ["unzip"],
             always: [],
-            metadata: { args: params.args, classification },
+            metadata: { args: params.args, classification, workdir: cwd },
           })
 
-          const result = yield* exec(spawner, "unzip", [...params.args], instance.directory)
+          const result = yield* exec(spawner, "unzip", [...params.args], instance.directory, params.workdir)
           const shaped = report({
             binary: "unzip",
             result,

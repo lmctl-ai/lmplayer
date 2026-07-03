@@ -228,6 +228,45 @@ describe("tool.git behavioral", () => {
   )
 
   it.instance(
+    "runs git in a given workdir",
+    () =>
+      Effect.gen(function* () {
+        const test = yield* TestInstance
+        yield* Effect.promise(() => Bun.$`mkdir -p ${path.join(test.directory, "nested")}`.quiet())
+
+        const info = yield* GitTool
+        const tool = yield* info.init()
+        const result = yield* tool.execute({ args: ["rev-parse", "--show-prefix"], workdir: "nested" }, ctx)
+        expect(result.metadata.exit).toBe(0)
+        expect(result.metadata.stdout).toBe("nested/\n")
+        expect(result.metadata.classification).toMatchObject({
+          verb: "read",
+          resource: `${path.basename(test.directory)}:nested`,
+          subcommand: "rev-parse",
+        })
+      }),
+    { git: true },
+  )
+
+  it.instance(
+    "rejects a workdir escaping the workspace root before permission",
+    () =>
+      Effect.gen(function* () {
+        const info = yield* GitTool
+        const tool = yield* info.init()
+        const rec = makeCtx()
+        const exit = yield* tool.execute({ args: ["status"], workdir: ".." }, rec.ctx).pipe(Effect.exit)
+        expect(Exit.isFailure(exit)).toBe(true)
+        if (Exit.isFailure(exit)) {
+          const err = Cause.squash(exit.cause)
+          expect(err instanceof Error ? err.message : String(err)).toContain("resolves outside the workspace root")
+        }
+        expect(rec.requests.length).toBe(0)
+      }),
+    { git: true },
+  )
+
+  it.instance(
     "runs git add + commit and carries modify classifications",
     () =>
       Effect.gen(function* () {
