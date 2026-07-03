@@ -432,6 +432,84 @@ function reply(
   }
 }
 
+const MEASUREMENT_NEEDLE = "MAGIC_NEEDLE_ALPHA=organize-retains-summary-loses"
+const MEASUREMENT_ORGANIZED = `# Session Memory
+
+- Critical early fact: ${MEASUREMENT_NEEDLE}
+- The user is comparing organize mode with summary mode for observability.`
+const MEASUREMENT_SUMMARY = "The user is comparing compaction modes for observability. The earliest details were condensed."
+
+function requireParent(messages: SessionV1.WithParts[]) {
+  const parent = messages.at(-1)?.info.id
+  if (!parent) throw new Error("expected compaction parent")
+  return parent
+}
+
+function serializedContext(messages: SessionV1.WithParts[], durableMemory: string | undefined) {
+  return JSON.stringify({ messages, durableMemory: durableMemory ?? "" })
+}
+
+function contextTokens(messages: SessionV1.WithParts[], durableMemory?: string) {
+  return Token.estimate(serializedContext(messages, durableMemory))
+}
+
+function reductionPercent(input: { before: number; after: number }) {
+  return Math.round(((input.before - input.after) / input.before) * 1000) / 10
+}
+
+function retainedContext(sessionID: SessionID) {
+  return Effect.gen(function* () {
+    const messages = MessageV2.filterCompacted(yield* MessageV2.stream(sessionID))
+    const durableMemory = yield* readIndex(sessionID)
+    const serialized = serializedContext(messages, durableMemory)
+    return {
+      messages,
+      durableMemory,
+      serialized,
+      tokens: Token.estimate(serialized),
+      needle: serialized.includes(MEASUREMENT_NEEDLE),
+    }
+  })
+}
+
+function seedMeasurementConversation(sessionID: SessionID) {
+  return Effect.gen(function* () {
+    yield* createUserMessage(
+      sessionID,
+      `${MEASUREMENT_NEEDLE}\n` +
+        "This early observability fact must survive organize durable memory. " +
+        "alpha-detail ".repeat(240),
+    )
+    yield* createUserMessage(sessionID, "The team reviewed session report telemetry. " + "report-detail ".repeat(220))
+    yield* createUserMessage(sessionID, "The team reviewed session health telemetry. " + "health-detail ".repeat(220))
+    yield* createUserMessage(sessionID, "The team compared compaction behavior. " + "compaction-detail ".repeat(220))
+    yield* createUserMessage(sessionID, "Recent request that should remain visible after compaction.")
+  })
+}
+
+function runMeasurementCompaction(sessionID: SessionID) {
+  return Effect.gen(function* () {
+    const beforeMessages = yield* MessageV2.stream(sessionID)
+    const before = contextTokens(beforeMessages)
+    yield* createSummaryCompaction(sessionID)
+    const messages = yield* SessionNs.use.messages({ sessionID })
+    yield* SessionCompaction.use.process({
+      parentID: requireParent(messages),
+      messages,
+      sessionID,
+      auto: false,
+    })
+    const after = yield* retainedContext(sessionID)
+    return {
+      before,
+      after: after.tokens,
+      reduction: reductionPercent({ before, after: after.tokens }),
+      needle: after.needle,
+      durableMemory: after.durableMemory,
+    }
+  })
+}
+
 function plugin(ready: Deferred.Deferred<void>) {
   return Layer.mock(Plugin.Service)({
     trigger: <Name extends string, Input, Output>(name: Name, _input: Input, output: Output) => {
@@ -1718,6 +1796,82 @@ describe("session.compaction.process", () => {
       expect(part?.type).toBe("compaction")
       expect(part?.tail_start_id).toBe(keep.id)
     }).pipe(withCompaction({ config: cfg({ tail_turns: 2, preserve_recent_tokens: 500 }) })),
+  )
+
+  itCompaction.instance(
+    "measures organize versus summary retained context and needle retention",
+    Effect.gen(function* () {
+      const ssn = yield* SessionNs.Service
+      const organize = yield* ssn.create({})
+      yield* seedMeasurementConversation(organize.id)
+
+      const organizeResult = yield* runMeasurementCompaction(organize.id).pipe(
+        withCompaction({
+          config: cfg({ mode: "organize", tail_turns: 1, preserve_recent_tokens: 500 }),
+          organize: MEASUREMENT_ORGANIZED,
+        }),
+      )
+
+      const summary = yield* ssn.create({})
+      yield* seedMeasurementConversation(summary.id)
+      const summaryResult = yield* runMeasurementCompaction(summary.id).pipe(
+        withCompaction({
+          config: cfg({ mode: "summary", tail_turns: 1, preserve_recent_tokens: 500 }),
+          processor: summaryProcessorLayer(MEASUREMENT_SUMMARY),
+        }),
+      )
+
+      expect(organizeResult.before).toBe(summaryResult.before)
+      expect(organizeResult.after).toBeLessThan(organizeResult.before)
+      expect(summaryResult.after).toBeLessThan(summaryResult.before)
+      expect(organizeResult.needle).toBe(true)
+      expect(summaryResult.needle).toBe(false)
+      expect(organizeResult.durableMemory).toBe(MEASUREMENT_ORGANIZED)
+      expect(summaryResult.durableMemory).toBeUndefined()
+      expect(organizeResult).toEqual({
+        before: 3862,
+        after: 482,
+        reduction: 87.5,
+        needle: true,
+        durableMemory: MEASUREMENT_ORGANIZED,
+      })
+      expect(summaryResult).toEqual({
+        before: 3862,
+        after: 420,
+        reduction: 89.1,
+        needle: false,
+        durableMemory: undefined,
+      })
+    }),
+  )
+
+  itCompaction.instance(
+    "keeps organize retained context bounded across repeated compactions",
+    Effect.gen(function* () {
+      const ssn = yield* SessionNs.Service
+      const session = yield* ssn.create({})
+      yield* seedMeasurementConversation(session.id)
+
+      const first = yield* runMeasurementCompaction(session.id)
+
+      yield* createUserMessage(session.id, "Follow-up cycle one. " + "cycle-one-detail ".repeat(120))
+      const second = yield* runMeasurementCompaction(session.id)
+
+      yield* createUserMessage(session.id, "Follow-up cycle two. " + "cycle-two-detail ".repeat(120))
+      const third = yield* runMeasurementCompaction(session.id)
+
+      expect(first.needle).toBe(true)
+      expect(second.needle).toBe(true)
+      expect(third.needle).toBe(true)
+      expect(second.after).toBeLessThanOrEqual(first.after + 700)
+      expect(third.after).toBeLessThanOrEqual(first.after + 700)
+      expect(yield* readIndex(session.id)).toBe(MEASUREMENT_ORGANIZED)
+    }).pipe(
+      withCompaction({
+        config: cfg({ mode: "organize", tail_turns: 1, preserve_recent_tokens: 500 }),
+        organize: MEASUREMENT_ORGANIZED,
+      }),
+    ),
   )
 })
 
