@@ -218,6 +218,18 @@
 - STILL DEFERRED / TO ESCALATE when it next blocks: trusted-execution policy for bun/npm/pnpm/yarn/docker (tools
   that run untrusted code) — gates both more CLI coverage and the permissions engine. Consequential; get operator
   input before wrapping those.
+
+## QA bash-free validation — CLOSED (dev 80d22c0af)
+- Worker ses_0da68a0bcffeGp4kpBEh0XFMVs added structured `wc` tool + tests bash-free (tools.bash:false +
+  permission.bash:deny harness), committed via read/grep/apply_patch/git ONLY. Thesis holds for edit/search/git.
+  Meta-lead re-verified (typecheck + 140 linux tests) and merged wc + finding-bash-free-validation.md.
+- GAP 1 (empirically confirmed, CONSEQUENTIAL -> escalate): with bash disabled the worker could NOT run `bun test`
+  / `bun typecheck` (verification) nor `bun install` (deps) — no structured test-runner/package-manager tool.
+  These execute untrusted repo code => need a trusted-execution POLICY. This is THE blocker to fully retiring bash.
+  Draft proposal: durable-memory/design-trusted-execution.md (options for operator to decide).
+- GAP 2 (concrete tool bug, autopilot-able): structured `git` tool (tool/linux/git.ts) has NO `workdir` param, so a
+  lead operating in a worktree must fall back to raw commands to avoid acting on the main checkout. Likely applies
+  to the other exec-wrapped linux tools too. Fix: add a scope-constrained optional workdir to exec.ts wrappers.
 - SEED/RESUME COMMANDS (reuse): seed new lead = setsid bash -c '... run --format json --model
   github-copilot/gpt-5.5 "$(< /tmp/task.txt)" > log 2>&1' &  ; resume same lead = add --session <leadID>. Always
   file-based prompt (no backticks in the bash -c string). Check: grep -c "command not found" log (want 0).
