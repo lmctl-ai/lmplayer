@@ -14,6 +14,7 @@ import { RmTool } from "../../../src/tool/linux/rm"
 import { MvTool } from "../../../src/tool/linux/mv"
 import { CpTool } from "../../../src/tool/linux/cp"
 import { TouchTool } from "../../../src/tool/linux/touch"
+import { WcTool } from "../../../src/tool/linux/wc"
 import { SessionID, MessageID } from "../../../src/session/schema"
 import { TestInstance, tmpdirScoped } from "../../fixture/fixture"
 import { testEffect } from "../../lib/effect"
@@ -141,6 +142,18 @@ describe("tool.linux", () => {
     }),
   )
 
+  it.instance("wc counts file lines and words", () =>
+    Effect.gen(function* () {
+      const test = yield* TestInstance
+      const file = path.join(test.directory, "count.txt")
+      yield* Effect.promise(() => Bun.write(file, "hello world\nsecond line\n"))
+      const tool = yield* (yield* WcTool).init()
+      const result = yield* tool.execute({ paths: [file], lines: true, words: true }, ctx)
+      expect(result.metadata.exit).toBe(0)
+      expect(result.output.trim().split(/\s+/)).toEqual(["2", "4", file])
+    }),
+  )
+
   // --- `--` flag-injection regression: a path whose NAME starts with `-` must
   // be treated as a PATH operand, never misparsed as an option. `path.resolve`
   // absolutizes the operand, and the tools insert a `--` option terminator before
@@ -222,6 +235,19 @@ describe("tool.linux", () => {
         const result = yield* tool.execute({ paths: [file] }, ctx)
         expect(result.metadata.exit).toBe(0)
         expect(yield* exists(file)).toBe(false)
+        assertDashGuard(result.metadata.args as string[], file)
+      }),
+    )
+
+    it.instance("wc treats a leading-dash name as a path", () =>
+      Effect.gen(function* () {
+        const test = yield* TestInstance
+        const file = path.join(test.directory, "-count")
+        yield* Effect.promise(() => Bun.write(file, "one two\n"))
+        const tool = yield* (yield* WcTool).init()
+        const result = yield* tool.execute({ paths: [file], words: true }, ctx)
+        expect(result.metadata.exit).toBe(0)
+        expect(result.output.trim().split(/\s+/)).toEqual(["2", file])
         assertDashGuard(result.metadata.args as string[], file)
       }),
     )
@@ -316,4 +342,3 @@ describe("tool.linux", () => {
     )
   })
 })
-
