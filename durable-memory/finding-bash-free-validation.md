@@ -34,3 +34,15 @@
 - Add a narrowly scoped structured `bun` tool, or a safer repo-script/test-runner abstraction, that can run declared project commands such as `bun test <path>` and `bun typecheck` from an allowed package directory.
 - Treat package-manager and test-runner tools as a policy decision because they execute repository code; do not add generic shell-equivalent execution without explicit trusted-execution semantics.
 - Keep structured `wc` as a useful read-only CLI addition if the meta-lead accepts the validation code; it exercised file creation, registration, tests, git staging, and commit without needing raw bash.
+
+## STATUS 2026-07-03 - Tools Git Workdir Fix
+
+- Worker session: `ses_0d59aafddffeal6kdJ7blHnrHy`.
+- Worker branch: `worker-tool-workdir`; worker commit: `64929d691` (`fix(opencode): add scoped workdir to linux tools`).
+- Team branch: `team-tool-workdir`; integrated commit: `dffea9fef` (`fix(opencode): add scoped workdir to linux tools`).
+- Shipped optional `workdir` support through the shared linux exec wrapper and exposed it on cwd-sensitive exec-wrapped linux tools: `git`, `gh`, `rg`, `find`, `tar`, and `unzip`.
+- Workdir confinement resolves relative paths under `InstanceState.context.directory`, accepts only paths whose resolved path remains inside that root, and rejects escapes before permission asks or process spawn.
+- `git` classifications now include the workdir scope in the resource, and permission metadata includes the resolved `workdir`.
+- Added focused `git` tool tests for running in a nested workdir and rejecting `..` before permission.
+- Verification from `packages/opencode` in the team worktree: `bun test test/tool/linux/git.test.ts` passed (62 pass), and `bun run typecheck` passed.
+- Escalation: none for design; noted dogfood limitation that current structured `git` lacks workdir until this branch lands, which forced host-scoped command usage for integration.
