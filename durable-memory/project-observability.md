@@ -57,3 +57,12 @@ Operator intent: ballpark per-instance PERFORMANCE visibility + TROUBLESHOOTING,
 - Added focused CLI test `packages/opencode/test/cli/session-health.test.ts`.
 - Verified on worker and integration branch with `bun run typecheck` plus `bun test test/cli/session-health.test.ts test/cli/session-report.test.ts` from `packages/opencode`.
 - QA note: current context size is a practical token-usage approximation, not yet exact reconstruction of the next provider request including system/durable-memory injection.
+
+## STATUS 2026-07-02 compaction-mode slice
+- Team branch: `team-observability` in `/niceapps/mma/oc/lmcode-wt/observability`.
+- Worker session: `ses_0df3ede29ffeWb2uI5yhWfuJsA`; worker branch commit `234a4a390`, integrated as `785a0a70c`.
+- Shipped `compaction.mode` config schema support for `"organize" | "summary"`; omitted mode still routes to organize.
+- Restored explicit `summary` mode using the historical processor-based lossy summary path, while organize keeps durable-memory/index.md plus `ORGANIZE_MARKER` behavior.
+- Added focused compaction routing tests and invalid-mode config schema tests.
+- Verified on worker and integration branch with `bun run typecheck` from `packages/opencode`, `bun test test/session/compaction.test.ts` from `packages/opencode`, and `bun test test/config/config.test.ts` from `packages/core`.
+- QA note: config schemas are surfaced by server config routes; generated SDK/schema artifacts were not regenerated in this slice and should be checked before meta-merge if required.

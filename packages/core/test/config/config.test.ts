@@ -87,6 +87,13 @@ describe("Config", () => {
     }),
   )
 
+  it.effect("rejects unsupported compaction mode values", () =>
+    Effect.sync(() => {
+      expect(() => Schema.decodeUnknownSync(ConfigV1.Info)({ compaction: { mode: "invalid" } })).toThrow()
+      expect(() => Schema.decodeUnknownSync(Config.Info)({ compaction: { mode: "invalid" } })).toThrow()
+    }),
+  )
+
   it.effect("migrates v1 provider setup options into AISDK settings", () =>
     Effect.sync(() => {
       const migrated = ConfigMigrateV1.migrate({
@@ -318,6 +325,7 @@ describe("Config", () => {
                   },
                 },
                 compaction: {
+                  mode: "summary",
                   auto: true,
                   prune: false,
                   keep: { tokens: 2000 },
@@ -404,6 +412,7 @@ describe("Config", () => {
               },
             })
             expect(documents[0]?.info.compaction).toEqual({
+              mode: "summary",
               auto: true,
               prune: false,
               keep: { tokens: 2000 },

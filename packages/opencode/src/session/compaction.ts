@@ -24,6 +24,7 @@ import { RuntimeFlags } from "@/effect/runtime-flags"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
+import { buildPrompt } from "@opencode-ai/core/session/compaction"
 import { SessionCompactionEvent } from "@opencode-ai/schema/session-compaction-event"
 
 export const Event = SessionCompactionEvent
@@ -171,6 +172,7 @@ export const layer = Layer.effect(
     const session = yield* Session.Service
     const agents = yield* Agent.Service
     const plugin = yield* Plugin.Service
+    const processors = yield* SessionProcessor.Service
     const provider = yield* Provider.Service
     const events = yield* EventV2Bridge.Service
     const flags = yield* RuntimeFlags.Service
@@ -345,15 +347,13 @@ export const layer = Layer.effect(
       const history = compactionPart && messages.at(-1)?.info.id === input.parentID ? messages.slice(0, -1) : messages
       const prior = completedCompactions(history)
       const hidden = new Set(prior.flatMap((item) => [item.userIndex, item.assistantIndex]))
+      const previousSummary = prior.at(-1)?.summary
       const selected = yield* select({
         messages: history.filter((_, index) => !hidden.has(index)),
         cfg,
         model,
       })
-      // Fire the compaction hook for plugin observability. The summary prompt /
-      // context it could return is obsolete now that organize (not a lossy
-      // summary) produces the head, so its result is intentionally ignored.
-      yield* plugin.trigger(
+      const compacting = yield* plugin.trigger(
         "experimental.session.compacting",
         { sessionID: input.sessionID },
         { context: [], prompt: undefined },
@@ -382,106 +382,121 @@ export const layer = Layer.effect(
         time: { created: Date.now() },
         ...extra,
       })
+      let summaryResult: "continue" | "stop" | undefined
 
-      // O3: organize is the SOLE reduction mechanism — there is NO lossy-summary
-      // fallback. ONE LLM call rewrites durable-memory/index.md; the compaction
-      // "summary" head is a THIN MARKER, so the post-compaction request carries
-      // only index.md (system, via O1) + this marker + the retained tail.
-      const priorIndex = yield* SessionDurableMemory.read(input.sessionID).pipe(
-        Effect.provideService(FSUtil.Service, fsys),
-        Effect.catchCause((cause) =>
-          Effect.logWarning("organize: failed to read durable-memory; merging without prior", {
-            sessionID: input.sessionID,
-            cause,
-          }).pipe(Effect.as(undefined)),
-        ),
-      )
-      const organizedRaw = yield* llm
-        .stream({
-          agent,
-          user: userMessage,
-          system: [],
-          tools: {},
-          model,
+      if ((cfg.compaction?.mode ?? "organize") === "summary") {
+        const msg = yield* session.updateMessage(baseMessage({}))
+        const processor = yield* processors.create({
+          assistantMessage: msg,
           sessionID: input.sessionID,
-          retries: 2,
-          messages: [...modelMessages, { role: "user", content: SessionDurableMemory.buildOrganizePrompt(priorIndex) }],
+          model,
         })
-        .pipe(
-          Stream.filter(LLMEvent.is.textDelta),
-          Stream.map((e) => e.text),
-          Stream.mkString,
-          // Organize failure must never crash compaction; treat as empty output
-          // and let the 3-branch rule below decide how to proceed.
+        const result = yield* processor.process({
+          user: userMessage,
+          agent,
+          sessionID: input.sessionID,
+          tools: {},
+          system: [],
+          messages: [
+            ...modelMessages,
+            {
+              role: "user",
+              content: [{ type: "text", text: compacting.prompt ?? buildPrompt({ previousSummary, context: compacting.context }) }],
+            },
+          ],
+          model,
+        })
+
+        if (result === "compact") {
+          processor.message.error = new SessionV1.ContextOverflowError({
+            message: replay
+              ? "Conversation history too large to compact - exceeds model context limit"
+              : "Session too large to compact - context exceeds model limit even after stripping media",
+          }).toObject()
+          processor.message.finish = "error"
+          yield* session.updateMessage(processor.message)
+          return "stop"
+        }
+
+        summaryResult = processor.message.error ? "stop" : result
+      } else {
+        // O3 organize path: ONE LLM call rewrites durable-memory/index.md; the
+        // compaction "summary" head is a THIN MARKER, so the post-compaction
+        // request carries only index.md (system, via O1) + marker + retained tail.
+        const priorIndex = yield* SessionDurableMemory.read(input.sessionID).pipe(
+          Effect.provideService(FSUtil.Service, fsys),
           Effect.catchCause((cause) =>
-            Effect.logWarning("organize: LLM pass failed", { sessionID: input.sessionID, cause }).pipe(Effect.as("")),
+            Effect.logWarning("organize: failed to read durable-memory; merging without prior", {
+              sessionID: input.sessionID,
+              cause,
+            }).pipe(Effect.as(undefined)),
           ),
         )
-      const organized = organizedRaw.replace(/<think>[\s\S]*?<\/think>\s*/g, "").trim()
-
-      // Write the thin marker head + mark the compaction complete so filterCompacted
-      // truncates to the retained tail (index.md provides the offloaded content).
-      const completeWithMarker = Effect.gen(function* () {
-        const msg = baseMessage({ finish: "stop", time: { created: Date.now(), completed: Date.now() } })
-        yield* session.updateMessage(msg)
-        yield* session.updatePart({
-          id: PartID.ascending(),
-          messageID: msg.id,
-          sessionID: input.sessionID,
-          type: "text",
-          text: ORGANIZE_MARKER,
-          time: { start: Date.now(), end: Date.now() },
-        })
-      })
-
-      // Truncation is gated on durable memory actually being USABLE on disk — a
-      // freshly persisted index.md OR a usable prior one. Organize returning text
-      // is NOT sufficient: if the write fails and no prior index.md exists,
-      // truncating would drop history with nothing backing it (history loss).
-      const persisted = organized
-        ? yield* SessionDurableMemory.write(input.sessionID, organized).pipe(
-            Effect.provideService(FSUtil.Service, fsys),
-            Effect.as(true),
+        const organizedRaw = yield* llm
+          .stream({
+            agent,
+            user: userMessage,
+            system: [],
+            tools: {},
+            model,
+            sessionID: input.sessionID,
+            retries: 2,
+            messages: [...modelMessages, { role: "user", content: SessionDurableMemory.buildOrganizePrompt(priorIndex) }],
+          })
+          .pipe(
+            Stream.filter(LLMEvent.is.textDelta),
+            Stream.map((e) => e.text),
+            Stream.mkString,
+            // Organize failure must never crash compaction; treat as empty output
+            // and let the 3-branch rule below decide how to proceed.
             Effect.catchCause((cause) =>
-              Effect.logWarning("organize: failed to write durable-memory", {
-                sessionID: input.sessionID,
-                cause,
-              }).pipe(Effect.as(false)),
+              Effect.logWarning("organize: LLM pass failed", { sessionID: input.sessionID, cause }).pipe(Effect.as("")),
             ),
           )
-        : false
+        const organized = organizedRaw.replace(/<think>[\s\S]*?<\/think>\s*/g, "").trim()
 
-      if (persisted) {
-        // (1) fresh memory persisted to disk: complete with marker + truncate.
-        yield* completeWithMarker
-      } else if (priorIndex && priorIndex.trim()) {
-        // (2) refresh failed (organize empty, or write failed) but a usable prior
-        // index.md exists: complete anyway using the existing (possibly stale)
-        // memory to back the truncation. No lossy summary.
-        yield* Effect.logWarning(
-          "organize: could not refresh durable-memory; completing compaction with existing (stale) index.md",
-          { sessionID: input.sessionID },
-        )
-        yield* completeWithMarker
-      } else {
-        // (3) no fresh persisted memory AND no usable prior: do NOT truncate (that
-        // would drop history with no memory backing it). Remove the pending
-        // compaction marker so the loop isn't wedged (latest() keys the pending
-        // task off this marker; clearing it lets the next turn proceed with full
-        // history), and return "stop" so an overflow trigger doesn't immediately
-        // re-create + spin in this drain.
-        //
-        // Accepted behavior: a persistent organize failure (e.g. provider down)
-        // re-enqueues compaction on each compaction-requiring turn and keeps
-        // returning "stop" until organize succeeds. This is acceptable because
-        // organize uses the same LLM — if it's down, no normal turn can proceed
-        // either — so no separate backoff is added.
-        yield* Effect.logWarning(
-          "organize: produced no usable durable-memory; retaining full history, will retry on next compaction",
-          { sessionID: input.sessionID },
-        )
-        yield* session.removeMessage({ sessionID: input.sessionID, messageID: input.parentID })
-        return "stop"
+        const completeWithMarker = Effect.gen(function* () {
+          const msg = baseMessage({ finish: "stop", time: { created: Date.now(), completed: Date.now() } })
+          yield* session.updateMessage(msg)
+          yield* session.updatePart({
+            id: PartID.ascending(),
+            messageID: msg.id,
+            sessionID: input.sessionID,
+            type: "text",
+            text: ORGANIZE_MARKER,
+            time: { start: Date.now(), end: Date.now() },
+          })
+        })
+
+        const persisted = organized
+          ? yield* SessionDurableMemory.write(input.sessionID, organized).pipe(
+              Effect.provideService(FSUtil.Service, fsys),
+              Effect.as(true),
+              Effect.catchCause((cause) =>
+                Effect.logWarning("organize: failed to write durable-memory", {
+                  sessionID: input.sessionID,
+                  cause,
+                }).pipe(Effect.as(false)),
+              ),
+            )
+          : false
+
+        if (persisted) {
+          yield* completeWithMarker
+        } else if (priorIndex && priorIndex.trim()) {
+          yield* Effect.logWarning(
+            "organize: could not refresh durable-memory; completing compaction with existing (stale) index.md",
+            { sessionID: input.sessionID },
+          )
+          yield* completeWithMarker
+        } else {
+          yield* Effect.logWarning(
+            "organize: produced no usable durable-memory; retaining full history, will retry on next compaction",
+            { sessionID: input.sessionID },
+          )
+          yield* session.removeMessage({ sessionID: input.sessionID, messageID: input.parentID })
+          return "stop"
+        }
       }
 
       if (compactionPart && selected.tail_start_id && compactionPart.tail_start_id !== selected.tail_start_id) {
@@ -490,6 +505,8 @@ export const layer = Layer.effect(
           tail_start_id: selected.tail_start_id,
         })
       }
+
+      if (summaryResult === "stop") return "stop"
 
       if (input.auto) {
         if (replay) {
