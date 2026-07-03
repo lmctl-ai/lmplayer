@@ -23,6 +23,7 @@ import { CpTool } from "./linux/cp"
 import { TouchTool } from "./linux/touch"
 import { GitTool } from "./linux/git"
 import { LsTool } from "./linux/ls"
+import { WcTool } from "./linux/wc"
 import { GhTool } from "./linux/gh"
 import { FindTool } from "./linux/find"
 import { RgTool } from "./linux/rg"
@@ -126,6 +127,7 @@ export const layer = Layer.effect(
     const touchtool = yield* TouchTool
     const gittool = yield* GitTool
     const lstool = yield* LsTool
+    const wctool = yield* WcTool
     const ghtool = yield* GhTool
     const findtool = yield* FindTool
     const rgtool = yield* RgTool
@@ -247,6 +249,7 @@ export const layer = Layer.effect(
           touch: Tool.init(touchtool),
           git: Tool.init(gittool),
           ls: Tool.init(lstool),
+          wc: Tool.init(wctool),
           gh: Tool.init(ghtool),
           find: Tool.init(findtool),
           rg: Tool.init(rgtool),
@@ -280,6 +283,7 @@ export const layer = Layer.effect(
             tool.touch,
             tool.git,
             tool.ls,
+            tool.wc,
             tool.gh,
             tool.find,
             tool.rg,
