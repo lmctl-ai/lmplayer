@@ -482,6 +482,24 @@ describe("SessionProjector", () => {
         .pipe(Effect.orDie)
 
       const service = yield* EventV2.Service
+      const orphanTokens = { input: 17, output: 13, reasoning: 11, cache: { read: 19, write: 23 } }
+      yield* service.publish(SessionEvent.Step.Ended, {
+        sessionID,
+        assistantMessageID: SessionMessage.ID.make("msg_assistant_orphan_usage"),
+        timestamp: DateTime.makeUnsafe(1),
+        finish: "stop",
+        cost: 0.75,
+        tokens: orphanTokens,
+      })
+      expect(yield* db.select().from(SessionTable).where(eq(SessionTable.id, sessionID)).get().pipe(Effect.orDie)).toMatchObject({
+        cost: 0,
+        tokens_input: 0,
+        tokens_output: 0,
+        tokens_reasoning: 0,
+        tokens_cache_read: 0,
+        tokens_cache_write: 0,
+      })
+
       const assistantMessageID = SessionMessage.ID.make("msg_assistant_usage")
       const tokens = { input: 11, output: 7, reasoning: 3, cache: { read: 5, write: 2 } }
       yield* service.publish(SessionEvent.Step.Started, {
