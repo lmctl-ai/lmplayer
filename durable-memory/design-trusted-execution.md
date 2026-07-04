@@ -1,5 +1,25 @@
 # Design proposal: trusted-execution policy (the blocker to retiring bash)
 
+## RESOLUTION (operator, 2026-07-04) — SUPERSEDED / moot for now
+We are NOT retiring bash. Decision from the operator:
+- Bash stays ON by DEFAULT (it is the coding escape hatch; inherently unsafe, and that is fine for coding).
+- Turning bash OFF is a SESSION-SPECIFIC deployment profile for NON-CODING uses (e.g. production
+  troubleshooting) where only deterministic, safe structured tools are wanted. Such sessions simply accept
+  that they cannot run `bun test`/`typecheck`/`install`.
+- Therefore there is NO need to make bun/npm/docker "safe" (no trusted-execution policy needed now). The
+  options below are parked unless we later want code-execution inside a bash-off profile.
+- MECHANISM (already exists, no build): bash on/off is per-AGENT permissions + per-SESSION agent selection.
+  Agent is a persisted per-session column, so concurrent sessions differ. Default `build` agent allows all
+  (bash on); a custom agent with { action:"bash", resource:"*", effect:"deny" } turns bash off for sessions
+  run under it (`--agent <name>` or session.create/prompt({agent})). Gate: runner materializes tools from the
+  session agent's ruleset (core/session/runner/llm.ts:198; registry.ts:112-113 whollyDisabled). QA harness
+  already validated a real bash-off session.
+- OPEN ERGONOMIC OPTION: ship a built-in "secured"/non-coding agent (bash off + only safe structured tools)
+  so the profile is one flag (`--agent secured`) instead of hand-rolled config. Offered to operator.
+
+---
+(Original proposal retained below for reference.)
+
 Status: PROPOSAL for operator decision. Drafted by meta-lead from the QA bash-free validation evidence
 (durable-memory/finding-bash-free-validation.md). The *decision* is the operator's; this lays out options.
 
