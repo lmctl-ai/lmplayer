@@ -232,6 +232,13 @@ export function classify(args: readonly string[], resource = "repo"): Classifica
     return { ...base, verb: read ? "read" : "modify", network: false }
   }
 
+  // `worktree list` only reads repository metadata; all other worktree
+  // subcommands create, move, remove, or repair working trees.
+  if (subcommand === "worktree") {
+    if (rest[0] === "list") return { ...base, verb: "read", network: false }
+    return { ...base, verb: "modify", network: false }
+  }
+
   // `clean` — only ACTS with `-f`/`--force` (and deletes files); `-x`/`-d` extend
   // what it removes. Classify as delete when a force/extend flag is present.
   if (subcommand === "clean") {

@@ -12,6 +12,7 @@ import { TestConfig } from "../fixture/config"
 import { Config } from "@/config/config"
 import { Plugin } from "@/plugin"
 import { Agent } from "@/agent/agent"
+import { Permission } from "@/permission"
 import { InstanceState } from "@/effect/instance-state"
 
 import { ToolJsonSchema } from "@/tool/json-schema"
@@ -155,6 +156,7 @@ describe("tool.registry", () => {
 
       expect(ids).not.toContain("bash")
       expect(ids).not.toContain("question")
+      expect(Permission.disabled(["git"], secured.permission).has("git")).toBe(false)
       for (const id of [
         "cp",
         "curl",

@@ -224,6 +224,7 @@ export function disabled(tools: string[], ruleset: PermissionV1.Ruleset): Set<st
     tools.filter((tool) => {
       const permission = edits.includes(tool) ? "edit" : reads.includes(tool) ? "read" : tool
       const rule = ruleset.findLast((rule) => Wildcard.match(permission, rule.permission))
+      if (rule?.action === "allow") return false
       return rule?.pattern === "*" && rule.action === "deny"
     }),
   )
