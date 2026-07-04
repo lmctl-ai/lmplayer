@@ -4,6 +4,7 @@ import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner
 import { InstanceState } from "@/effect/instance-state"
 import { Tool } from "../tool"
 import { exec, report, resolveWorkdir, resourceWithWorkdir, Workdir } from "./exec"
+import { sensitivePatterns } from "./sensitive"
 
 export const Parameters = Schema.Struct({
   args: Schema.Array(Schema.String).annotate({
@@ -55,6 +56,30 @@ export function classify(args: readonly string[], cwd = process.cwd(), resource 
   return { verb: "read", resource, network: false }
 }
 
+function readPatterns(args: readonly string[]) {
+  const values: string[] = ["rg"]
+  for (let i = 0; i < args.length; i++) {
+    const token = args[i]
+    if (token === "-g" || token === "--glob" || token === "--iglob" || token === "--include" || token === "--exclude") {
+      if (args[i + 1]) values.push(args[i + 1])
+      i++
+      continue
+    }
+    if (
+      token.startsWith("--glob=") ||
+      token.startsWith("--iglob=") ||
+      token.startsWith("--include=") ||
+      token.startsWith("--exclude=")
+    ) {
+      values.push(token.slice(token.indexOf("=") + 1))
+      continue
+    }
+    if (token.startsWith("-")) continue
+    values.push(token)
+  }
+  return [...values, ...sensitivePatterns(values)]
+}
+
 export const RgTool = Tool.define(
   "rg",
   Effect.gen(function* () {
@@ -77,7 +102,7 @@ export const RgTool = Tool.define(
           )
           yield* ctx.ask({
             permission: "read",
-            patterns: ["rg"],
+            patterns: readPatterns(params.args),
             always: [],
             metadata: { args: params.args, classification, workdir: cwd },
           })

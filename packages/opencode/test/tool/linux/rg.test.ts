@@ -7,6 +7,7 @@ import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { Truncate } from "@/tool/truncate"
 import { Agent } from "../../../src/agent/agent"
+import { Permission } from "../../../src/permission"
 import { RgTool, classify, dangerousArgv, validateArgv } from "../../../src/tool/linux/rg"
 import { SessionID, MessageID } from "../../../src/session/schema"
 import { TestInstance, tmpdirScoped } from "../../fixture/fixture"
@@ -30,11 +31,27 @@ const ctx = {
 
 function makeCtx() {
   const requests: Array<Omit<PermissionV1.Request, "id" | "sessionID" | "tool">> = []
-  const recording: Tool.Context = {
+  const recording = {
     ...ctx,
     ask: (req) =>
       Effect.sync(() => {
         requests.push(req)
+      }),
+  } as Tool.Context
+  return { requests, ctx: recording }
+}
+
+function securedCtx(ruleset: PermissionV1.Ruleset) {
+  const requests: Array<Omit<PermissionV1.Request, "id" | "sessionID" | "tool">> = []
+  const recording: Tool.Context = {
+    ...ctx,
+    agent: "secured",
+    ask: (req) =>
+      Effect.gen(function* () {
+        requests.push(req)
+        if (req.patterns.some((pattern) => Permission.evaluate(req.permission, pattern, ruleset).action === "deny")) {
+          return yield* Effect.die(new PermissionV1.DeniedError({ ruleset }))
+        }
       }),
   }
   return { requests, ctx: recording }
@@ -117,6 +134,39 @@ describe("tool.rg behavioral", () => {
       expect(result.metadata.exit).toBe(0)
       expect(result.output).toContain("alpha.txt")
       expect(result.metadata.classification).toEqual({ verb: "read", resource: "filesystem", network: false })
+    }),
+  )
+
+  it.instance("secured denies sensitive rg operands before execution", () =>
+    Effect.gen(function* () {
+      const agents = yield* Agent.Service
+      const secured = yield* agents.get("secured")
+      if (!secured) throw new Error("secured agent not found")
+      const rec = securedCtx(secured.permission)
+      const exit = yield* (yield* (yield* RgTool).init()).execute({ args: ["needle", ".env"] }, rec.ctx).pipe(Effect.exit)
+
+      expect(Exit.isFailure(exit)).toBe(true)
+      expect(rec.requests).toHaveLength(1)
+      expect(rec.requests[0]?.permission).toBe("read")
+      expect(rec.requests[0]?.patterns).toContain(".env")
+    }),
+  )
+
+  it.instance("secured allows safe rg operands", () =>
+    Effect.gen(function* () {
+      const agents = yield* Agent.Service
+      const secured = yield* agents.get("secured")
+      if (!secured) throw new Error("secured agent not found")
+      const rec = securedCtx(secured.permission)
+      const tool = yield* (yield* RgTool).init()
+      const exit = yield* tool.execute({ args: ["needle", "src"] }, rec.ctx).pipe(Effect.exit)
+
+      expect(rec.requests[0]?.patterns).toContain("rg")
+      expect(rec.requests[0]?.patterns).toContain("src")
+      if (Exit.isFailure(exit)) {
+        const err = Cause.squash(exit.cause)
+        expect(err).not.toBeInstanceOf(PermissionV1.DeniedError)
+      }
     }),
   )
 })

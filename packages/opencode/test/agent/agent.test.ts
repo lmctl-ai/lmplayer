@@ -194,6 +194,13 @@ it.instance("secured agent allows structured tools and denies shell, prompts, ex
     expect(Permission.evaluate("read", "secrets/api-key", secured.permission).action).toBe("deny")
     expect(Permission.evaluate("read", "config/secrets", secured.permission).action).toBe("deny")
     expect(Permission.evaluate("read", "config/secrets/api-key", secured.permission).action).toBe("deny")
+
+    for (const pattern of ["rg", "find", "tar", "unzip", "src/index.ts"]) {
+      expect(Permission.evaluate("read", pattern, secured.permission).action).toBe("allow")
+    }
+    for (const pattern of [".env", ".env.production", "secrets", "secrets/api-key", "config/secrets/api-key"]) {
+      expect(Permission.evaluate("read", pattern, secured.permission).action).toBe("deny")
+    }
   }),
 )
 
