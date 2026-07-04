@@ -5,6 +5,7 @@ import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner
 import { InstanceState } from "@/effect/instance-state"
 import { Tool } from "../tool"
 import { exec, report, resolveWorkdir, resourceWithWorkdir, Workdir } from "./exec"
+import { sensitivePatterns } from "./sensitive"
 
 export const Parameters = Schema.Struct({
   args: Schema.Array(Schema.String).annotate({
@@ -84,6 +85,21 @@ export function classify(args: readonly string[], cwd = process.cwd(), resource 
   return { ...base, verb: isReadMode(args) ? "read" : "modify" }
 }
 
+function permissionPatterns(args: readonly string[]) {
+  const values: string[] = ["unzip"]
+  for (let i = 0; i < args.length; i++) {
+    const token = args[i]
+    if (VALUE_OPTIONS.has(token)) {
+      if (args[i + 1]) values.push(args[i + 1])
+      i++
+      continue
+    }
+    if (token.startsWith("-")) continue
+    values.push(token)
+  }
+  return [...values, ...sensitivePatterns(values)]
+}
+
 export const UnzipTool = Tool.define(
   "unzip",
   Effect.gen(function* () {
@@ -103,7 +119,7 @@ export const UnzipTool = Tool.define(
           const classification = classify(params.args, cwd, resourceWithWorkdir("archive", path.relative(instance.directory, cwd) || "."))
           yield* ctx.ask({
             permission: classification.verb === "read" ? "read" : "edit",
-            patterns: ["unzip"],
+            patterns: permissionPatterns(params.args),
             always: [],
             metadata: { args: params.args, classification, workdir: cwd },
           })
