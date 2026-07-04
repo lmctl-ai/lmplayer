@@ -2,6 +2,7 @@ import { describe, expect } from "bun:test"
 import { Deferred, Effect, Fiber, Layer } from "effect"
 import { AgentV2 } from "@opencode-ai/core/agent"
 import { Database } from "@opencode-ai/core/database/database"
+import { Config } from "@opencode-ai/core/config"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { EventV2 } from "@opencode-ai/core/event"
@@ -23,6 +24,13 @@ const current = Layer.succeed(
   Location.Service,
   Location.Service.of(location({ directory: AbsolutePath.make("/project") })),
 )
+const configEntries: Config.Entry[] = []
+const config = Layer.succeed(
+  Config.Service,
+  Config.Service.of({
+    entries: () => Effect.sync(() => configEntries),
+  }),
+)
 const it = testEffect(
   AppNodeBuilder.build(
     LayerNode.group([
@@ -33,7 +41,10 @@ const it = testEffect(
       AgentV2.node,
       PermissionV2.node,
     ]),
-    [[Location.node, current]],
+    [
+      [Location.node, current],
+      [Config.node, config],
+    ],
   ),
 )
 
@@ -60,8 +71,19 @@ function setup(rules: PermissionV2.Ruleset = []) {
       .onConflictDoNothing()
       .run()
       .pipe(Effect.orDie)
+    setPermissionAsk()
     yield* setRules(rules)
   })
+}
+
+function setPermissionAsk(effect?: "allow" | "deny") {
+  configEntries.splice(
+    0,
+    configEntries.length,
+    ...(effect
+      ? [new Config.Document({ type: "document", info: new Config.Info({ permission_ask: effect }) })]
+      : []),
+  )
 }
 
 function setRules(rules: PermissionV2.Ruleset) {
@@ -149,6 +171,58 @@ describe("PermissionV2", () => {
       yield* setRules([{ action: "read", resource: "*", effect: "deny" }])
       const denied = yield* service.assert(assertion()).pipe(Effect.flip)
       expect(denied).toBeInstanceOf(PermissionV2.DeniedError)
+      expect(yield* service.list()).toEqual([])
+    }),
+  )
+
+  it.effect("uses allow fallback for residual ask without emitting a prompt", () =>
+    Effect.gen(function* () {
+      yield* setup()
+      setPermissionAsk("allow")
+      const service = yield* PermissionV2.Service
+      const events = yield* EventV2.Service
+      const asked: PermissionV2.Request[] = []
+      const unsubscribe = yield* events.listen((event) =>
+        event.type === PermissionV2.Event.Asked.type
+          ? Effect.sync(() => {
+              asked.push(event.data as PermissionV2.Request)
+            })
+          : Effect.void,
+      )
+      yield* Effect.addFinalizer(() => unsubscribe)
+
+      yield* service.assert(assertion())
+
+      expect(asked).toEqual([])
+      expect(yield* service.ask(assertion())).toEqual({ id: PermissionV2.ID.create("per_test"), effect: "allow" })
+      expect(yield* service.list()).toEqual([])
+    }),
+  )
+
+  it.effect("uses deny fallback for residual ask", () =>
+    Effect.gen(function* () {
+      yield* setup()
+      setPermissionAsk("deny")
+      const service = yield* PermissionV2.Service
+
+      const denied = yield* service.assert(assertion()).pipe(Effect.flip)
+
+      expect(denied).toBeInstanceOf(PermissionV2.DeniedError)
+      expect(yield* service.ask(assertion())).toEqual({ id: PermissionV2.ID.create("per_test"), effect: "deny" })
+      expect(yield* service.list()).toEqual([])
+    }),
+  )
+
+  it.effect("keeps explicit deny ahead of allow fallback", () =>
+    Effect.gen(function* () {
+      yield* setup([{ action: "read", resource: "*", effect: "deny" }])
+      setPermissionAsk("allow")
+      const service = yield* PermissionV2.Service
+
+      const denied = yield* service.assert(assertion()).pipe(Effect.flip)
+
+      expect(denied).toBeInstanceOf(PermissionV2.DeniedError)
+      expect(yield* service.ask(assertion())).toEqual({ id: PermissionV2.ID.create("per_test"), effect: "deny" })
       expect(yield* service.list()).toEqual([])
     }),
   )

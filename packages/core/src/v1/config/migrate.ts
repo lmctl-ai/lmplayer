@@ -43,6 +43,7 @@ export function migrate(info: typeof ConfigV1.Info.Type) {
     enterprise: info.enterprise,
     username: info.username,
     permissions: permissions(info.permission, info.tools),
+    permission_ask: info.permission_ask,
     agents: agents(info),
     snapshots: info.snapshot,
     watcher: info.watcher,
