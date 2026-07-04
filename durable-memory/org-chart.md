@@ -292,3 +292,15 @@
   in the raw session, no loss). Per-session feature currently has the index.md level only; the "individual files"
   second level exists in the meta-lead repo memory but is NOT yet in the per-session data-dir feature -> optional
   future enhancement if wanted.
+
+## SECURED AGENT (convenience profile) — ACTIVE (lead ses_0d0c8d360)
+- Operator approved a built-in `secured` agent: zero-config non-coding/production profile. Requirements: bash OFF,
+  DETERMINISTIC/NON-INTERACTIVE by construction (ruleset NEVER yields "ask" -> no prompts to misconfigure), safe
+  defaults (deny bash + external_directory + .env/secret reads -> deterministic deny not ask; allow safe structured
+  + read/edit tools). Built-in in packages/core/src/plugin/agent.ts (alongside build/explore/plan); scoped per
+  session via --agent secured (agent is a per-session column). Default build agent unchanged (bash stays on).
+- Design choice flagged to lead: prefer (b) deny-by-default whitelist (mirror `explore` agent) for a security
+  profile over (a) allow-then-deny; escalate the exact allow-list if ambiguous. Rationale (operator): production
+  boxes config without options; interactive permissions are error-prone -> predefine deterministic security.
+- When green: meta-lead re-verifies (agent removes bash, no "ask", build unchanged) + merges -> dev. This makes the
+  non-coding secured profile first-class: `lmcode run --agent secured` = bash-free, prompt-free, no config.
