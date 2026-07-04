@@ -1,4 +1,5 @@
-import { Effect, Stream } from "effect"
+import path from "path"
+import { Effect, Schema, Stream } from "effect"
 import { ChildProcess } from "effect/unstable/process"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 
@@ -12,13 +13,32 @@ import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner
 // non-zero exit (typically fail the tool with a clear message).
 export type ExecResult = { stdout: string; stderr: string; code: number; args: string[] }
 
+export const Workdir = Schema.optional(Schema.String).annotate({
+  description: "Optional working directory for the command. Must resolve inside the session workspace root.",
+})
+
+export function resolveWorkdir(root: string, workdir?: string): string {
+  const workspaceRoot = path.resolve(root)
+  const resolved = workdir ? (path.isAbsolute(workdir) ? path.resolve(workdir) : path.resolve(workspaceRoot, workdir)) : workspaceRoot
+  const relative = path.relative(workspaceRoot, resolved)
+  if (relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative))) return resolved
+  throw new Error(`workdir '${workdir}' resolves outside the workspace root`)
+}
+
+export function resourceWithWorkdir(resource: string, scope?: string): string {
+  if (!scope || scope === ".") return resource
+  return `${resource}:${scope}`
+}
+
 export const exec = Effect.fn("LinuxTool.exec")(function* (
   spawner: ChildProcessSpawner["Service"],
   binary: string,
   args: string[],
-  cwd: string,
+  root: string,
+  workdir?: string,
   timeoutMs = 30_000,
 ) {
+  const cwd = resolveWorkdir(root, workdir)
   return yield* Effect.scoped(
     Effect.gen(function* () {
       const handle = yield* spawner.spawn(ChildProcess.make(binary, args, { cwd, stdin: "ignore" }))

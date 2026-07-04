@@ -3,7 +3,7 @@ import { Effect, Schema } from "effect"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { InstanceState } from "@/effect/instance-state"
 import { Tool } from "../tool"
-import { exec, report } from "./exec"
+import { exec, report, resolveWorkdir, resourceWithWorkdir, Workdir } from "./exec"
 
 export const Parameters = Schema.Struct({
   args: Schema.Array(Schema.String).annotate({
@@ -11,11 +11,12 @@ export const Parameters = Schema.Struct({
       "Run ripgrep (rg) with structured argv (no shell). Provide rg arguments as an array, e.g. " +
       "[\"TODO\",\"src\",\"--glob\",\"*.ts\"]. Structured argv only — NO shell string, NO pipes or redirects.",
   }),
+  workdir: Workdir,
 })
 
 export type Classification = {
   verb: "read"
-  resource: "filesystem"
+  resource: string
   network: false
   dangerous?: true
 }
@@ -49,9 +50,9 @@ export function validateArgv(args: readonly string[], cwd = process.cwd()): void
   if (bad) throw new Error(`rg: '${bad}' is not permitted (preprocessor, archive, or outside-root pattern file)`)
 }
 
-export function classify(args: readonly string[], cwd = process.cwd()): Classification {
-  if (dangerousArgv(args, cwd)) return { verb: "read", resource: "filesystem", network: false, dangerous: true }
-  return { verb: "read", resource: "filesystem", network: false }
+export function classify(args: readonly string[], cwd = process.cwd(), resource = "filesystem"): Classification {
+  if (dangerousArgv(args, cwd)) return { verb: "read", resource, network: false, dangerous: true }
+  return { verb: "read", resource, network: false }
 }
 
 export const RgTool = Tool.define(
@@ -63,20 +64,25 @@ export const RgTool = Tool.define(
         "Run ripgrep (rg) with structured argv (no shell). Searches files and returns output plus a semantic " +
         "{ verb, resource, network } classification in metadata.",
       parameters: Parameters,
-      execute: (params: { args: readonly string[] }, ctx: Tool.Context) =>
+      execute: (params: { args: readonly string[]; workdir?: string }, ctx: Tool.Context) =>
         Effect.gen(function* () {
           const instance = yield* InstanceState.context
-          validateArgv(params.args, instance.directory)
+          const cwd = resolveWorkdir(instance.directory, params.workdir)
+          validateArgv(params.args, cwd)
 
-          const classification = classify(params.args, instance.directory)
+          const classification = classify(
+            params.args,
+            cwd,
+            resourceWithWorkdir("filesystem", path.relative(instance.directory, cwd) || "."),
+          )
           yield* ctx.ask({
             permission: "read",
             patterns: ["rg"],
             always: [],
-            metadata: { args: params.args, classification },
+            metadata: { args: params.args, classification, workdir: cwd },
           })
 
-          const result = yield* exec(spawner, "rg", [...params.args], instance.directory)
+          const result = yield* exec(spawner, "rg", [...params.args], instance.directory, params.workdir)
           const shaped = report({
             binary: "rg",
             result,

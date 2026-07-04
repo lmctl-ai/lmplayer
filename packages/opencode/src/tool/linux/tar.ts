@@ -4,7 +4,7 @@ import { Effect, Schema } from "effect"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { InstanceState } from "@/effect/instance-state"
 import { Tool } from "../tool"
-import { exec, report } from "./exec"
+import { exec, report, resolveWorkdir, resourceWithWorkdir, Workdir } from "./exec"
 
 export const Parameters = Schema.Struct({
   args: Schema.Array(Schema.String).annotate({
@@ -13,13 +13,14 @@ export const Parameters = Schema.Struct({
       "[\"-cf\",\"archive.tar\",\"src\"]. Absolute paths, traversal, symlinks, command filters, and external " +
       "compressor commands are denied.",
   }),
+  workdir: Workdir,
 })
 
 export type Verb = "read" | "create" | "modify"
 
 export type Classification = {
   verb: Verb
-  resource: "archive"
+  resource: string
   network: false
   dangerous?: true
 }
@@ -92,8 +93,8 @@ export function validateArgv(args: readonly string[], cwd = process.cwd()): void
   if (bad) throw new Error(`tar: '${bad}' is not permitted (absolute path, traversal, symlink, or command vector)`)
 }
 
-export function classify(args: readonly string[], cwd = process.cwd()): Classification {
-  const base = dangerousArgv(args, cwd) ? { resource: "archive" as const, network: false as const, dangerous: true as const } : { resource: "archive" as const, network: false as const }
+export function classify(args: readonly string[], cwd = process.cwd(), resource = "archive"): Classification {
+  const base = dangerousArgv(args, cwd) ? { resource, network: false as const, dangerous: true as const } : { resource, network: false as const }
   if (hasCreate(args)) return { ...base, verb: "create" }
   if (hasExtract(args)) return { ...base, verb: "modify" }
   return { ...base, verb: "read" }
@@ -108,21 +109,22 @@ export const TarTool = Tool.define(
         "Run tar with structured argv (no shell). Archives and extracts files while denying absolute paths, " +
         "traversal, symlinks, command filters, and external compressor commands.",
       parameters: Parameters,
-      execute: (params: { args: readonly string[] }, ctx: Tool.Context) =>
+      execute: (params: { args: readonly string[]; workdir?: string }, ctx: Tool.Context) =>
         Effect.gen(function* () {
           const instance = yield* InstanceState.context
           if (params.args.length === 0) throw new Error("tar requires arguments")
-          validateArgv(params.args, instance.directory)
+          const cwd = resolveWorkdir(instance.directory, params.workdir)
+          validateArgv(params.args, cwd)
 
-          const classification = classify(params.args, instance.directory)
+          const classification = classify(params.args, cwd, resourceWithWorkdir("archive", path.relative(instance.directory, cwd) || "."))
           yield* ctx.ask({
             permission: classification.verb === "read" ? "read" : "edit",
             patterns: ["tar"],
             always: [],
-            metadata: { args: params.args, classification },
+            metadata: { args: params.args, classification, workdir: cwd },
           })
 
-          const result = yield* exec(spawner, "tar", [...params.args], instance.directory)
+          const result = yield* exec(spawner, "tar", [...params.args], instance.directory, params.workdir)
           const shaped = report({
             binary: "tar",
             result,
