@@ -41,6 +41,27 @@ function usage(part: (typeof SessionV1.Event.PartUpdated.Type)["data"]["part"] |
   return { cost: value.cost as Usage["cost"], tokens: value.tokens as Usage["tokens"] }
 }
 
+function assistantUsage(message: SessionMessage.Message | undefined): Usage | undefined {
+  if (message?.type !== "assistant" || message.cost === undefined || message.tokens === undefined) return undefined
+  return { cost: message.cost, tokens: message.tokens }
+}
+
+function usageDiff(next: Usage, previous: Usage | undefined): Usage {
+  if (!previous) return next
+  return {
+    cost: next.cost - previous.cost,
+    tokens: {
+      input: next.tokens.input - previous.tokens.input,
+      output: next.tokens.output - previous.tokens.output,
+      reasoning: next.tokens.reasoning - previous.tokens.reasoning,
+      cache: {
+        read: next.tokens.cache.read - previous.tokens.cache.read,
+        write: next.tokens.cache.write - previous.tokens.cache.write,
+      },
+    },
+  }
+}
+
 function sessionRow(info: SessionV1.SessionInfo): typeof SessionTable.$inferInsert {
   return {
     id: info.id,
@@ -129,6 +150,25 @@ function run(db: DatabaseService, event: SessionEvent.Event) {
         .run()
         .pipe(Effect.orDie)
     }
+
+    const getAssistant = (messageID: SessionMessage.ID) =>
+      Effect.gen(function* () {
+        const row = yield* db
+          .select()
+          .from(SessionMessageTable)
+          .where(
+            and(
+              eq(SessionMessageTable.id, messageID),
+              eq(SessionMessageTable.session_id, event.data.sessionID),
+              eq(SessionMessageTable.type, "assistant"),
+            ),
+          )
+          .get()
+          .pipe(Effect.orDie)
+        if (!row) return
+        const message = decodeRow(row)
+        return message.type === "assistant" ? message : undefined
+      })
     const appendMessage = (message: SessionMessage.Message) => insertMessage(db, event, message)
     const adapter: SessionMessageUpdater.Adapter = {
       getCurrentAssistant() {
@@ -149,25 +189,7 @@ function run(db: DatabaseService, event: SessionEvent.Event) {
           return message.type === "assistant" && !message.time.completed ? message : undefined
         })
       },
-      getAssistant(messageID) {
-        return Effect.gen(function* () {
-          const row = yield* db
-            .select()
-            .from(SessionMessageTable)
-            .where(
-              and(
-                eq(SessionMessageTable.id, messageID),
-                eq(SessionMessageTable.session_id, event.data.sessionID),
-                eq(SessionMessageTable.type, "assistant"),
-              ),
-            )
-            .get()
-            .pipe(Effect.orDie)
-          if (!row) return
-          const message = decodeRow(row)
-          return message.type === "assistant" ? message : undefined
-        })
-      },
+      getAssistant,
       getCurrentShell(callID) {
         return Effect.gen(function* () {
           const rows = yield* db
@@ -186,7 +208,15 @@ function run(db: DatabaseService, event: SessionEvent.Event) {
       updateShell: updateMessage,
       appendMessage,
     }
+    const previousAssistant = event.type === SessionEvent.Step.Ended.type ? yield* getAssistant(event.data.assistantMessageID) : undefined
     yield* SessionMessageUpdater.update(adapter, event)
+    if (event.type === SessionEvent.Step.Ended.type && previousAssistant) {
+      yield* applyUsage(
+        db,
+        event.data.sessionID,
+        usageDiff({ cost: event.data.cost, tokens: event.data.tokens }, assistantUsage(previousAssistant)),
+      )
+    }
   })
 }
 
