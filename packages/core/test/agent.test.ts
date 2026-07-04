@@ -17,7 +17,59 @@ import { testEffect } from "./lib/effect"
 import { toolDefinitions } from "./lib/tool"
 import { agentHost, host } from "./plugin/host"
 
-const safeSecuredTools = ["glob", "grep", "read", "webfetch", "websearch"]
+const securedAllowRules = [
+  { action: "apply_patch", resource: "*" },
+  { action: "cp", resource: "*" },
+  { action: "curl", resource: "*" },
+  { action: "edit", resource: "*" },
+  { action: "find", resource: "*" },
+  { action: "git", resource: "blame*" },
+  { action: "git", resource: "branch*" },
+  { action: "git", resource: "cat-file*" },
+  { action: "git", resource: "describe*" },
+  { action: "git", resource: "diff*" },
+  { action: "git", resource: "for-each-ref*" },
+  { action: "git", resource: "grep*" },
+  { action: "git", resource: "log*" },
+  { action: "git", resource: "ls-files*" },
+  { action: "git", resource: "ls-tree*" },
+  { action: "git", resource: "remote -v*" },
+  { action: "git", resource: "remote show*" },
+  { action: "git", resource: "rev-parse*" },
+  { action: "git", resource: "show*" },
+  { action: "git", resource: "shortlog*" },
+  { action: "git", resource: "status*" },
+  { action: "git", resource: "tag*" },
+  { action: "git", resource: "worktree list*" },
+  { action: "grep", resource: "*" },
+  { action: "glob", resource: "*" },
+  { action: "ls", resource: "*" },
+  { action: "mkdir", resource: "*" },
+  { action: "mv", resource: "*" },
+  { action: "read", resource: "*" },
+  { action: "rg", resource: "*" },
+  { action: "skill", resource: "*" },
+  { action: "tar", resource: "*" },
+  { action: "todowrite", resource: "*" },
+  { action: "touch", resource: "*" },
+  { action: "unzip", resource: "*" },
+  { action: "webfetch", resource: "*" },
+  { action: "websearch", resource: "*" },
+  { action: "wget", resource: "*" },
+  { action: "write", resource: "*" },
+]
+const securedBuiltInTools = [
+  "apply_patch",
+  "edit",
+  "glob",
+  "grep",
+  "read",
+  "skill",
+  "todowrite",
+  "webfetch",
+  "websearch",
+  "write",
+]
 const outputStore = Layer.mock(ToolOutputStore.Service, {
   bound: (input) => Effect.succeed({ output: input.output, outputPaths: [] }),
 })
@@ -170,17 +222,21 @@ describe("AgentV2", () => {
 
       const secured = yield* agent.get(AgentV2.ID.make("secured"))
       expect(secured).toMatchObject({ id: AgentV2.ID.make("secured"), mode: "primary", hidden: false })
-      expect(secured?.permissions).not.toContainEqual({ action: "*", resource: "*", effect: "ask" })
-      for (const action of safeSecuredTools) {
-        expect(PermissionV2.evaluate(action, "*", secured?.permissions ?? []).effect).toBe("allow")
-      }
+      expect(secured?.permissions.map((rule) => rule.effect).includes("ask")).toBe(false)
+      expect(secured?.permissions.filter((rule) => rule.effect === "allow")).toEqual(
+        securedAllowRules.map((rule) => ({ ...rule, effect: "allow" })),
+      )
+      for (const rule of securedAllowRules) expect(PermissionV2.evaluate(rule.action, rule.resource, secured?.permissions ?? []).effect).toBe("allow")
       expect(PermissionV2.evaluate("bash", "pwd", secured?.permissions ?? []).effect).toBe("deny")
-      expect(PermissionV2.evaluate("edit", "src/index.ts", secured?.permissions ?? []).effect).toBe("deny")
+      expect(PermissionV2.evaluate("question", "Continue?", secured?.permissions ?? []).effect).toBe("deny")
       expect(PermissionV2.evaluate("external_directory", "/tmp/*", secured?.permissions ?? []).effect).toBe("deny")
       expect(PermissionV2.evaluate("read", ".env", secured?.permissions ?? []).effect).toBe("deny")
       expect(PermissionV2.evaluate("read", ".env.production", secured?.permissions ?? []).effect).toBe("deny")
       expect(PermissionV2.evaluate("read", "secrets/api-key", secured?.permissions ?? []).effect).toBe("deny")
       expect(PermissionV2.evaluate("read", "config/secrets/api-key", secured?.permissions ?? []).effect).toBe("deny")
+      expect(PermissionV2.evaluate("rg", ".env", secured?.permissions ?? []).effect).toBe("deny")
+      expect(PermissionV2.evaluate("find", "config/secrets", secured?.permissions ?? []).effect).toBe("deny")
+      expect(PermissionV2.evaluate("git", "show HEAD:.env", secured?.permissions ?? []).effect).toBe("deny")
     }),
   )
 
@@ -206,6 +262,7 @@ describe("AgentV2", () => {
         grep: makeTool(),
         question: makeTool(),
         read: makeTool(),
+        skill: makeTool(),
         todowrite: makeTool(),
         webfetch: makeTool(),
         websearch: makeTool(),
@@ -217,7 +274,7 @@ describe("AgentV2", () => {
       const securedMaterialized = yield* registry.materialize(secured?.permissions)
 
       expect((yield* toolDefinitions(registry, build?.permissions)).map((tool) => tool.name)).toContain("bash")
-      expect(securedMaterialized.definitions.map((tool) => tool.name).sort()).toEqual(safeSecuredTools)
+      expect(securedMaterialized.definitions.map((tool) => tool.name).sort()).toEqual(securedBuiltInTools)
       expect(
         (yield* securedMaterialized.settle({
           sessionID: SessionV2.ID.make("ses_secured"),
@@ -226,6 +283,14 @@ describe("AgentV2", () => {
           call: { type: "tool-call", id: "call-bash", name: "bash", input: {} },
         })).result,
       ).toEqual({ type: "error", value: "Unknown tool: bash" })
+      expect(
+        (yield* securedMaterialized.settle({
+          sessionID: SessionV2.ID.make("ses_secured"),
+          agent: AgentV2.ID.make("secured"),
+          assistantMessageID: SessionMessage.ID.make("msg_secured"),
+          call: { type: "tool-call", id: "call-question", name: "question", input: {} },
+        })).result,
+      ).toEqual({ type: "error", value: "Unknown tool: question" })
     }),
   )
 })
