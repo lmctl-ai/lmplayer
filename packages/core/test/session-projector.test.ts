@@ -460,6 +460,107 @@ describe("SessionProjector", () => {
     }),
   )
 
+  it.effect("accumulates V2 step-ended usage once per assistant message", () =>
+    Effect.gen(function* () {
+      const { db } = yield* Database.Service
+      yield* db
+        .insert(ProjectTable)
+        .values({ id: Project.ID.global, worktree: AbsolutePath.make("/project"), sandboxes: [] })
+        .run()
+        .pipe(Effect.orDie)
+      yield* db
+        .insert(SessionTable)
+        .values({
+          id: sessionID,
+          project_id: Project.ID.global,
+          slug: "test",
+          directory: "/project",
+          title: "test",
+          version: "test",
+        })
+        .run()
+        .pipe(Effect.orDie)
+
+      const service = yield* EventV2.Service
+      const orphanTokens = { input: 17, output: 13, reasoning: 11, cache: { read: 19, write: 23 } }
+      yield* service.publish(SessionEvent.Step.Ended, {
+        sessionID,
+        assistantMessageID: SessionMessage.ID.make("msg_assistant_orphan_usage"),
+        timestamp: DateTime.makeUnsafe(1),
+        finish: "stop",
+        cost: 0.75,
+        tokens: orphanTokens,
+      })
+      expect(yield* db.select().from(SessionTable).where(eq(SessionTable.id, sessionID)).get().pipe(Effect.orDie)).toMatchObject({
+        cost: 0,
+        tokens_input: 0,
+        tokens_output: 0,
+        tokens_reasoning: 0,
+        tokens_cache_read: 0,
+        tokens_cache_write: 0,
+      })
+
+      const assistantMessageID = SessionMessage.ID.make("msg_assistant_usage")
+      const tokens = { input: 11, output: 7, reasoning: 3, cache: { read: 5, write: 2 } }
+      yield* service.publish(SessionEvent.Step.Started, {
+        sessionID,
+        assistantMessageID,
+        timestamp: created,
+        agent: "build",
+        model,
+      })
+      yield* service.publish(SessionEvent.Step.Ended, {
+        sessionID,
+        assistantMessageID,
+        timestamp: DateTime.makeUnsafe(1),
+        finish: "stop",
+        cost: 0.25,
+        tokens,
+      })
+      yield* service.publish(SessionEvent.Step.Ended, {
+        sessionID,
+        assistantMessageID,
+        timestamp: DateTime.makeUnsafe(2),
+        finish: "stop",
+        cost: 0.25,
+        tokens,
+      })
+
+      const row = yield* db.select().from(SessionTable).where(eq(SessionTable.id, sessionID)).get().pipe(Effect.orDie)
+      expect(row).toMatchObject({
+        cost: 0.25,
+        tokens_input: tokens.input,
+        tokens_output: tokens.output,
+        tokens_reasoning: tokens.reasoning,
+        tokens_cache_read: tokens.cache.read,
+        tokens_cache_write: tokens.cache.write,
+      })
+
+      const sessions = yield* SessionV2.Service
+      const info = yield* sessions.get(sessionID)
+      expect(info.tokens).toEqual(tokens)
+      const messages = yield* sessions.messages({ sessionID, order: "asc" })
+      const total = messages
+        .filter(
+          (message): message is SessionMessage.Assistant & { tokens: NonNullable<SessionMessage.Assistant["tokens"]> } =>
+            message.type === "assistant" && message.tokens !== undefined,
+        )
+        .reduce(
+          (sum, message) => ({
+            input: sum.input + message.tokens.input,
+            output: sum.output + message.tokens.output,
+            reasoning: sum.reasoning + message.tokens.reasoning,
+            cache: {
+              read: sum.cache.read + message.tokens.cache.read,
+              write: sum.cache.write + message.tokens.cache.write,
+            },
+          }),
+          { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+        )
+      expect(info.tokens).toEqual(total)
+    }).pipe(Effect.provide(sessionsLayer)),
+  )
+
   it.effect("does not revive a stale incomplete assistant projection", () =>
     Effect.gen(function* () {
       const { db } = yield* Database.Service
