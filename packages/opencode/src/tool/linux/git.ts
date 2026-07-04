@@ -3,7 +3,7 @@ import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner
 import path from "path"
 import { InstanceState } from "@/effect/instance-state"
 import { Tool } from "../tool"
-import { exec, report } from "./exec"
+import { exec, report, resolveWorkdir, resourceWithWorkdir, Workdir } from "./exec"
 
 export const Parameters = Schema.Struct({
   args: Schema.Array(Schema.String).annotate({
@@ -12,6 +12,7 @@ export const Parameters = Schema.Struct({
       "[\"push\",\"origin\",\"main\"], [\"diff\",\"--stat\"]). Structured argv only — NO shell string, NO pipes or " +
       "redirects.",
   }),
+  workdir: Workdir,
 })
 
 export type Verb = "read" | "modify" | "delete" | "create"
@@ -262,10 +263,11 @@ export const GitTool = Tool.define(
         "Run git with structured argv (no shell). Provide the subcommand and args as an array. Returns command " +
         "output plus a semantic { verb, resource, network, subcommand } classification in metadata.",
       parameters: Parameters,
-      execute: (params: { args: readonly string[] }, ctx: Tool.Context) =>
+      execute: (params: { args: readonly string[]; workdir?: string }, ctx: Tool.Context) =>
         Effect.gen(function* () {
           const instance = yield* InstanceState.context
           if (params.args.length === 0) throw new Error("git requires a subcommand")
+          const cwd = resolveWorkdir(instance.directory, params.workdir)
 
           // HARD guard: reject known command-execution vectors from the raw argv
           // BEFORE any permission ask or spawning git. git can run arbitrary
@@ -275,18 +277,18 @@ export const GitTool = Tool.define(
           // Best-effort repo name for the resource: basename of the worktree root.
           // Kept simple; network ops still classify by subcommand, resource stays
           // the repo name unless a better signal is trivially available.
-          const top = yield* topLevel(spawner, instance.directory)
-          const resource = top ?? "repo"
+          const top = yield* topLevel(spawner, cwd)
+          const resource = resourceWithWorkdir(top ?? "repo", path.relative(instance.directory, cwd) || ".")
           const classification = classify(params.args, resource)
 
           yield* ctx.ask({
             permission: classification.verb === "read" ? "read" : "edit",
             patterns: ["git:" + (classification.subcommand || "?")],
             always: [],
-            metadata: { classification, args: params.args },
+            metadata: { classification, args: params.args, workdir: cwd },
           })
 
-          const result = yield* exec(spawner, "git", [...params.args], instance.directory)
+          const result = yield* exec(spawner, "git", [...params.args], instance.directory, params.workdir)
           const shaped = report({
             binary: "git",
             result,

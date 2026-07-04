@@ -4,7 +4,7 @@ import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner
 import { InstanceState } from "@/effect/instance-state"
 import { Tool } from "../tool"
 import { assertExternalDirectoryEffect } from "../external-directory"
-import { exec, report } from "./exec"
+import { exec, report, resolveWorkdir, resourceWithWorkdir, Workdir } from "./exec"
 
 export const Parameters = Schema.Struct({
   args: Schema.Array(Schema.String).annotate({
@@ -12,11 +12,12 @@ export const Parameters = Schema.Struct({
       "The find command arguments as an argv array (for example [\".\",\"-name\",\"*.ts\",\"-type\",\"f\"]). " +
       "Pass paths and predicates exactly as separate argv tokens.",
   }),
+  workdir: Workdir,
 })
 
 export type Classification = {
   verb: "read"
-  resource: "filesystem"
+  resource: string
   dangerous?: true
 }
 
@@ -42,10 +43,10 @@ function firstPathArg(args: readonly string[]): string {
   return "."
 }
 
-export function classify(args: readonly string[]): Classification {
+export function classify(args: readonly string[], resource = "filesystem"): Classification {
   const dangerous = dangerousArgv(args) !== undefined
-  if (dangerous) return { verb: "read", resource: "filesystem", dangerous: true }
-  return { verb: "read", resource: "filesystem" }
+  if (dangerous) return { verb: "read", resource, dangerous: true }
+  return { verb: "read", resource }
 }
 
 export const FindTool = Tool.define(
@@ -56,25 +57,26 @@ export const FindTool = Tool.define(
       description:
         "Run find with structured argv (no shell). Provide paths and predicates as an argv array; command-exec and destructive predicates are blocked.",
       parameters: Parameters,
-      execute: (params: { args: readonly string[] }, ctx: Tool.Context) =>
+      execute: (params: { args: readonly string[]; workdir?: string }, ctx: Tool.Context) =>
         Effect.gen(function* () {
           const instance = yield* InstanceState.context
+          const cwd = resolveWorkdir(instance.directory, params.workdir)
 
           validateArgv(params.args)
 
           const firstPath = firstPathArg(params.args)
-          const abs = path.isAbsolute(firstPath) ? firstPath : path.resolve(instance.directory, firstPath)
-          const classification = classify(params.args)
+          const abs = path.isAbsolute(firstPath) ? firstPath : path.resolve(cwd, firstPath)
+          const classification = classify(params.args, resourceWithWorkdir("filesystem", path.relative(instance.directory, cwd) || "."))
 
           yield* assertExternalDirectoryEffect(ctx, abs, { kind: "directory" })
           yield* ctx.ask({
             permission: "read",
             patterns: ["find"],
             always: [],
-            metadata: { args: params.args, classification },
+            metadata: { args: params.args, classification, workdir: cwd },
           })
 
-          const result = yield* exec(spawner, "find", [...params.args], instance.directory)
+          const result = yield* exec(spawner, "find", [...params.args], instance.directory, params.workdir)
           const shaped = report({
             binary: "find",
             result,

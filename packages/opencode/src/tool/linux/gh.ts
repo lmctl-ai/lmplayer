@@ -1,8 +1,9 @@
+import path from "path"
 import { Effect, Schema } from "effect"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { InstanceState } from "@/effect/instance-state"
 import { Tool } from "../tool"
-import { exec, report } from "./exec"
+import { exec, report, resolveWorkdir, resourceWithWorkdir, Workdir } from "./exec"
 
 export const Parameters = Schema.Struct({
   args: Schema.Array(Schema.String).annotate({
@@ -11,6 +12,7 @@ export const Parameters = Schema.Struct({
       "[\"api\",\"repos/owner/repo\",\"--method\",\"GET\"]). Structured argv only — NO shell string, NO pipes or " +
       "redirects.",
   }),
+  workdir: Workdir,
 })
 
 export type Verb = "read" | "modify" | "delete" | "create"
@@ -141,22 +143,23 @@ export const GhTool = Tool.define(
         "Run gh with structured argv (no shell). Provide the subcommand and args as an array. Returns command output " +
         "plus a semantic { verb, resource, network, subcommand } classification in metadata.",
       parameters: Parameters,
-      execute: (params: { args: readonly string[] }, ctx: Tool.Context) =>
+      execute: (params: { args: readonly string[]; workdir?: string }, ctx: Tool.Context) =>
         Effect.gen(function* () {
           const instance = yield* InstanceState.context
           if (params.args.length === 0) throw new Error("gh requires a subcommand")
+          const cwd = resolveWorkdir(instance.directory, params.workdir)
 
           validateArgv(params.args)
 
-          const classification = classify(params.args)
+          const classification = classify(params.args, resourceWithWorkdir("repo", path.relative(instance.directory, cwd) || "."))
           yield* ctx.ask({
             permission: classification.verb === "read" ? "read" : "edit",
             patterns: ["gh:" + (classification.subcommand || "?")],
             always: [],
-            metadata: { classification },
+            metadata: { classification, workdir: cwd },
           })
 
-          const result = yield* exec(spawner, "gh", [...params.args], instance.directory)
+          const result = yield* exec(spawner, "gh", [...params.args], instance.directory, params.workdir)
           const shaped = report({
             binary: "gh",
             result,
