@@ -12,6 +12,7 @@ import { ProviderTransform } from "@/provider/transform"
 import PROMPT_GENERATE from "./generate.txt"
 import PROMPT_COMPACTION from "./prompt/compaction.txt"
 import PROMPT_EXPLORE from "./prompt/explore.txt"
+import PROMPT_SECURED from "./prompt/secured.txt"
 import PROMPT_SUMMARY from "./prompt/summary.txt"
 import PROMPT_TITLE from "./prompt/title.txt"
 import { Permission } from "@/permission"
@@ -214,6 +215,54 @@ export const layer = Layer.effect(
             prompt: PROMPT_EXPLORE,
             options: {},
             mode: "subagent",
+            native: true,
+          },
+          secured: {
+            name: "secured",
+            description:
+              "Secured non-coding deployment profile. Allows selected structured tools, denies shell execution, secrets, .env files, external directories, and permission prompts.",
+            permission: Permission.fromConfig({
+              "*": "deny",
+              apply_patch: "allow",
+              cp: "allow",
+              curl: "allow",
+              edit: {
+                "*": "allow",
+                "git:*": "deny",
+              },
+              find: "allow",
+              git: "allow",
+              grep: "allow",
+              glob: "allow",
+              ls: "allow",
+              mkdir: "allow",
+              mv: "allow",
+              read: {
+                "*": "allow",
+                "*.env": "deny",
+                "*.env.*": "deny",
+                secrets: "deny",
+                "secrets/*": "deny",
+                "*/secrets": "deny",
+                "*/secrets/*": "deny",
+              },
+              rg: "allow",
+              skill: "allow",
+              tar: "allow",
+              todowrite: "allow",
+              touch: "allow",
+              unzip: "allow",
+              webfetch: "allow",
+              websearch: "allow",
+              wget: "allow",
+              write: "allow",
+              external_directory: "deny",
+              bash: "deny",
+              question: "deny",
+            }),
+            prompt: PROMPT_SECURED,
+            options: {},
+            mode: "primary",
             native: true,
           },
           compaction: {

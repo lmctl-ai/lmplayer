@@ -138,6 +138,51 @@ describe("tool.registry", () => {
     }),
   )
 
+  it.instance("filters secured runtime tools before prompt submission", () =>
+    Effect.gen(function* () {
+      const registry = yield* ToolRegistry.Service
+      const agent = yield* Agent.Service
+      const secured = yield* agent.get("secured")
+      if (!secured) throw new Error("secured agent not found")
+
+      const ids = (
+        yield* registry.tools({
+          providerID: ProviderV2.ID.opencode,
+          modelID: ModelV2.ID.make("test"),
+          agent: secured,
+        })
+      ).map((tool) => tool.id)
+
+      expect(ids).not.toContain("bash")
+      expect(ids).not.toContain("question")
+      for (const id of [
+        "cp",
+        "curl",
+        "edit",
+        "find",
+        "git",
+        "glob",
+        "grep",
+        "ls",
+        "mkdir",
+        "mv",
+        "read",
+        "rg",
+        "skill",
+        "tar",
+        "todowrite",
+        "touch",
+        "unzip",
+        "webfetch",
+        "websearch",
+        "wget",
+        "write",
+      ]) {
+        expect(ids).toContain(id)
+      }
+    }),
+  )
+
   it.instance("loads tools from .opencode/tool (singular)", () =>
     Effect.gen(function* () {
       const test = yield* TestInstance
