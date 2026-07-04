@@ -325,7 +325,12 @@ export const layer = Layer.effect(
     })
 
     const tools: Interface["tools"] = Effect.fn("ToolRegistry.tools")(function* (input) {
+      const disabled = Permission.disabled(
+        (yield* all()).map((tool) => tool.id),
+        input.agent.permission,
+      )
       const filtered = (yield* all()).filter((tool) => {
+        if (disabled.has(tool.id)) return false
         if (tool.id === WebSearchTool.id) {
           return webSearchEnabled(input.providerID, { exa: flags.enableExa, parallel: flags.enableParallel })
         }
