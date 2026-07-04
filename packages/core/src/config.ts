@@ -60,6 +60,10 @@ export class Info extends Schema.Class<Info>("Config.Info")({
   permissions: Permission.Ruleset.pipe(Schema.optional).annotate({
     description: "Ordered tool permission rules applied to agent tool use",
   }),
+  permission_ask: Schema.Literals(["allow", "deny"]).pipe(Schema.optional).annotate({
+    description:
+      "Fallback for permissions that would otherwise ask interactively. When set to 'allow' or 'deny', residual ask decisions are resolved without prompting. Explicit allow and deny rules still take precedence.",
+  }),
   agents: Schema.Record(Schema.String, ConfigAgent.Info).pipe(Schema.optional).annotate({
     description: "Named built-in agent overrides and custom agent definitions",
   }),

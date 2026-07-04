@@ -87,6 +87,13 @@ describe("Config", () => {
     }),
   )
 
+  it.effect("migrates v1 permission_ask to the v2 permission fallback", () =>
+    Effect.sync(() => {
+      expect(ConfigMigrateV1.migrate({ permission_ask: "allow" }).permission_ask).toBe("allow")
+      expect(ConfigMigrateV1.migrate({ permission_ask: "deny" }).permission_ask).toBe("deny")
+    }),
+  )
+
   it.effect("rejects unsupported compaction mode values", () =>
     Effect.sync(() => {
       expect(() => Schema.decodeUnknownSync(ConfigV1.Info)({ compaction: { mode: "invalid" } })).toThrow()
@@ -275,6 +282,7 @@ describe("Config", () => {
                   { action: "bash", resource: "*", effect: "ask" },
                   { action: "bash", resource: "git status", effect: "allow" },
                 ],
+                permission_ask: "allow",
                 agents: {
                   reviewer: {
                     model: "openrouter/openai/gpt-5",
@@ -362,6 +370,7 @@ describe("Config", () => {
               { action: "bash", resource: "*", effect: "ask" },
               { action: "bash", resource: "git status", effect: "allow" },
             ])
+            expect(documents[0]?.info.permission_ask).toBe("allow")
             const reviewer = documents[0]?.info.agents?.reviewer
             expect(reviewer?.model).toBe("openrouter/openai/gpt-5")
             expect(reviewer?.variant).toBe("high")
