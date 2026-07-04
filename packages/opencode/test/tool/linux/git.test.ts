@@ -82,6 +82,8 @@ describe("tool.git classify", () => {
     [["config", "--list"], { verb: "read", network: false }],
     [["config", "user.name", "Bob"], { verb: "modify", network: false }],
     [["config", "--unset", "user.name"], { verb: "delete", network: false }],
+    [["worktree", "list"], { verb: "read", network: false }],
+    [["worktree", "add", "../other"], { verb: "modify", network: false }],
     [["stash"], { verb: "modify", network: false }],
     [["stash", "drop"], { verb: "delete", network: false }],
     [["stash", "list"], { verb: "read", network: false }],

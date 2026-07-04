@@ -154,7 +154,6 @@ it.instance("secured agent allows structured tools and denies shell, prompts, ex
       "curl",
       "edit",
       "find",
-      "git",
       "grep",
       "glob",
       "ls",
@@ -178,8 +177,17 @@ it.instance("secured agent allows structured tools and denies shell, prompts, ex
     expect(Permission.evaluate("bash", "pwd", secured.permission).action).toBe("deny")
     expect(Permission.evaluate("question", "Continue?", secured.permission).action).toBe("deny")
     expect(Permission.evaluate("external_directory", "/tmp/*", secured.permission).action).toBe("deny")
+    expect(Permission.evaluate("git", "status", secured.permission).action).toBe("deny")
+    expect(Permission.evaluate("git", "__catalog__", secured.permission).action).toBe("allow")
     expect(Permission.evaluate("read", "git:status", secured.permission).action).toBe("allow")
+    expect(Permission.evaluate("read", "git:diff", secured.permission).action).toBe("allow")
+    expect(Permission.evaluate("read", "git:show", secured.permission).action).toBe("allow")
+    expect(Permission.evaluate("read", "git:worktree", secured.permission).action).toBe("allow")
+    expect(Permission.evaluate("read", "git:frobnicate", secured.permission).action).toBe("deny")
     expect(Permission.evaluate("edit", "git:commit", secured.permission).action).toBe("deny")
+    expect(Permission.evaluate("edit", "git:checkout", secured.permission).action).toBe("deny")
+    expect(Permission.evaluate("edit", "git:push", secured.permission).action).toBe("deny")
+    expect(Permission.evaluate("edit", "git:frobnicate", secured.permission).action).toBe("deny")
     expect(Permission.evaluate("read", ".env", secured.permission).action).toBe("deny")
     expect(Permission.evaluate("read", ".env.production", secured.permission).action).toBe("deny")
     expect(Permission.evaluate("read", "secrets", secured.permission).action).toBe("deny")
