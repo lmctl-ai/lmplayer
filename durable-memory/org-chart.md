@@ -275,3 +275,20 @@
   default external_directory/.env "ask" rules) -> deterministic, no prompts. FIX SEEDED: permissions lead
   ses_0d0ff4eb8 -> honor a config-level ask-fallback in V2 evaluator + migrate legacy permission_ask; preserve
   default (unset=ask) + deny-still-wins. When green -> meta-lead merges -> dev.
+
+## PERMISSIONS YOLO FIX — CLOSED (dev 46d86b4f2) + MODEL SELECTION verdict
+- Worker ses_0d0fe3071: V2 config now honors top-level `permission_ask` fallback (evaluator collapses residual
+  "ask"->allow|deny); migrate.ts maps legacy v1 permission_ask -> v2 fallback. Tests: deny-still-wins over allow
+  fallback, unset=ask preserved, migration. Meta-lead re-verified (core typecheck + 29 pass) + merged. => file-based
+  non-interactive permission now works two ways: (a) top-level {"permission_ask":"allow"} OR (b) native V2 catch-all
+  {"permissions":[{"action":"*","resource":"*","effect":"allow"}]}. Aligns with operator's "predefine security,
+  never ask" + the semantic IAM design (design-permissions.md).
+- MODEL SELECTION: SOLVED (verified empirically: `run --model github-copilot/gpt-5.5 --effort high` -> "build ·
+  gpt-5.5 · high" -> PONG, ZERO config). Models auto-resolve from bundled models.dev catalog on any authenticated
+  provider (provider.ts:1313-1636, getModel 1777-1799); `--effort` is an alias of `--variant` (run.ts:212-217),
+  variants auto-generated per catalog model (provider.ts:1606-1608). Config only needed for genuinely NEW/unknown
+  providers/models or custom variant tiers - exactly as intended. No opencode-style pre-declaration required.
+- DURABLE-MEMORY (operator confirmed design, not a gap): the "no-compaction=>no-index" case is fine (all context is
+  in the raw session, no loss). Per-session feature currently has the index.md level only; the "individual files"
+  second level exists in the meta-lead repo memory but is NOT yet in the per-session data-dir feature -> optional
+  future enhancement if wanted.
