@@ -208,10 +208,14 @@ function run(db: DatabaseService, event: SessionEvent.Event) {
       updateShell: updateMessage,
       appendMessage,
     }
-    const previousUsage = event.type === SessionEvent.Step.Ended.type ? assistantUsage(yield* getAssistant(event.data.assistantMessageID)) : undefined
+    const previousAssistant = event.type === SessionEvent.Step.Ended.type ? yield* getAssistant(event.data.assistantMessageID) : undefined
     yield* SessionMessageUpdater.update(adapter, event)
-    if (event.type === SessionEvent.Step.Ended.type) {
-      yield* applyUsage(db, event.data.sessionID, usageDiff({ cost: event.data.cost, tokens: event.data.tokens }, previousUsage))
+    if (event.type === SessionEvent.Step.Ended.type && previousAssistant) {
+      yield* applyUsage(
+        db,
+        event.data.sessionID,
+        usageDiff({ cost: event.data.cost, tokens: event.data.tokens }, assistantUsage(previousAssistant)),
+      )
     }
   })
 }
