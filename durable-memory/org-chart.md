@@ -254,3 +254,24 @@
 - SEED/RESUME COMMANDS (reuse): seed new lead = setsid bash -c '... run --format json --model
   github-copilot/gpt-5.5 "$(< /tmp/task.txt)" > log 2>&1' &  ; resume same lead = add --session <leadID>. Always
   file-based prompt (no backticks in the bash -c string). Check: grep -c "command not found" log (want 0).
+
+## TOKENS-INTEGRATION — CLOSED (dev f937b8c2d)
+- Worker ses_0d4f3bfa0: V2 Step.Ended now maintains persisted session.tokens_* via applyUsage delta-vs-prior
+  (idempotent: duplicate/orphan Step.Ended net zero; V1 path untouched). No schema change, no SDK regen.
+  durable-memory/integration-lmctl-tokens.md contract shipped. Meta-lead re-verified (core typecheck + 10 tests) +
+  merged. Posted root-cause+contract to lmcode room seq2. => lmcode now surfaces real per-session token totals for
+  lmctl health (read SQLite session.tokens_* at ~/.local/share/lmcode/opencode.db, or GET /session/:id .tokens).
+
+## OPERATOR Q&A (durable-memory + file-based permissions)
+- DURABLE-MEMORY: WORKING + on by default in lmcode. durable-memory.ts (index.md at data/session/<id>/
+  durable-memory/), injected as authoritative system context EVERY turn (prompt.ts:1264-1283), OUTSIDE the lossy
+  message pipeline => non-compacting; organize mode rewrites+preserves it (compaction.ts:422-500) with graceful
+  stale-fallback. GAP: write path is indirect — only the LLM organize pass at compaction OR session import writes
+  index.md; NO on-demand write tool/CLI/API. A session that never compacts never gets one. Follow-up candidate:
+  add a durable-memory write tool so model/user can seed/update memory directly.
+- FILE-BASED YOLO PERMISSIONS: root-caused. Two stacks; legacy V1 `permission_ask:"allow"` is SILENTLY IGNORED by
+  the live V2 stack (migrate.ts drops it) -> that's why YOLO still prompts. WORKS TODAY via native V2 catch-all:
+  {"permissions":[{"action":"*","resource":"*","effect":"allow"}]} (findLast, appended after defaults, beats the
+  default external_directory/.env "ask" rules) -> deterministic, no prompts. FIX SEEDED: permissions lead
+  ses_0d0ff4eb8 -> honor a config-level ask-fallback in V2 evaluator + migrate legacy permission_ask; preserve
+  default (unset=ask) + deny-still-wins. When green -> meta-lead merges -> dev.
