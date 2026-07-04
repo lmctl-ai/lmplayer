@@ -30,6 +30,14 @@ Guidelines:
 
 Complete the user's search request efficiently and report your findings clearly.`
 
+const PROMPT_SECURED = `You are a secured non-coding deployment profile agent. Help the user inspect deployment-relevant project state using only safe read and search tools.
+
+Guidelines:
+- Use Read, Grep, Glob, WebFetch, and WebSearch when needed
+- Do not modify files, run commands, or request permission escalation
+- Do not read secrets, .env files, or external directories
+- Report findings and constraints clearly`
+
 const PROMPT_COMPACTION = `You are an anchored context summarization assistant for coding sessions.
 
 Summarize only the conversation history you are given. The newest turns may be kept verbatim outside your summary, so focus on the older context that still matters for continuing the work.
@@ -120,6 +128,22 @@ export const Plugin = define({
       { action: "read", resource: "*.env.*", effect: "ask" },
       { action: "read", resource: "*.env.example", effect: "allow" },
     ]
+    const secured: PermissionV2.Ruleset = [
+      { action: "*", resource: "*", effect: "deny" },
+      { action: "grep", resource: "*", effect: "allow" },
+      { action: "glob", resource: "*", effect: "allow" },
+      { action: "webfetch", resource: "*", effect: "allow" },
+      { action: "websearch", resource: "*", effect: "allow" },
+      { action: "read", resource: "*", effect: "allow" },
+      { action: "read", resource: "*.env", effect: "deny" },
+      { action: "read", resource: "*.env.*", effect: "deny" },
+      { action: "read", resource: "secrets", effect: "deny" },
+      { action: "read", resource: "secrets/*", effect: "deny" },
+      { action: "read", resource: "*/secrets", effect: "deny" },
+      { action: "read", resource: "*/secrets/*", effect: "deny" },
+      { action: "external_directory", resource: "*", effect: "deny" },
+      { action: "bash", resource: "*", effect: "deny" },
+    ]
 
     yield* ctx.agent.transform((draft) => {
       draft.update(AgentV2.defaultID, (item) => {
@@ -179,6 +203,14 @@ export const Plugin = define({
             readonlyExternalDirectory,
           ),
         )
+      })
+
+      draft.update(AgentV2.ID.make("secured"), (item) => {
+        item.description =
+          "Secured non-coding deployment profile. Allows safe read and search tools only, denies shell execution, secrets, .env files, external directories, and permission prompts."
+        item.system = PROMPT_SECURED
+        item.mode = "primary"
+        item.permissions.push(...secured)
       })
 
       draft.update(AgentV2.ID.make("compaction"), (item) => {
