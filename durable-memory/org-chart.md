@@ -230,6 +230,27 @@
 - GAP 2 (concrete tool bug, autopilot-able): structured `git` tool (tool/linux/git.ts) has NO `workdir` param, so a
   lead operating in a worktree must fall back to raw commands to avoid acting on the main checkout. Likely applies
   to the other exec-wrapped linux tools too. Fix: add a scope-constrained optional workdir to exec.ts wrappers.
+
+## TOOL WORKDIR FIX — CLOSED (dev 34ff25fca)
+- Tools lead ses_0d59b9dbd drove worker: added `Workdir` schema + `resolveWorkdir(root,workdir)` (confines to
+  workspace root, throws on `..` escape) across exec.ts + git/gh/find/rg/tar/unzip, classify reflects scope,
+  tests (runs-in-workdir + rejects-escape). Meta-lead re-verified (142 linux tests + typecheck) and merged.
+
+## FEATURE REQUEST (lmchat room "lmcode" seq1) — lmcode<->lmctl token integration (ACTIVE)
+- Ask: lmctl `health` shows n/a context-size for lmcode members (codex/claude show it); lmcode must surface a
+  per-session cumulative token total an external reader can pick up. Operator: "useful when we integrate lmcode
+  to lmctl" -> make lmcode a first-class provider.
+- ROOT CAUSE (explored): the total ALREADY EXISTS — SQLite `session` cols tokens_input/output/reasoning/
+  cache_read/cache_write (packages/core/src/session/sql.ts:43-48), exposed on Session.Info.tokens, DB at
+  ~/.local/share/lmcode/opencode.db (WAL). BUG: applyUsage (projector.ts:90-110) increments them ONLY on the
+  legacy V1 PartUpdated step-finish path (projector.ts:312-329); the V2 runner Step.Ended projection
+  (projector.ts:381-382) writes only per-message draft.tokens and does NOT roll up -> V2 sessions show stale/zero
+  total = the n/a. Fix = make V2 Step.Ended maintain the cumulative cols (reuse applyUsage, guard NO double-count).
+  NO wire-schema change, NO SDK regen (reuse existing tokens field).
+- ACTIVE: tokens-integration lead seeded ses_0d4f499c4 (log /tmp/lead-tokens.log). Deliver fix + no-double-count
+  test + durable-memory/integration-lmctl-tokens.md (read contract). Posted root-cause + proposed read contract to
+  lmcode room (seq2): primary=read SQLite session.tokens_* cols read-only keyed by id; alt=GET /session/:id .tokens.
+  Asked lmctl-src to confirm shape. When green, meta-lead merges -> dev + finalize the contract doc + post to room.
 - SEED/RESUME COMMANDS (reuse): seed new lead = setsid bash -c '... run --format json --model
   github-copilot/gpt-5.5 "$(< /tmp/task.txt)" > log 2>&1' &  ; resume same lead = add --session <leadID>. Always
   file-based prompt (no backticks in the bash -c string). Check: grep -c "command not found" log (want 0).
