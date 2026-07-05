@@ -381,3 +381,12 @@
 - MODEL BALANCE active across fleet: toolfix=codex, svg-transit workers=claude+codex, lmvideo=gpt-5.5/claude.
 - NEXT (autopilot): merge lmvideo svg/diagram slice when green; resume svg-transit M3 (split/merge, path morph,
   PNG encode); consider lmcode fixes for #7/#8. No review-gating.
+
+## lmvideo svg/diagram slice MERGED (master 540ddcc)
+- Integrated svg-transit + diagramkit as LIBRARIES (file: deps, direct createFrames/render - resolved the spawn
+  PATH issue). Added svg->PPM raster handoff (host ffmpeg can't decode SVG directly - env finding). Rendered
+  examples/svg-diagram.storyboard.json -> mp4 (22KB) + report + 27 svg-transit transition frames.
+- NEW findings: (a) worker requested gpt-5.3-codex but RAN as gpt-5.5 -> model selection not always honored
+  (undermines balancing; investigate). (b) ffmpeg SVG-decode gap -> PPM handoff (env/lmvideo, not lmcode).
+- CHALLENGE now central: verifying OUTPUT QUALITY (visual transitions / video look-right / sync) - tests prove it
+  RUNS not that it is GOOD; needs human/visual review. Plus host saturation+reboots + model reliability variance.
