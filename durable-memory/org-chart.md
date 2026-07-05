@@ -335,3 +335,15 @@
   --conditions=browser /niceapps/mma/oc/lmcode/packages/opencode/src/index.ts run ... (lmcode operates on the
   external project). MONITOR: when lead reports, meta-lead independently reviews worker session + harvests lmcode
   issues into lmcode backlog/fixes, and reviews+merges milestone-1 -> svg-transit main.
+
+## MODEL BALANCING (operator directive) — rotate copilot models across teams
+- Verified working copilot models (smoke-tested PONG): claude-sonnet-4.6, gpt-5.3-codex, gemini-2.5-pro,
+  gpt-5.5. Also entitled: claude-opus-4.8(/-fast), claude-opus-4.7(/-fast), claude-sonnet-5, claude-haiku-4.5.
+  gpt-5.4 DISABLED.
+- POLICY: do NOT run every worker on gpt-5.5. Balance across claude/codex/gemini/gpt. Updated team-lead-brief
+  to rotate worker models from the roster. Meta-lead: assign VARIED models when seeding/resuming leads +
+  rotating workers. Rationale: diversify strengths + dogfood surfaces model-specific lmcode issues + spread load.
+- Running leads currently on gpt-5.5 (seeded before this): lmvideo ses_0cf6e683e, svg-transit ses_0cf7db799,
+  (earlier project leads done). Enforce balance from next resume/seed onward.
+- OPERATOR ASLEEP: FULL AUTONOMY. Do NOT wait for review. Keep dogfooding + autopiloting: review+merge on own
+  judgment, keep fleet running with balanced models, harvest lmcode findings, maintain durable memory.
