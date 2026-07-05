@@ -1,7 +1,8 @@
 import path from "path"
-import { Effect, Schema, Stream } from "effect"
+import { Effect, Option, Schema, Stream } from "effect"
 import { ChildProcess } from "effect/unstable/process"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
+import { Config } from "@/config/config"
 
 // Structured wrapper around a real Linux binary. This is the whole point of the
 // linux tool batch: instead of a free-form shell string (bash), each tool takes
@@ -17,13 +18,35 @@ export const Workdir = Schema.optional(Schema.String).annotate({
   description: "Optional working directory for the command. Must resolve inside the session workspace root.",
 })
 
-export function resolveWorkdir(root: string, workdir?: string): string {
+function insideRoot(root: string, target: string) {
+  const relative = path.relative(root, target)
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative))
+}
+
+export function resolveWorkdir(
+  root: string,
+  workdir?: string,
+  options?: {
+    extraRoots?: readonly string[]
+  },
+): string {
   const workspaceRoot = path.resolve(root)
   const resolved = workdir ? (path.isAbsolute(workdir) ? path.resolve(workdir) : path.resolve(workspaceRoot, workdir)) : workspaceRoot
-  const relative = path.relative(workspaceRoot, resolved)
-  if (relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative))) return resolved
+  const roots = [workspaceRoot, ...(options?.extraRoots ?? []).map((item) => path.resolve(item))]
+  if (roots.some((allowed) => insideRoot(allowed, resolved))) return resolved
   throw new Error(`workdir '${workdir}' resolves outside the workspace root`)
 }
+
+export const resolveWorkdirWithConfig = Effect.fn("LinuxTool.resolveWorkdirWithConfig")(function* (root: string, workdir?: string) {
+  const config = yield* Effect.serviceOption(Config.Service)
+  if (Option.isNone(config)) return { cwd: resolveWorkdir(root, workdir), extraRoots: [] as const }
+  const loaded = yield* config.value.get().pipe(Effect.catch(() => Effect.succeed(undefined)))
+  const extraRoots = loaded?.tool_workdir?.extra_roots ?? []
+  return {
+    cwd: resolveWorkdir(root, workdir, { extraRoots }),
+    extraRoots,
+  }
+})
 
 export function resourceWithWorkdir(resource: string, scope?: string): string {
   if (!scope || scope === ".") return resource
@@ -37,8 +60,9 @@ export const exec = Effect.fn("LinuxTool.exec")(function* (
   root: string,
   workdir?: string,
   timeoutMs = 30_000,
+  extraRoots?: readonly string[],
 ) {
-  const cwd = resolveWorkdir(root, workdir)
+  const cwd = resolveWorkdir(root, workdir, { extraRoots })
   return yield* Effect.scoped(
     Effect.gen(function* () {
       const handle = yield* spawner.spawn(ChildProcess.make(binary, args, { cwd, stdin: "ignore" }))
