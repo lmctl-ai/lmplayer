@@ -18,7 +18,7 @@ Environment (post-reboot facts — VM auto-shuts-down each evening, `/tmp` is wi
   heavy coding, gemini/gpt for breadth). This diversifies strengths AND is part of the dogfood (surfaces
   model-specific lmcode issues). `gpt-5.4` is DISABLED. Also available: claude-opus-4.8, claude-sonnet-5,
   claude-haiku-4.5.
-- Auth is persistent at `~/.local/share/lmcode/auth.json` (survives reboot).
+- Auth is persistent at `~/.local/share/lmplayer/auth.json` (survives reboot).
 
 Spawn a worker:
 1. `git worktree add /niceapps/mma/oc/lmcode-wt/<name> -b <branch> dev`

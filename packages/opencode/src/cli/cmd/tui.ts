@@ -71,12 +71,12 @@ export function resolveThreadDirectory(project?: string, envPWD = process.env.PW
 
 export const TuiThreadCommand = cmd({
   command: "tui [project]",
-  describe: "start lmcode tui",
+  describe: "start lmplayer tui",
   builder: (yargs) =>
     withNetworkOptions(yargs)
       .positional("project", {
         type: "string",
-        describe: "path to start lmcode in",
+        describe: "path to start lmplayer in",
       })
       .option("model", {
         type: "string",

@@ -6,7 +6,7 @@ import { InstallationVersion } from "@opencode-ai/core/installation/version"
 
 export const UpgradeCommand = {
   command: "upgrade [target]",
-  describe: "upgrade lmcode to the latest or a specific version",
+  describe: "upgrade lmplayer to the latest or a specific version",
   builder: (yargs: Argv) => {
     return yargs
       .positional("target", {

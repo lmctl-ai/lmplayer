@@ -14,7 +14,7 @@ function out(line: string) {
 }
 
 // ---------------------------------------------------------------------------
-// Lightweight orchestrator for lmcode agent containers (ORGANIZE design Phase R,
+// Lightweight orchestrator for lmplayer agent containers (ORGANIZE design Phase R,
 // slice R1). This is a SEPARATE coordination role: it talks to containers purely
 // over HTTP (driving the H1 export + H2 import endpoints) and never loads the
 // full server. It tracks a durable assignment map with a monotonic per-session
@@ -311,7 +311,7 @@ const AssignCommand = cmd({
 
 export const OrchestratorCommand = cmd({
   command: "orchestrator",
-  describe: "coordinate lmcode agent containers (status, handover, refresh, assign)",
+  describe: "coordinate lmplayer agent containers (status, handover, refresh, assign)",
   builder: (yargs: Argv) =>
     yargs
       .command(StatusCommand)
