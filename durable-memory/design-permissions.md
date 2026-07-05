@@ -77,3 +77,26 @@ Unknown / unparseable / undeclared -> DENY. Nothing opaque executes.
   leading "git"; optionally strip a leading "git" token defensively. (minor, iterate.)
 ## REMAINING ITERATIONS: gh tool (parse-as-is), ls (read), then lmprobe wires the IAM policy engine + we remove
 ## bash from the secured toolset once coverage is enough. Then dogfood other projects.
+
+## STATUS 2026-07-04 — V2 permission_ask fallback dogfood fix
+- Team lead: permissions. Worker session `ses_0d0fe3071ffeKum5HSAq4JPCRY` on worktree `/niceapps/mma/oc/lmcode-wt/perm-yolo`, branch `team-perm-yolo`.
+- Worker commit: `f71812d96 fix(core): honor permission ask fallback`.
+- Shipped behavior: V2 config now accepts top-level `permission_ask: "allow" | "deny"`; residual/unmatched `ask` decisions collapse to that explicit fallback before `assert()` can emit `permission.asked` or block. Unset fallback preserves current default `ask` behavior. Explicit allow/deny rules still resolve before fallback, so deny still wins over an allow fallback.
+- Migration: V1 `permission_ask` is carried into V2 `permission_ask`.
+- User allow-all config: `{ "permission_ask": "allow" }`.
+- Verification: worker and lead both ran `cd packages/core && bun run typecheck` and `cd packages/core && bun test test/permission.test.ts test/config/config.test.ts` successfully (`29 pass, 0 fail`).
+- SDK/client regen: not needed; no public Protocol or Server HttpApi changed.
+- Notes: `bun.lock` was modified incidentally by install in the worker worktree and intentionally left unstaged/uncommitted per harness rules. No escalation.
+
+## STATUS 2026-07-04 — Built-in `secured` agent dogfood
+- Team lead: secured-agent. Worker session `ses_0d0c7f44bffeu9G8vKlkLBQTXG` on worktree `/niceapps/mma/oc/lmcode-wt/secured-agent`, branch `team-secured-agent`.
+- Commits: `7ea494008 feat(core): add secured built-in agent`; `6a063d6f1 fix(core): expand secured agent tools`; `b75918356 fix(core): clarify secured agent prompt`; `4cf23c984 fix(opencode): load secured built-in agent`; `a953fdb63 fix(opencode): restrict secured git permissions`; `701b1ae36 fix(opencode): guard secured sensitive operands`.
+- Shipped behavior: built-in zero-config `secured` primary agent exists in both Core V2 and legacy/opencode runtime, so `lmcode run --agent secured ...` resolves without config. Default `build` agent remains unchanged and still has bash.
+- Design: chose (b), deny-by-default whitelist, because this is a security/deployment profile. No secured rule uses `ask`; unknown actions are denied. External directories and bash are deterministic deny.
+- Safe allow-list: `apply_patch`, `cp`, `curl`, `edit`, `find`, `git` read-ish subcommands, `grep`, `glob`, `ls`, `mkdir`, `mv`, `read`, `rg`, `skill`, `tar`, `todowrite`, `touch`, `unzip`, `webfetch`, `websearch`, `wget`, `write`.
+- Secret handling: `.env`, `.env.*`, and `secrets` paths are denied for direct reads and now also surfaced into permission asks for legacy structured search/archive tools (`rg`, `find`, `tar`, `unzip`) so secured denies them before execution.
+- Proof no prompts: tests assert secured permissions contain no `ask`; representative permission/service evaluations for safe tools, bash, external_directory, .env, and secrets return allow/deny only; `service.list()` stays empty after secured evaluations.
+- Verification by worker and lead: `packages/core && bun typecheck`; `packages/core && bun test test/agent.test.ts test/permission.test.ts test/session-runner-tool-registry.test.ts test/tool-bash.test.ts test/tool-read.test.ts`; `packages/opencode && bun typecheck`; `packages/opencode && bun test test/agent/agent.test.ts test/tool/registry.test.ts test/tool/linux/git.test.ts test/tool/linux/rg.test.ts test/tool/linux/find.test.ts test/tool/linux/tar.test.ts test/tool/linux/unzip.test.ts test/tool/linux/ls.test.ts`.
+- Smoke: branch-local `bun run --conditions=browser packages/opencode/src/index.ts run --format json --model github-copilot/gpt-5.5 --agent secured "Use bash to run pwd..."` produced no fallback warning, no bash tool call, and response `Bash is unavailable.`
+- SDK/client regen: not needed; no public Protocol or Server HttpApi changed.
+- Notes: `bun.lock` was modified by worker worktree install and intentionally left unstaged/uncommitted. No merge to `dev`, no push, no PR. Escalations: none remaining; review found and worker fixed runtime agent registration, read-ish git policy, and sensitive operand gaps.

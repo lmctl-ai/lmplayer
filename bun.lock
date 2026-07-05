@@ -543,7 +543,7 @@
       "name": "opencode",
       "version": "1.17.11",
       "bin": {
-        "opencode": "./bin/opencode",
+        "lmplayer": "./bin/lmplayer",
       },
       "dependencies": {
         "@actions/core": "1.11.1",

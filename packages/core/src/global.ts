@@ -7,7 +7,22 @@ import { Flock } from "./util/flock"
 import { Flag } from "./flag/flag"
 import { makeGlobalNode } from "./effect/app-node"
 
-const app = "lmcode"
+const app = "lmplayer"
+// One-time migration from the previous product name ("lmcode"): if the new
+// per-app directory does not exist yet but the legacy one does, move it over so
+// existing auth/config/state carry forward transparently.
+for (const base of [xdgData!, xdgConfig!, xdgState!, xdgCache!]) {
+  const to = path.join(base, app)
+  const from = path.join(base, "lmcode")
+  try {
+    await fs.access(to)
+  } catch {
+    await fs.access(from).then(
+      () => fs.rename(from, to),
+      () => {},
+    )
+  }
+}
 const data = path.join(xdgData!, app)
 const cache = path.join(xdgCache!, app)
 const config = path.join(xdgConfig!, app)
