@@ -236,7 +236,8 @@ export function classify(args: readonly string[], resource = "repo"): Classifica
   // `branch` — listing reads; `-d`/`-D` delete; anything else (create/rename/move) modifies.
   if (subcommand === "branch") {
     if (hasFlag(rest, "-d", "-D", "--delete")) return { ...base, verb: "delete", network: false }
-    const listing = rest.length === 0 || hasFlag(rest, "-l", "--list", "-a", "-r", "--all", "--remotes")
+    const listing =
+      rest.length === 0 || hasFlag(rest, "-l", "--list", "-a", "-r", "--all", "--remotes", "--show-current")
     return { ...base, verb: listing ? "read" : "modify", network: false }
   }
 
