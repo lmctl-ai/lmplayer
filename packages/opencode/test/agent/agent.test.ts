@@ -52,6 +52,7 @@ it.instance("returns default native agents when no config", () =>
     expect(names).toContain("plan")
     expect(names).toContain("general")
     expect(names).toContain("explore")
+    expect(names).toContain("secured")
     expect(names).toContain("compaction")
     expect(names).toContain("title")
     expect(names).toContain("summary")
@@ -129,6 +130,77 @@ it.instance("explore agent asks for external directories and allows whitelisted 
     expect(
       Permission.evaluate("external_directory", path.join(Global.Path.tmp, "agent-work"), explore!.permission).action,
     ).toBe("allow")
+  }),
+)
+
+it.instance("secured agent is primary and never asks", () =>
+  Effect.gen(function* () {
+    const secured = yield* load((svc) => svc.get("secured"))
+    expect(secured).toBeDefined()
+    expect(secured?.mode).toBe("primary")
+    expect(secured?.native).toBe(true)
+    expect(secured?.permission.some((rule) => rule.action === "ask")).toBe(false)
+  }),
+)
+
+it.instance("secured agent allows structured tools and denies shell, prompts, external dirs, and secrets", () =>
+  Effect.gen(function* () {
+    const secured = yield* load((svc) => svc.get("secured"))
+    if (!secured) throw new Error("secured agent not found")
+
+    for (const permission of [
+      "apply_patch",
+      "cp",
+      "curl",
+      "edit",
+      "find",
+      "grep",
+      "glob",
+      "ls",
+      "mkdir",
+      "mv",
+      "read",
+      "rg",
+      "skill",
+      "tar",
+      "todowrite",
+      "touch",
+      "unzip",
+      "webfetch",
+      "websearch",
+      "wget",
+      "write",
+    ]) {
+      expect(Permission.evaluate(permission, "src/index.ts", secured.permission).action).toBe("allow")
+    }
+
+    expect(Permission.evaluate("bash", "pwd", secured.permission).action).toBe("deny")
+    expect(Permission.evaluate("question", "Continue?", secured.permission).action).toBe("deny")
+    expect(Permission.evaluate("external_directory", "/tmp/*", secured.permission).action).toBe("deny")
+    expect(Permission.evaluate("git", "status", secured.permission).action).toBe("deny")
+    expect(Permission.evaluate("git", "__catalog__", secured.permission).action).toBe("allow")
+    expect(Permission.evaluate("read", "git:status", secured.permission).action).toBe("allow")
+    expect(Permission.evaluate("read", "git:diff", secured.permission).action).toBe("allow")
+    expect(Permission.evaluate("read", "git:show", secured.permission).action).toBe("allow")
+    expect(Permission.evaluate("read", "git:worktree", secured.permission).action).toBe("allow")
+    expect(Permission.evaluate("read", "git:frobnicate", secured.permission).action).toBe("deny")
+    expect(Permission.evaluate("edit", "git:commit", secured.permission).action).toBe("deny")
+    expect(Permission.evaluate("edit", "git:checkout", secured.permission).action).toBe("deny")
+    expect(Permission.evaluate("edit", "git:push", secured.permission).action).toBe("deny")
+    expect(Permission.evaluate("edit", "git:frobnicate", secured.permission).action).toBe("deny")
+    expect(Permission.evaluate("read", ".env", secured.permission).action).toBe("deny")
+    expect(Permission.evaluate("read", ".env.production", secured.permission).action).toBe("deny")
+    expect(Permission.evaluate("read", "secrets", secured.permission).action).toBe("deny")
+    expect(Permission.evaluate("read", "secrets/api-key", secured.permission).action).toBe("deny")
+    expect(Permission.evaluate("read", "config/secrets", secured.permission).action).toBe("deny")
+    expect(Permission.evaluate("read", "config/secrets/api-key", secured.permission).action).toBe("deny")
+
+    for (const pattern of ["rg", "find", "tar", "unzip", "src/index.ts"]) {
+      expect(Permission.evaluate("read", pattern, secured.permission).action).toBe("allow")
+    }
+    for (const pattern of [".env", ".env.production", "secrets", "secrets/api-key", "config/secrets/api-key"]) {
+      expect(Permission.evaluate("read", pattern, secured.permission).action).toBe("deny")
+    }
   }),
 )
 
@@ -749,6 +821,7 @@ it.instance(
       agent: {
         build: { disable: true },
         plan: { disable: true },
+        secured: { disable: true },
       },
     },
   },

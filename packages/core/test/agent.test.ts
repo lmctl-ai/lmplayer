@@ -1,15 +1,91 @@
 import { describe, expect } from "bun:test"
-import { Effect, Exit, Scope } from "effect"
+import { Effect, Exit, Layer, Schema, Scope } from "effect"
 import { AgentV2 } from "@opencode-ai/core/agent"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
+import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Location } from "@opencode-ai/core/location"
 import { AgentPlugin } from "@opencode-ai/core/plugin/agent"
 import { AbsolutePath } from "@opencode-ai/core/schema"
+import { PermissionV2 } from "@opencode-ai/core/permission"
+import { SessionV2 } from "@opencode-ai/core/session"
+import { SessionMessage } from "@opencode-ai/core/session/message"
+import { Tool } from "@opencode-ai/core/tool/tool"
+import { ToolOutputStore } from "@opencode-ai/core/tool-output-store"
+import { ToolRegistry } from "@opencode-ai/core/tool/registry"
 import { location } from "./fixture/location"
 import { testEffect } from "./lib/effect"
+import { toolDefinitions } from "./lib/tool"
 import { agentHost, host } from "./plugin/host"
 
+const securedAllowRules = [
+  { action: "apply_patch", resource: "*" },
+  { action: "cp", resource: "*" },
+  { action: "curl", resource: "*" },
+  { action: "edit", resource: "*" },
+  { action: "find", resource: "*" },
+  { action: "git", resource: "blame*" },
+  { action: "git", resource: "branch*" },
+  { action: "git", resource: "cat-file*" },
+  { action: "git", resource: "describe*" },
+  { action: "git", resource: "diff*" },
+  { action: "git", resource: "for-each-ref*" },
+  { action: "git", resource: "grep*" },
+  { action: "git", resource: "log*" },
+  { action: "git", resource: "ls-files*" },
+  { action: "git", resource: "ls-tree*" },
+  { action: "git", resource: "remote -v*" },
+  { action: "git", resource: "remote show*" },
+  { action: "git", resource: "rev-parse*" },
+  { action: "git", resource: "show*" },
+  { action: "git", resource: "shortlog*" },
+  { action: "git", resource: "status*" },
+  { action: "git", resource: "tag*" },
+  { action: "git", resource: "worktree list*" },
+  { action: "grep", resource: "*" },
+  { action: "glob", resource: "*" },
+  { action: "ls", resource: "*" },
+  { action: "mkdir", resource: "*" },
+  { action: "mv", resource: "*" },
+  { action: "read", resource: "*" },
+  { action: "rg", resource: "*" },
+  { action: "skill", resource: "*" },
+  { action: "tar", resource: "*" },
+  { action: "todowrite", resource: "*" },
+  { action: "touch", resource: "*" },
+  { action: "unzip", resource: "*" },
+  { action: "webfetch", resource: "*" },
+  { action: "websearch", resource: "*" },
+  { action: "wget", resource: "*" },
+  { action: "write", resource: "*" },
+]
+const securedBuiltInTools = [
+  "apply_patch",
+  "edit",
+  "glob",
+  "grep",
+  "read",
+  "skill",
+  "todowrite",
+  "webfetch",
+  "websearch",
+  "write",
+]
+const outputStore = Layer.mock(ToolOutputStore.Service, {
+  bound: (input) => Effect.succeed({ output: input.output, outputPaths: [] }),
+})
+
 const it = testEffect(AppNodeBuilder.build(AgentV2.node))
+const registryIt = testEffect(
+  AppNodeBuilder.build(LayerNode.group([AgentV2.node, ToolRegistry.node]), [[ToolOutputStore.node, outputStore]]),
+)
+
+const makeTool = () =>
+  Tool.make({
+    description: "test tool",
+    input: Schema.Struct({}),
+    output: Schema.Struct({}),
+    execute: () => Effect.succeed({}),
+  })
 
 describe("AgentV2", () => {
   it.effect("starts without agents", () =>
@@ -120,12 +196,101 @@ describe("AgentV2", () => {
         "explore",
         "general",
         "plan",
+        "secured",
         "summary",
         "title",
       ])
       for (const item of agents) {
         expect(item.permissions.some((rule) => rule.action === "bash" && rule.effect !== "deny")).toBe(false)
       }
+    }),
+  )
+
+  it.effect("configures secured as a zero-ask deny-by-default non-coding agent", () =>
+    Effect.gen(function* () {
+      const agent = yield* AgentV2.Service
+      yield* AgentPlugin.Plugin.effect(
+        host({
+          agent: agentHost(agent),
+        }),
+      ).pipe(
+        Effect.provideService(
+          Location.Service,
+          Location.Service.of(location({ directory: AbsolutePath.make("/project") })),
+        ),
+      )
+
+      const secured = yield* agent.get(AgentV2.ID.make("secured"))
+      expect(secured).toMatchObject({ id: AgentV2.ID.make("secured"), mode: "primary", hidden: false })
+      expect(secured?.permissions.map((rule) => rule.effect).includes("ask")).toBe(false)
+      expect(secured?.permissions.filter((rule) => rule.effect === "allow")).toEqual(
+        securedAllowRules.map((rule) => ({ ...rule, effect: "allow" })),
+      )
+      for (const rule of securedAllowRules) expect(PermissionV2.evaluate(rule.action, rule.resource, secured?.permissions ?? []).effect).toBe("allow")
+      expect(PermissionV2.evaluate("bash", "pwd", secured?.permissions ?? []).effect).toBe("deny")
+      expect(PermissionV2.evaluate("question", "Continue?", secured?.permissions ?? []).effect).toBe("deny")
+      expect(PermissionV2.evaluate("external_directory", "/tmp/*", secured?.permissions ?? []).effect).toBe("deny")
+      expect(PermissionV2.evaluate("read", ".env", secured?.permissions ?? []).effect).toBe("deny")
+      expect(PermissionV2.evaluate("read", ".env.production", secured?.permissions ?? []).effect).toBe("deny")
+      expect(PermissionV2.evaluate("read", "secrets/api-key", secured?.permissions ?? []).effect).toBe("deny")
+      expect(PermissionV2.evaluate("read", "config/secrets/api-key", secured?.permissions ?? []).effect).toBe("deny")
+      expect(PermissionV2.evaluate("rg", ".env", secured?.permissions ?? []).effect).toBe("deny")
+      expect(PermissionV2.evaluate("find", "config/secrets", secured?.permissions ?? []).effect).toBe("deny")
+      expect(PermissionV2.evaluate("git", "show HEAD:.env", secured?.permissions ?? []).effect).toBe("deny")
+    }),
+  )
+
+  registryIt.effect("materializes secured without bash while preserving build bash", () =>
+    Effect.gen(function* () {
+      const agent = yield* AgentV2.Service
+      yield* AgentPlugin.Plugin.effect(
+        host({
+          agent: agentHost(agent),
+        }),
+      ).pipe(
+        Effect.provideService(
+          Location.Service,
+          Location.Service.of(location({ directory: AbsolutePath.make("/project") })),
+        ),
+      )
+      const registry = yield* ToolRegistry.Service
+      yield* registry.register({
+        apply_patch: Tool.withPermission(makeTool(), "edit"),
+        bash: makeTool(),
+        edit: Tool.withPermission(makeTool(), "edit"),
+        glob: makeTool(),
+        grep: makeTool(),
+        question: makeTool(),
+        read: makeTool(),
+        skill: makeTool(),
+        todowrite: makeTool(),
+        webfetch: makeTool(),
+        websearch: makeTool(),
+        write: Tool.withPermission(makeTool(), "edit"),
+      })
+
+      const build = yield* agent.get(AgentV2.ID.make("build"))
+      const secured = yield* agent.get(AgentV2.ID.make("secured"))
+      const securedMaterialized = yield* registry.materialize(secured?.permissions)
+
+      expect((yield* toolDefinitions(registry, build?.permissions)).map((tool) => tool.name)).toContain("bash")
+      expect(securedMaterialized.definitions.map((tool) => tool.name).sort()).toEqual(securedBuiltInTools)
+      expect(
+        (yield* securedMaterialized.settle({
+          sessionID: SessionV2.ID.make("ses_secured"),
+          agent: AgentV2.ID.make("secured"),
+          assistantMessageID: SessionMessage.ID.make("msg_secured"),
+          call: { type: "tool-call", id: "call-bash", name: "bash", input: {} },
+        })).result,
+      ).toEqual({ type: "error", value: "Unknown tool: bash" })
+      expect(
+        (yield* securedMaterialized.settle({
+          sessionID: SessionV2.ID.make("ses_secured"),
+          agent: AgentV2.ID.make("secured"),
+          assistantMessageID: SessionMessage.ID.make("msg_secured"),
+          call: { type: "tool-call", id: "call-question", name: "question", input: {} },
+        })).result,
+      ).toEqual({ type: "error", value: "Unknown tool: question" })
     }),
   )
 })
