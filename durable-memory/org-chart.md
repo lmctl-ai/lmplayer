@@ -316,3 +316,22 @@
   coding (agent curates its own persistent memory continuously, not only at compaction). Self-contained,
   autopilot-able, directly improves the coding dogfood loop. Alternatives: (2) make lmcode installable as a real
   binary for day-to-day coding use; (3) continuous dogfood-driven bug hunting. Awaiting operator pick.
+
+## BACKLOG persisted + BATTLE-TEST DOGFOOD: svg-transit (ACTIVE)
+- backlog/ dir committed on dev: README (index), svg-transit.md (full design), lmvideo.md (digest). Enhancements
+  queued: durable-memory on-demand write tool; lmcode installable binary; dogfood-driven hardening.
+- Operator directive: give lmcode a REAL, HARD greenfield project to battle-test it + surface issues. Project =
+  svg-transit: a GENERIC SVG-domain visual transition engine (two SVG keyframes + duration + hints -> intermediate
+  frames). Separation of concerns is the value (independent of diagramkit/lmvideo semantics). Creative core = the
+  correspondence/matching + transition POLICY layer. Context: lmvideodev room (lmvideo requirements + zero-browser
+  Rust arch); ../diagramkit (TS isomorphic CSP-safe SVG: geometry in attrs, semantic CSS classes).
+- SETUP: NEW greenfield repo /niceapps/mma/oc/svg-transit (git, SPEC.md=design, README, .gitignore; commit 73ffc9d).
+  Dogfood lead seeded ses_0cf7db799 (log /tmp/lead-svgtransit.log). Worker builds Milestone 1 (parse/flatten-
+  transforms/match id->class->type+pos/classify move-resize-restyle-enter-exit/interpolate N frames linear+ease/
+  CLI emitting SVG frames + deterministic snapshot tests) on branch milestone-1, cwd=svg-transit (bash ON - normal
+  coding). DUAL deliverable: (1) svg-transit progress, (2) DOGFOOD-lmcode-findings.md catalog of lmcode friction/
+  bugs/gaps hit while building (the real point of the battle test). Lead escalates matching-policy design ambiguity.
+- WORKER SPAWN PATTERN for external repo: cd /niceapps/mma/oc/svg-transit && PATH=/home/mma/.bun/bin:$PATH bun run
+  --conditions=browser /niceapps/mma/oc/lmcode/packages/opencode/src/index.ts run ... (lmcode operates on the
+  external project). MONITOR: when lead reports, meta-lead independently reviews worker session + harvests lmcode
+  issues into lmcode backlog/fixes, and reviews+merges milestone-1 -> svg-transit main.
