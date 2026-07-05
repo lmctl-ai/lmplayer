@@ -419,3 +419,12 @@
   simple svg-transit fixtures passed but complex real slides still garble; crossfade is the recommended default).
 - NEXT (svg-transit): morphs need robustness on COMPLEX real SVGs (component-level QA passed, integration-level
   failed) - the realistic test caught what unit fixtures missed. Crossfade meanwhile is production-usable.
+
+## lmvideo USER FEEDBACK (wfm81, lmvideodev seq4) - FIXED + MERGED (master d240a9a)
+- wfm81 did first real use: authored 5-scene narrated deck (3 voices) - validated core (installed/fast,
+  storyboard-as-data, real lmsound 3-voice narration, audio-derived timing, SVG slides, report.json).
+- Fixed their prioritized bugs: (1) render resilience - GET /voices preflight + default/synthetic fallback +
+  warnings[], no whole-render abort on one bad voice; (2) visible placeholders for html/screenshot (not silent
+  blank); (3) diagram theme/layout/caption - inherit theme, auto-fit+margins (no clip), render caption; (4) --qa
+  flag auto-emits sample frames. Verified on examples/feedback-repro.storyboard.json + merged. Posted fixes-live
+  to lmvideodev. Queued next: burned-in captions; svg_transit morph compositor hardening (still experimental).
