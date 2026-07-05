@@ -46,3 +46,15 @@ Consolidated + prioritized. Source: svg-transit & lmvideo `DOGFOOD-lmcode-findin
    A worker on claude-sonnet-4.6 aborted a large step at the 32K output cap; retry on gpt-5.3-codex succeeded.
    Finding: lmcode should handle/soft-land the provider output-token cap (chunk long outputs / recover) rather
    than fail the step. Also informs model-balancing (claude good but watch big single-step outputs).
+
+## New findings (cycle 3: svg-transit visual fix + gemini/gpt-5.5 visual-QA loop)
+9. **Visual-QA loop VALIDATED (positive):** rendering sample frames to PNG + a gpt-5.5 multimodal reviewer caught
+   real visual regressions that unit tests + timing reports missed (ghost text, wrong-target morphs), and gated
+   accept/reject with iteration. This is the answer to "tests pass != output is good" for visual/creative output.
+   Bake it into lmvideo/svg-transit acceptance. (Also: gpt-5.5 IS multimodal - can review PNGs.)
+10. **No default SVG rasterizer for visual QA** (env): teams need an SVG->PNG step (rsvg/imagemagick or extract
+    frames from the mp4 via ffmpeg). lmvideo already does svg->ppm; standardize a PNG QA-frame export.
+11. **Stale mode/artifact from a failed worker survived branch switching** - a failed worker left state that
+    persisted across git branch switches; investigate lmcode session/mode residue.
+12. **Long follow-up (resumed) lead sessions accumulate high token counts** - a "summarized resume" (organize the
+    lead's own context on resume) would help. Ties to durable-memory/organize; consider for lead sessions.
