@@ -62,6 +62,7 @@ export interface GlobInput {
   readonly cwd: string
   readonly pattern: string
   readonly limit: number
+  readonly includeIgnored?: boolean
   readonly hidden?: boolean
   readonly follow?: boolean
   readonly signal?: AbortSignal
@@ -160,6 +161,7 @@ export const layer = Layer.effect(
           args: [
             "--no-config",
             "--files",
+            ...(input.includeIgnored ? ["--no-ignore"] : []),
             ...(input.hidden ? ["--hidden"] : []),
             ...(input.follow ? ["--follow"] : []),
             `--glob=${input.pattern}`,
