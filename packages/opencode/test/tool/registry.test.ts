@@ -12,6 +12,7 @@ import { TestConfig } from "../fixture/config"
 import { Config } from "@/config/config"
 import { Plugin } from "@/plugin"
 import { Agent } from "@/agent/agent"
+import { Permission } from "@/permission"
 import { InstanceState } from "@/effect/instance-state"
 
 import { ToolJsonSchema } from "@/tool/json-schema"
@@ -135,6 +136,52 @@ describe("tool.registry", () => {
 
       expect(task?.jsonSchema).toBeDefined()
       expect((task?.jsonSchema?.properties as Record<string, unknown> | undefined)?.background).toBeUndefined()
+    }),
+  )
+
+  it.instance("filters secured runtime tools before prompt submission", () =>
+    Effect.gen(function* () {
+      const registry = yield* ToolRegistry.Service
+      const agent = yield* Agent.Service
+      const secured = yield* agent.get("secured")
+      if (!secured) throw new Error("secured agent not found")
+
+      const ids = (
+        yield* registry.tools({
+          providerID: ProviderV2.ID.opencode,
+          modelID: ModelV2.ID.make("test"),
+          agent: secured,
+        })
+      ).map((tool) => tool.id)
+
+      expect(ids).not.toContain("bash")
+      expect(ids).not.toContain("question")
+      expect(Permission.disabled(["git"], secured.permission).has("git")).toBe(false)
+      for (const id of [
+        "cp",
+        "curl",
+        "edit",
+        "find",
+        "git",
+        "glob",
+        "grep",
+        "ls",
+        "mkdir",
+        "mv",
+        "read",
+        "rg",
+        "skill",
+        "tar",
+        "todowrite",
+        "touch",
+        "unzip",
+        "webfetch",
+        "websearch",
+        "wget",
+        "write",
+      ]) {
+        expect(ids).toContain(id)
+      }
     }),
   )
 

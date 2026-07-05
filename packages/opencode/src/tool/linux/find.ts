@@ -5,6 +5,7 @@ import { InstanceState } from "@/effect/instance-state"
 import { Tool } from "../tool"
 import { assertExternalDirectoryEffect } from "../external-directory"
 import { exec, report, resolveWorkdir, resourceWithWorkdir, Workdir } from "./exec"
+import { sensitivePatterns } from "./sensitive"
 
 export const Parameters = Schema.Struct({
   args: Schema.Array(Schema.String).annotate({
@@ -43,6 +44,21 @@ function firstPathArg(args: readonly string[]): string {
   return "."
 }
 
+function readPatterns(args: readonly string[]) {
+  const values: string[] = ["find"]
+  for (let i = 0; i < args.length; i++) {
+    const token = args[i]
+    if (token === "--") break
+    if (token === "-name" || token === "-iname" || token === "-path" || token === "-ipath") {
+      if (args[i + 1]) values.push(args[i + 1])
+      i++
+      continue
+    }
+    if (!token.startsWith("-")) values.push(token)
+  }
+  return [...values, ...sensitivePatterns(values)]
+}
+
 export function classify(args: readonly string[], resource = "filesystem"): Classification {
   const dangerous = dangerousArgv(args) !== undefined
   if (dangerous) return { verb: "read", resource, dangerous: true }
@@ -71,7 +87,7 @@ export const FindTool = Tool.define(
           yield* assertExternalDirectoryEffect(ctx, abs, { kind: "directory" })
           yield* ctx.ask({
             permission: "read",
-            patterns: ["find"],
+            patterns: readPatterns(params.args),
             always: [],
             metadata: { args: params.args, classification, workdir: cwd },
           })

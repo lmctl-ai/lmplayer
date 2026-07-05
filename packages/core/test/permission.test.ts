@@ -8,6 +8,7 @@ import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { EventV2 } from "@opencode-ai/core/event"
 import { Location } from "@opencode-ai/core/location"
 import { PermissionV2 } from "@opencode-ai/core/permission"
+import { AgentPlugin } from "@opencode-ai/core/plugin/agent"
 import { PermissionTable } from "@opencode-ai/core/permission/sql"
 import { PermissionSaved } from "@opencode-ai/core/permission/saved"
 import { Project } from "@opencode-ai/core/project"
@@ -19,6 +20,7 @@ import { SessionStore } from "@opencode-ai/core/session/store"
 import { eq } from "drizzle-orm"
 import { location } from "./fixture/location"
 import { testEffect } from "./lib/effect"
+import { agentHost, host } from "./plugin/host"
 
 const current = Layer.succeed(
   Location.Service,
@@ -321,6 +323,62 @@ describe("PermissionV2", () => {
         id: PermissionV2.ID.create("per_test"),
         effect: "deny",
       })
+    }),
+  )
+
+  it.effect("never asks for secured permissions and denies unsafe resources", () =>
+    Effect.gen(function* () {
+      yield* setup()
+      const agents = yield* AgentV2.Service
+      yield* AgentPlugin.Plugin.effect(host({ agent: agentHost(agents) })).pipe(
+        Effect.provideService(
+          Location.Service,
+          Location.Service.of(location({ directory: AbsolutePath.make("/project") })),
+        ),
+      )
+      const service = yield* PermissionV2.Service
+      const secured = AgentV2.ID.make("secured")
+      const ask = (action: string, resources: string[]) => service.ask(assertion({ action, resources, agent: secured }))
+
+      expect(yield* ask("read", ["src/index.ts"])).toMatchObject({ effect: "allow" })
+      expect(yield* ask("grep", ["TODO"])).toMatchObject({ effect: "allow" })
+      expect(yield* ask("glob", ["**/*.ts"])).toMatchObject({ effect: "allow" })
+      expect(yield* ask("ls", ["src"])).toMatchObject({ effect: "allow" })
+      expect(yield* ask("find", ["src"])).toMatchObject({ effect: "allow" })
+      expect(yield* ask("git", ["status --short"])).toMatchObject({ effect: "allow" })
+      expect(yield* ask("git", ["diff -- src/index.ts"])).toMatchObject({ effect: "allow" })
+      expect(yield* ask("git", ["show HEAD:src/index.ts"])).toMatchObject({ effect: "allow" })
+      expect(yield* ask("git", ["worktree list"])).toMatchObject({ effect: "allow" })
+      expect(yield* ask("rg", ["TODO"])).toMatchObject({ effect: "allow" })
+      expect(yield* ask("tar", ["archive.tar"])).toMatchObject({ effect: "allow" })
+      expect(yield* ask("curl", ["https://example.com"])).toMatchObject({ effect: "allow" })
+      expect(yield* ask("wget", ["https://example.com"])).toMatchObject({ effect: "allow" })
+      expect(yield* ask("unzip", ["archive.zip"])).toMatchObject({ effect: "allow" })
+      expect(yield* ask("mkdir", ["dist"])).toMatchObject({ effect: "allow" })
+      expect(yield* ask("mv", ["from to"])).toMatchObject({ effect: "allow" })
+      expect(yield* ask("cp", ["from to"])).toMatchObject({ effect: "allow" })
+      expect(yield* ask("touch", ["dist/marker"])).toMatchObject({ effect: "allow" })
+      expect(yield* ask("edit", ["src/index.ts"])).toMatchObject({ effect: "allow" })
+      expect(yield* ask("write", ["src/generated.ts"])).toMatchObject({ effect: "allow" })
+      expect(yield* ask("apply_patch", ["src/index.ts"])).toMatchObject({ effect: "allow" })
+      expect(yield* ask("todowrite", ["*"])).toMatchObject({ effect: "allow" })
+      expect(yield* ask("webfetch", ["https://example.com"])).toMatchObject({ effect: "allow" })
+      expect(yield* ask("websearch", ["deployment"])).toMatchObject({ effect: "allow" })
+      expect(yield* ask("bash", ["pwd"])).toMatchObject({ effect: "deny" })
+      expect(yield* ask("question", ["Continue?"])).toMatchObject({ effect: "deny" })
+      expect(yield* ask("external_directory", ["/tmp/*"])).toMatchObject({ effect: "deny" })
+      expect(yield* ask("read", [".env"])).toMatchObject({ effect: "deny" })
+      expect(yield* ask("read", [".env.production"])).toMatchObject({ effect: "deny" })
+      expect(yield* ask("read", ["secrets"])).toMatchObject({ effect: "deny" })
+      expect(yield* ask("read", ["secrets/api-key"])).toMatchObject({ effect: "deny" })
+      expect(yield* ask("read", ["config/secrets"])).toMatchObject({ effect: "deny" })
+      expect(yield* ask("read", ["config/secrets/api-key"])).toMatchObject({ effect: "deny" })
+      expect(yield* ask("rg", [".env"])).toMatchObject({ effect: "deny" })
+      expect(yield* ask("find", ["config/secrets"])).toMatchObject({ effect: "deny" })
+      expect(yield* ask("git", ["show HEAD:.env"])).toMatchObject({ effect: "deny" })
+      expect(yield* ask("tar", ["config/secrets/api-key"])).toMatchObject({ effect: "deny" })
+      expect(yield* ask("unzip", [".env.production"])).toMatchObject({ effect: "deny" })
+      expect(yield* service.list()).toEqual([])
     }),
   )
 

@@ -30,6 +30,14 @@ Guidelines:
 
 Complete the user's search request efficiently and report your findings clearly.`
 
+const PROMPT_SECURED = `You are a secured non-coding deployment troubleshooting agent. Help the user inspect and adjust deployment-relevant project state using only the allowed structured tools.
+
+Guidelines:
+- Use structured tools directly instead of shell commands, including file, archive, git read-only, network read, and task-tracking tools when available
+- Do not run bash commands, invoke shell equivalents, or request permission escalation
+- Do not read secrets, .env files, or external directories
+- Keep changes bounded to deployment troubleshooting and report findings and constraints clearly`
+
 const PROMPT_COMPACTION = `You are an anchored context summarization assistant for coding sessions.
 
 Summarize only the conversation history you are given. The newest turns may be kept verbatim outside your summary, so focus on the older context that still matters for continuing the work.
@@ -120,6 +128,99 @@ export const Plugin = define({
       { action: "read", resource: "*.env.*", effect: "ask" },
       { action: "read", resource: "*.env.example", effect: "allow" },
     ]
+    const secured: PermissionV2.Ruleset = [
+      { action: "*", resource: "*", effect: "deny" },
+      { action: "apply_patch", resource: "*", effect: "allow" },
+      { action: "cp", resource: "*", effect: "allow" },
+      { action: "curl", resource: "*", effect: "allow" },
+      { action: "edit", resource: "*", effect: "allow" },
+      { action: "find", resource: "*", effect: "allow" },
+      { action: "git", resource: "blame*", effect: "allow" },
+      { action: "git", resource: "branch*", effect: "allow" },
+      { action: "git", resource: "cat-file*", effect: "allow" },
+      { action: "git", resource: "describe*", effect: "allow" },
+      { action: "git", resource: "diff*", effect: "allow" },
+      { action: "git", resource: "for-each-ref*", effect: "allow" },
+      { action: "git", resource: "grep*", effect: "allow" },
+      { action: "git", resource: "log*", effect: "allow" },
+      { action: "git", resource: "ls-files*", effect: "allow" },
+      { action: "git", resource: "ls-tree*", effect: "allow" },
+      { action: "git", resource: "remote -v*", effect: "allow" },
+      { action: "git", resource: "remote show*", effect: "allow" },
+      { action: "git", resource: "rev-parse*", effect: "allow" },
+      { action: "git", resource: "show*", effect: "allow" },
+      { action: "git", resource: "shortlog*", effect: "allow" },
+      { action: "git", resource: "status*", effect: "allow" },
+      { action: "git", resource: "tag*", effect: "allow" },
+      { action: "git", resource: "worktree list*", effect: "allow" },
+      { action: "grep", resource: "*", effect: "allow" },
+      { action: "glob", resource: "*", effect: "allow" },
+      { action: "ls", resource: "*", effect: "allow" },
+      { action: "mkdir", resource: "*", effect: "allow" },
+      { action: "mv", resource: "*", effect: "allow" },
+      { action: "read", resource: "*", effect: "allow" },
+      { action: "rg", resource: "*", effect: "allow" },
+      { action: "skill", resource: "*", effect: "allow" },
+      { action: "tar", resource: "*", effect: "allow" },
+      { action: "todowrite", resource: "*", effect: "allow" },
+      { action: "touch", resource: "*", effect: "allow" },
+      { action: "unzip", resource: "*", effect: "allow" },
+      { action: "webfetch", resource: "*", effect: "allow" },
+      { action: "websearch", resource: "*", effect: "allow" },
+      { action: "wget", resource: "*", effect: "allow" },
+      { action: "write", resource: "*", effect: "allow" },
+      { action: "find", resource: "*.env", effect: "deny" },
+      { action: "find", resource: "*.env.*", effect: "deny" },
+      { action: "find", resource: "secrets", effect: "deny" },
+      { action: "find", resource: "secrets/*", effect: "deny" },
+      { action: "find", resource: "*/secrets", effect: "deny" },
+      { action: "find", resource: "*/secrets/*", effect: "deny" },
+      { action: "grep", resource: "*.env", effect: "deny" },
+      { action: "grep", resource: "*.env.*", effect: "deny" },
+      { action: "grep", resource: "secrets", effect: "deny" },
+      { action: "grep", resource: "secrets/*", effect: "deny" },
+      { action: "grep", resource: "*/secrets", effect: "deny" },
+      { action: "grep", resource: "*/secrets/*", effect: "deny" },
+      { action: "git", resource: "*.env", effect: "deny" },
+      { action: "git", resource: "*.env.*", effect: "deny" },
+      { action: "git", resource: "secrets", effect: "deny" },
+      { action: "git", resource: "secrets/*", effect: "deny" },
+      { action: "git", resource: "*/secrets", effect: "deny" },
+      { action: "git", resource: "*/secrets/*", effect: "deny" },
+      { action: "ls", resource: "*.env", effect: "deny" },
+      { action: "ls", resource: "*.env.*", effect: "deny" },
+      { action: "ls", resource: "secrets", effect: "deny" },
+      { action: "ls", resource: "secrets/*", effect: "deny" },
+      { action: "ls", resource: "*/secrets", effect: "deny" },
+      { action: "ls", resource: "*/secrets/*", effect: "deny" },
+      { action: "read", resource: "*.env", effect: "deny" },
+      { action: "read", resource: "*.env.*", effect: "deny" },
+      { action: "read", resource: "secrets", effect: "deny" },
+      { action: "read", resource: "secrets/*", effect: "deny" },
+      { action: "read", resource: "*/secrets", effect: "deny" },
+      { action: "read", resource: "*/secrets/*", effect: "deny" },
+      { action: "rg", resource: "*.env", effect: "deny" },
+      { action: "rg", resource: "*.env.*", effect: "deny" },
+      { action: "rg", resource: "secrets", effect: "deny" },
+      { action: "rg", resource: "secrets/*", effect: "deny" },
+      { action: "rg", resource: "*/secrets", effect: "deny" },
+      { action: "rg", resource: "*/secrets/*", effect: "deny" },
+      { action: "tar", resource: "*.env", effect: "deny" },
+      { action: "tar", resource: "*.env.*", effect: "deny" },
+      { action: "tar", resource: "secrets", effect: "deny" },
+      { action: "tar", resource: "secrets/*", effect: "deny" },
+      { action: "tar", resource: "*/secrets", effect: "deny" },
+      { action: "tar", resource: "*/secrets/*", effect: "deny" },
+      { action: "unzip", resource: "*.env", effect: "deny" },
+      { action: "unzip", resource: "*.env.*", effect: "deny" },
+      { action: "unzip", resource: "secrets", effect: "deny" },
+      { action: "unzip", resource: "secrets/*", effect: "deny" },
+      { action: "unzip", resource: "*/secrets", effect: "deny" },
+      { action: "unzip", resource: "*/secrets/*", effect: "deny" },
+      { action: "external_directory", resource: "*", effect: "deny" },
+      { action: "bash", resource: "*", effect: "deny" },
+      { action: "question", resource: "*", effect: "deny" },
+    ]
 
     yield* ctx.agent.transform((draft) => {
       draft.update(AgentV2.defaultID, (item) => {
@@ -179,6 +280,14 @@ export const Plugin = define({
             readonlyExternalDirectory,
           ),
         )
+      })
+
+      draft.update(AgentV2.ID.make("secured"), (item) => {
+        item.description =
+          "Secured non-coding deployment profile. Allows selected structured tools, denies shell execution, secrets, .env files, external directories, and permission prompts."
+        item.system = PROMPT_SECURED
+        item.mode = "primary"
+        item.permissions.push(...secured)
       })
 
       draft.update(AgentV2.ID.make("compaction"), (item) => {
