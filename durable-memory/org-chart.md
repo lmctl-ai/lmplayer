@@ -406,3 +406,16 @@
   a29429a). RESUMED lead to re-validate WITH the now-fixed svg-transit morphs -> upgrade verdict if morphs pass QA.
 - cycle-3 findings harvested (backlog): visual-QA validated; need standard SVG->PNG rasterizer; failed-worker
   state residue across branch switch; long resumed-lead sessions need summarized-resume.
+
+## lmvideo INSTALLED + HOW-TO (answering "usable/accessible anywhere")
+- lmvideo is now a GLOBAL command: ~/.local/bin/lmvideo (wrapper -> bun on lmvideo/src/cli.ts, loads
+  .lmctl-access for lmsound). Runs from ANY cwd (tested from /tmp -> output.mp4+report.json). Also installable
+  via `bun link` (added package.json bin + repo bin/lmvideo). Committed lmvideo master a5af7da.
+- HOW-TO: lmvideo/HOWTO.md (install/access, quick start, storyboard schema, output=mp4+report.json, QA frames via
+  ffmpeg, honest caveats) + USABILITY.md (verdict + authoring workflow) + examples/presentation.storyboard.json.
+- USABILITY reality (honest): usable for SVG/diagram + crossfade + lmsound-narration presentations, deterministic,
+  reviewable report. NOT ready: real screenshots (placeholder), browser HTML/CSS (placeholder), burned-in
+  captions, full SVG fidelity, svg_transit MORPHS (still rejected by presentation-context visual QA even after M3 -
+  simple svg-transit fixtures passed but complex real slides still garble; crossfade is the recommended default).
+- NEXT (svg-transit): morphs need robustness on COMPLEX real SVGs (component-level QA passed, integration-level
+  failed) - the realistic test caught what unit fixtures missed. Crossfade meanwhile is production-usable.
