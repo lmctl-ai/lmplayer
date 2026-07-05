@@ -18,6 +18,7 @@ import { RuntimeFlags } from "@/effect/runtime-flags"
 import { Git } from "@/git"
 import { Filesystem } from "@/util/filesystem"
 import { Permission } from "../../src/permission"
+import fs from "node:fs/promises"
 import type * as Tool from "../../src/tool/tool"
 
 const toolLayer = (flags: Partial<RuntimeFlags.Info> = {}) =>
@@ -127,6 +128,53 @@ describe("tool.glob", () => {
         const err = Cause.squash(exit.cause)
         expect(err instanceof Error ? err.message : String(err)).toContain("glob path must be a directory")
       }
+    }),
+  )
+
+  it.instance("excludes gitignored files by default", () =>
+    Effect.gen(function* () {
+      const test = yield* TestInstance
+      yield* Effect.promise(() => fs.mkdir(path.join(test.directory, "node_modules", "pkg"), { recursive: true }))
+      yield* Effect.promise(() => fs.mkdir(path.join(test.directory, "src"), { recursive: true }))
+      yield* git(test.directory, ["init", "-q"])
+      yield* Effect.promise(() => fs.writeFile(path.join(test.directory, ".gitignore"), "node_modules/\n"))
+      yield* Effect.promise(() => fs.writeFile(path.join(test.directory, "node_modules", "pkg", "index.js"), "ignored\n"))
+      yield* Effect.promise(() => fs.writeFile(path.join(test.directory, "src", "index.js"), "included\n"))
+      const info = yield* GlobTool
+      const glob = yield* info.init()
+      const result = yield* glob.execute(
+        {
+          pattern: "**/*.js",
+          path: test.directory,
+        },
+        ctx,
+      )
+      expect(result.output).toContain(path.join(test.directory, "src", "index.js"))
+      expect(result.output).not.toContain(path.join(test.directory, "node_modules", "pkg", "index.js"))
+    }),
+  )
+
+  it.instance("includes ignored files with includeIgnored opt-in", () =>
+    Effect.gen(function* () {
+      const test = yield* TestInstance
+      yield* Effect.promise(() => fs.mkdir(path.join(test.directory, "node_modules", "pkg"), { recursive: true }))
+      yield* Effect.promise(() => fs.mkdir(path.join(test.directory, "src"), { recursive: true }))
+      yield* git(test.directory, ["init", "-q"])
+      yield* Effect.promise(() => fs.writeFile(path.join(test.directory, ".gitignore"), "node_modules/\n"))
+      yield* Effect.promise(() => fs.writeFile(path.join(test.directory, "node_modules", "pkg", "index.js"), "ignored\n"))
+      yield* Effect.promise(() => fs.writeFile(path.join(test.directory, "src", "index.js"), "included\n"))
+      const info = yield* GlobTool
+      const glob = yield* info.init()
+      const result = yield* glob.execute(
+        {
+          pattern: "**/*.js",
+          path: test.directory,
+          includeIgnored: true,
+        },
+        ctx,
+      )
+      expect(result.output).toContain(path.join(test.directory, "src", "index.js"))
+      expect(result.output).toContain(path.join(test.directory, "node_modules", "pkg", "index.js"))
     }),
   )
 })
