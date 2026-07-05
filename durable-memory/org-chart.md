@@ -428,3 +428,18 @@
   blank); (3) diagram theme/layout/caption - inherit theme, auto-fit+margins (no clip), render caption; (4) --qa
   flag auto-emits sample frames. Verified on examples/feedback-repro.storyboard.json + merged. Posted fixes-live
   to lmvideodev. Queued next: burned-in captions; svg_transit morph compositor hardening (still experimental).
+
+## RENAME lmcode -> lmplayer + PACKAGED for lmctl (operator directive: "code" overloaded)
+- Product renamed lmcode -> lmplayer. Centralized: global.ts app="lmplayer" + in-code migration (auto-moves
+  legacy ~/.local/share|config|state|cache/lmcode -> lmplayer on first run, preserving auth). Swept CLI
+  scriptName/ui/help/bin (bin/lmcode->bin/lmplayer, package.json bin). REPO DIR stays /niceapps/mma/oc/lmcode
+  (renaming would break fleet worktrees/runbook); "opencode" internal names untouched. Committed (2 commits).
+- Verified: source runs as lmplayer (dirs migrated, auth carried), typecheck clean.
+- PACKAGED: single standalone bun-compiled binary (140MB, `bun run script/build.ts --single --skip-embed-web-ui`
+  -> dist/opencode-linux-x64/bin/lmplayer). Installed ~/.local/bin/lmplayer. Headless run --format json = PONG.
+- DISTRIBUTED to NEW lmplayerdev room: ONE package (seq3 lmplayer-linux-x64.gz, 46MB) + ONE install command
+  (curl from room | gunzip > ~/.local/bin/lmplayer). Verified end-to-end fresh install from /tmp works (PONG).
+  Install doc (seq4) documents lmctl provider interface: run --model <prov/model> [--session][--format json],
+  config-free models, resumable sessions, serve mode.
+- lmchat DELETE endpoint works (DELETE /rooms/{room}/files/{seq}) - used to clean up superseded uploads.
+- FLEET NOTE: data dir is now ~/.local/share/lmplayer (brief updated). Fleet run cmd unchanged (repo path same).
