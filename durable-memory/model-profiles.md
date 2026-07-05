@@ -1,28 +1,15 @@
-# Copilot model profiles (characterization, not load-balancing)
+# Copilot model note (corrected)
 
-Purpose (operator): use varied models to LEARN what each can do + its limits. Update as evidence accrues.
-All via `github-copilot/<id>`. Roster verified running here: claude-sonnet-4.6, gpt-5.3-codex, gemini-2.5-pro,
-gpt-5.5. Also entitled: claude-opus-4.8(/-fast), claude-opus-4.7(/-fast), claude-sonnet-5, claude-haiku-4.5.
-DISABLED: gpt-5.4.
+CORRECTION (operator, 2026-07-05): **gpt-5.5 is the only real model on this copilot account** and it is the
+most capable — no issue. The other entitled names (claude-*, gemini-2.5-pro, gpt-5.3-codex) effectively resolve
+to / fall back to gpt-5.5, which is why a worker "requested codex but ran as gpt-5.5". That is EXPECTED, not a
+bug. So:
 
-## Observed so far (2026-07-05)
-- **gpt-5.5** — reliable default. Ran team-leads + workers end-to-end (observability, tools, lmvideo e2e).
-  No failures observed. Good all-rounder for orchestration + coding.
-- **gpt-5.3-codex** — strong for deep code fixes. Succeeded on the lmcode toolfix batch (git/glob/exec) and on
-  the svg-transit M2 worker AFTER claude failed. Good pick for gnarly multi-file code changes.
-- **claude-sonnet-4.6** — capable, but hit a **32K output-token cap on a single step → worker aborted with 0
-  commits** (svg-transit M2 attempt 1). Watch for large single-step outputs; prefer for well-scoped tasks or
-  split the work. Otherwise strong reasoning.
-- **gemini-2.5-pro** — ran the lmvideo lead fine. **Multimodal / VISION** — designated (operator) as the visual
-  QA reviewer: sample rendered frames as PNG and have gemini assess quality (transitions look right? captions
-  match? layout ok?). To be exercised as the fleet's visual-QA judge.
+- **Do NOT spend effort "balancing" models.** Use `github-copilot/gpt-5.5` for leads and workers.
+- The earlier "model not honored" finding is WITHDRAWN (there is one model behind the names).
+- The "claude 32K output cap" failure was a single-step output-size issue on gpt-5.5-behind-a-name, not a
+  distinct model's limit; treat as: very large single-step outputs can hit a cap → keep worker tasks scoped.
+- **Visual QA:** use gpt-5.5's own multimodal capability to review sampled PNG frames (no separate vision model
+  needed). If gpt-5.5 cannot accept image input in a given path, fall back to describing/ættributing frames.
 
-## Known issues to investigate
-- **Requested model not always honored:** a worker seeded with `--model github-copilot/gpt-5.3-codex` reported
-  it actually ran as gpt-5.5. Undermines per-role model assignment. Investigate lmcode model resolution /
-  provider fallback; surface mismatch instead of silently substituting.
-
-## Usage policy
-- Assign per ROLE/TASK to learn + exploit strengths: codex for heavy code; claude for scoped reasoning (mind the
-  output cap); gemini for vision/QA + breadth; gpt-5.5 as reliable default/orchestration.
-- Record every model-specific success/failure/limit here as the fleet runs.
+Net: one capable model (gpt-5.5). Simplify. No per-role model assignment.
