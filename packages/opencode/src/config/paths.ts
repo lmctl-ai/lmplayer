@@ -7,7 +7,7 @@ import { unique } from "remeda"
 import * as Effect from "effect/Effect"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 
-// lmcode is standalone: config is NOT merged from parent/ancestor directories.
+// lmplayer is standalone: config is NOT merged from parent/ancestor directories.
 // Only the start `directory`'s own config file(s) are used (plus the global
 // config dir, handled by `directories`). `worktree` is accepted for call-site
 // compatibility but intentionally ignored — no walk up to the worktree root.

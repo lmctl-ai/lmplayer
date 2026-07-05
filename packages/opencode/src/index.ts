@@ -44,8 +44,8 @@ function show(out: string) {
   process.stderr.write(out)
 }
 
-// Default action: `lmcode <message>` runs a non-interactive prompt (same as
-// `lmcode run <message>`). With no message and nothing piped on stdin, print
+// Default action: `lmplayer <message>` runs a non-interactive prompt (same as
+// `lmplayer run <message>`). With no message and nothing piped on stdin, print
 // help instead of launching anything. Reuses RunCommand's builder/handler so
 // the run loop is not duplicated; mini defaults to false here, so run's
 // interactive guard stays inert.
@@ -55,7 +55,7 @@ const DefaultCommand = {
   builder: RunCommand.builder,
   handler: async (argv: Parameters<NonNullable<typeof RunCommand.handler>>[0]) => {
     if (argv.mini) {
-      UI.error("interactive --mini is not available on the default command; use 'lmcode tui' or 'lmcode run --mini'")
+      UI.error("interactive --mini is not available on the default command; use 'lmplayer tui' or 'lmplayer run --mini'")
       process.exit(1)
     }
     const hasMessage = (argv.message ?? []).length > 0 || (argv["--"] ?? []).length > 0

@@ -7,7 +7,7 @@ import { Process } from "@/util/process"
 
 export const PrCommand = effectCmd({
   command: "pr <number>",
-  describe: "fetch and checkout a GitHub PR branch, then run lmcode",
+  describe: "fetch and checkout a GitHub PR branch, then run lmplayer",
   builder: (yargs) =>
     yargs.positional("number", {
       type: "number",

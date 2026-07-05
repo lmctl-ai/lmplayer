@@ -1,7 +1,7 @@
 import { Duration, Effect, Semaphore } from "effect"
 import { HttpApiError } from "effect/unstable/httpapi"
 
-// Process-global FIFO execution gate. lmcode is single-user + sequential: only
+// Process-global FIFO execution gate. lmplayer is single-user + sequential: only
 // ONE agent run (prompt/command/init/summarize/shell/import) may execute at a
 // time across the whole server; concurrent execution requests queue (Effect
 // grants semaphore permits FIFO) and run one after another. Module scope = one

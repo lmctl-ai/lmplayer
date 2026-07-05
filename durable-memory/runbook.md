@@ -10,7 +10,7 @@ How to run and test lmcode in this environment (no installed `lmcode` binary yet
   (the `--conditions=browser` matches the repo `dev` script).
 
 ## Auth (GitHub Copilot, OAuth device flow)
-- lmcode reads creds from `~/.local/share/lmcode/auth.json` (data dir; renamed from opencode).
+- lmcode reads creds from `~/.local/share/lmplayer/auth.json` (data dir; renamed from opencode).
 - Login: `... ./src/index.ts auth login --provider github-copilot --method 'Login with GitHub Copilot'`
   - It prompts "Select GitHub deployment type" -> choose GitHub.com (send Enter).
   - Prints `https://github.com/login/device` + a device code; user authorizes on the website.
