@@ -38,7 +38,7 @@ export function empty() {
 }
 
 export function logo(pad?: string) {
-  return (pad ?? "") + "lmcode"
+  return (pad ?? "") + "lmplayer"
 }
 
 export async function input(prompt: string): Promise<string> {

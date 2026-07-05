@@ -16,7 +16,7 @@
     "dev:temporary": "bun run --conditions=browser ./src/temporary.ts"
   },
   "bin": {
-    "lmcode": "./bin/lmcode"
+    "lmplayer": "./bin/lmplayer"
   },
   "exports": {
     "./*": "./src/*.ts"
