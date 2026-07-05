@@ -67,6 +67,8 @@ describe("tool.git classify", () => {
     // context-sensitive
     [["branch"], { verb: "read", network: false }],
     [["branch", "-l"], { verb: "read", network: false }],
+    [["branch", "--list"], { verb: "read", network: false }],
+    [["branch", "--show-current"], { verb: "read", network: false }],
     [["branch", "feature"], { verb: "modify", network: false }],
     [["branch", "-d", "feature"], { verb: "delete", network: false }],
     [["branch", "-D", "feature"], { verb: "delete", network: false }],
