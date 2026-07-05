@@ -28,6 +28,43 @@ describe("Ripgrep", () => {
     ),
   )
 
+  it.live("glob excludes gitignored files by default", () =>
+    withTmp((cwd) =>
+      Effect.gen(function* () {
+        yield* Effect.promise(() => fs.mkdir(path.join(cwd, "node_modules", "pkg"), { recursive: true }))
+        yield* Effect.promise(() => fs.mkdir(path.join(cwd, "src"), { recursive: true }))
+        yield* Effect.promise(() => Bun.$`git init -q ${cwd}`)
+        yield* Effect.promise(() => fs.writeFile(path.join(cwd, ".gitignore"), "node_modules/\n"))
+        yield* Effect.promise(() => fs.writeFile(path.join(cwd, "node_modules", "pkg", "index.ts"), "ignored\n"))
+        yield* Effect.promise(() => fs.writeFile(path.join(cwd, "src", "index.ts"), "included\n"))
+        const result = yield* (yield* Ripgrep.Service).glob({ cwd, pattern: "**/*.ts", limit: 10 })
+        expect(result.map((item) => item.path)).toContain(RelativePath.make("src/index.ts"))
+        expect(result.map((item) => item.path)).not.toContain(RelativePath.make("node_modules/pkg/index.ts"))
+      }),
+    ),
+  )
+
+  it.live("glob includes ignored files with includeIgnored", () =>
+    withTmp((cwd) =>
+      Effect.gen(function* () {
+        yield* Effect.promise(() => fs.mkdir(path.join(cwd, "node_modules", "pkg"), { recursive: true }))
+        yield* Effect.promise(() => fs.mkdir(path.join(cwd, "src"), { recursive: true }))
+        yield* Effect.promise(() => Bun.$`git init -q ${cwd}`)
+        yield* Effect.promise(() => fs.writeFile(path.join(cwd, ".gitignore"), "node_modules/\n"))
+        yield* Effect.promise(() => fs.writeFile(path.join(cwd, "node_modules", "pkg", "index.ts"), "ignored\n"))
+        yield* Effect.promise(() => fs.writeFile(path.join(cwd, "src", "index.ts"), "included\n"))
+        const result = yield* (yield* Ripgrep.Service).glob({
+          cwd,
+          pattern: "**/*.ts",
+          limit: 10,
+          includeIgnored: true,
+        })
+        expect(result.map((item) => item.path)).toContain(RelativePath.make("src/index.ts"))
+        expect(result.map((item) => item.path)).toContain(RelativePath.make("node_modules/pkg/index.ts"))
+      }),
+    ),
+  )
+
   it.live("greps files with include filtering", () =>
     withTmp((cwd) =>
       Effect.gen(function* () {

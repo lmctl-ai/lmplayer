@@ -147,6 +147,16 @@ export const Info = Schema.Struct({
     description:
       "Thresholds for truncating tool output. When output exceeds either limit, the full text is written to the truncation directory and a preview is returned.",
   }),
+  tool_workdir: Schema.optional(
+    Schema.Struct({
+      extra_roots: Schema.optional(Schema.mutable(Schema.Array(Schema.String))).annotate({
+        description:
+          "Additional absolute directories that linux structured tools may use as workdir roots. Paths are still confined to workspace root plus these extra roots.",
+      }),
+    }),
+  ).annotate({
+    description: "Workdir policy for linux structured tools.",
+  }),
   compaction: Schema.optional(
     Schema.Struct({
       mode: Schema.optional(Schema.Literals(["organize", "summary"])).annotate({

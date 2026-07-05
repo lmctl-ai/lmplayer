@@ -20,6 +20,9 @@ export const Input = Schema.Struct({
   path: RelativePath.pipe(Schema.optional).annotate({
     description: "Relative directory to search. Defaults to the active Location.",
   }),
+  includeIgnored: Schema.optional(Schema.Boolean).annotate({
+    description: "Include files ignored by .gitignore and other ignore files. Defaults to false.",
+  }),
   limit: FileSystem.GlobInput.fields.limit.annotate({
     description: "Maximum results to return",
   }),
@@ -66,6 +69,7 @@ export const layer = Layer.effectDiscard(
                 metadata: {
                   root: input.path ?? ".",
                   path: input.path,
+                  includeIgnored: input.includeIgnored,
                   limit: input.limit,
                 },
                 sessionID: context.sessionID,
@@ -78,6 +82,7 @@ export const layer = Layer.effectDiscard(
                   cwd,
                   pattern: input.pattern,
                   limit: input.limit ?? Number.MAX_SAFE_INTEGER,
+                  includeIgnored: input.includeIgnored ?? false,
                 })
                 .pipe(
                   Effect.map((result) =>

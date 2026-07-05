@@ -3,7 +3,7 @@ import { Effect, Schema } from "effect"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { InstanceState } from "@/effect/instance-state"
 import { Tool } from "../tool"
-import { exec, report, resolveWorkdir, resourceWithWorkdir, Workdir } from "./exec"
+import { exec, report, resolveWorkdirWithConfig, resourceWithWorkdir, Workdir } from "./exec"
 import { sensitivePatterns } from "./sensitive"
 
 export const Parameters = Schema.Struct({
@@ -92,7 +92,8 @@ export const RgTool = Tool.define(
       execute: (params: { args: readonly string[]; workdir?: string }, ctx: Tool.Context) =>
         Effect.gen(function* () {
           const instance = yield* InstanceState.context
-          const cwd = resolveWorkdir(instance.directory, params.workdir)
+          const workdir = yield* resolveWorkdirWithConfig(instance.directory, params.workdir)
+          const cwd = workdir.cwd
           validateArgv(params.args, cwd)
 
           const classification = classify(
@@ -107,7 +108,15 @@ export const RgTool = Tool.define(
             metadata: { args: params.args, classification, workdir: cwd },
           })
 
-          const result = yield* exec(spawner, "rg", [...params.args], instance.directory, params.workdir)
+          const result = yield* exec(
+            spawner,
+            "rg",
+            [...params.args],
+            instance.directory,
+            params.workdir,
+            30_000,
+            workdir.extraRoots,
+          )
           const shaped = report({
             binary: "rg",
             result,

@@ -3,7 +3,7 @@ import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner
 import path from "path"
 import { InstanceState } from "@/effect/instance-state"
 import { Tool } from "../tool"
-import { exec, report, resolveWorkdir, resourceWithWorkdir, Workdir } from "./exec"
+import { exec, report, resolveWorkdirWithConfig, resourceWithWorkdir, Workdir } from "./exec"
 
 export const Parameters = Schema.Struct({
   args: Schema.Array(Schema.String).annotate({
@@ -45,10 +45,6 @@ export type Classification = {
 
 // A single argv token that is a command-execution vector, regardless of position.
 function isDangerousToken(a: string): boolean {
-  // Inline config injection: `-c key=val` / `--config-env key=ENV` can set
-  // core.pager, core.editor, core.sshCommand, core.fsmonitor, core.hooksPath,
-  // alias.*, uploadpack.*, etc. Reject ALL `-c` / `--config-env` for now.
-  if (a === "-c" || a === "--config-env" || a.startsWith("--config-env=")) return true
   // Hijack the directory git searches for its subcommand binaries.
   if (a === "--exec-path" || a.startsWith("--exec-path=")) return true
   // Run an attacker-chosen program as the pack transport (any position).
@@ -60,9 +56,42 @@ function isDangerousToken(a: string): boolean {
 // Return the first offending token (or the `filter-branch` subcommand), else
 // undefined. Exported for reuse (policy/tests).
 export function dangerousArgv(args: readonly string[]): string | undefined {
+  const prefix = dangerousGlobalPrefix(args)
+  if (prefix) return prefix
   for (const a of args) if (isDangerousToken(a)) return a
   // `filter-branch` runs a user-supplied shell command per commit.
   if (splitGlobals(args).subcommand === "filter-branch") return "filter-branch"
+  return undefined
+}
+
+function dangerousGlobalPrefix(args: readonly string[]): string | undefined {
+  let i = 0
+  while (i < args.length) {
+    const token = args[i]
+    if (token === "--") return undefined
+    // Inline config injection: pre-subcommand `-c key=val` /
+    // `--config-env key=ENV` can set core.pager, core.editor,
+    // core.sshCommand, core.fsmonitor, core.hooksPath, alias.*, etc.
+    if (token === "-c" || token === "--config-env" || token.startsWith("--config-env=")) return token
+    if (token === "--exec-path" || token.startsWith("--exec-path=")) return token
+    if (GLOBAL_VALUE.has(token)) {
+      i += 2
+      continue
+    }
+    if (GLOBAL_INLINE_PREFIXES.some((prefix) => token.startsWith(prefix))) {
+      i++
+      continue
+    }
+    if (GLOBAL_BOOL.has(token)) {
+      i++
+      continue
+    }
+    if (token.startsWith("-")) {
+      i++
+      continue
+    }
+    return undefined
+  }
   return undefined
 }
 
@@ -207,7 +236,8 @@ export function classify(args: readonly string[], resource = "repo"): Classifica
   // `branch` — listing reads; `-d`/`-D` delete; anything else (create/rename/move) modifies.
   if (subcommand === "branch") {
     if (hasFlag(rest, "-d", "-D", "--delete")) return { ...base, verb: "delete", network: false }
-    const listing = rest.length === 0 || hasFlag(rest, "-l", "--list", "-a", "-r", "--all", "--remotes")
+    const listing =
+      rest.length === 0 || hasFlag(rest, "-l", "--list", "-a", "-r", "--all", "--remotes", "--show-current")
     return { ...base, verb: listing ? "read" : "modify", network: false }
   }
 
@@ -274,7 +304,8 @@ export const GitTool = Tool.define(
         Effect.gen(function* () {
           const instance = yield* InstanceState.context
           if (params.args.length === 0) throw new Error("git requires a subcommand")
-          const cwd = resolveWorkdir(instance.directory, params.workdir)
+          const workdir = yield* resolveWorkdirWithConfig(instance.directory, params.workdir)
+          const cwd = workdir.cwd
 
           // HARD guard: reject known command-execution vectors from the raw argv
           // BEFORE any permission ask or spawning git. git can run arbitrary
@@ -295,7 +326,15 @@ export const GitTool = Tool.define(
             metadata: { classification, args: params.args, workdir: cwd },
           })
 
-          const result = yield* exec(spawner, "git", [...params.args], instance.directory, params.workdir)
+          const result = yield* exec(
+            spawner,
+            "git",
+            [...params.args],
+            instance.directory,
+            params.workdir,
+            30_000,
+            workdir.extraRoots,
+          )
           const shaped = report({
             binary: "git",
             result,
