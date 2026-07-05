@@ -33,3 +33,16 @@ Consolidated + prioritized. Source: svg-transit & lmvideo `DOGFOOD-lmcode-findin
 ## Status
 - P1 (git workdir external + switch -c) + P2 (branch classify + glob gitignore): seeding an lmcode fix cycle.
 - P3: queued.
+
+## New findings (cycle 2: svg-transit M2 + lmvideo svg/diagram slice)
+7. **Subprocess spawn of `bun`/`node` fails (ENOENT) from project code under a tool.** (lmvideo, High as felt)
+   Root cause: bun is installed at the NON-STANDARD `/home/mma/.bun/bin` which is not on the default PATH, so
+   a project's `Bun.spawn(["bun"...])`/`node` fails unless PATH is explicitly set (node itself IS installed at
+   /usr/local/bin/node). Repro: `Bun.spawnSync(["bun","--version"])` works only with PATH including the bun dir.
+   Impact: any built project that shells out to a CLI breaks under the fleet. Mitigations: (a) prefer library
+   imports over CLI shell-out; (b) lmcode/tool subprocess env could ensure PATH includes the running bun's dir
+   (process.execPath dirname); (c) env fix: put bun on a standard PATH. Low-priority lmcode change; env-level.
+8. **claude-sonnet-4.6 (copilot) hit a 32K output-token step limit → worker failed with 0 commits.** (svg-transit M2)
+   A worker on claude-sonnet-4.6 aborted a large step at the 32K output cap; retry on gpt-5.3-codex succeeded.
+   Finding: lmcode should handle/soft-land the provider output-token cap (chunk long outputs / recover) rather
+   than fail the step. Also informs model-balancing (claude good but watch big single-step outputs).
