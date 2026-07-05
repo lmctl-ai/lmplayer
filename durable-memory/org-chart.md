@@ -366,3 +366,18 @@
     (browser-free; deferred Playwright renderer due to host load). Branch TBD.
 - ALL leads told the model-rotation policy so their workers diversify too. Meta-lead loop: verify+merge each
   green result to its master/dev, harvest new findings, resume next slice on a rotated model. No review-gating.
+
+## STATUS CHECKPOINT (autonomous, operator asleep)
+- MERGED: toolfix -> dev (all 4 dogfood bugs fixed: git switch -c allowed, branch inspect=read, glob honors
+  .gitignore + includeIgnored opt-in, external workdir via config tool_workdir.extra_roots; 75+ tool tests green,
+  no regen). svg-transit M1+M2 -> master (a795a3a: confidence threshold so unrelated shapes crossfade not morph,
+  color interpolation, text bounds; 10 tests).
+- lmvideo: e2e proof merged; SVG/diagram slice checkpointed as WIP (02e8a9f on svg-diagram-scenes). Lead RESUMED
+  (gpt-5.5) to unblock: integrate svg-transit as a LIBRARY (file:../svg-transit, import createFrames) instead of
+  CLI spawn (which hit the bun-PATH ENOENT), render the svg-diagram example -> mp4+report, commit.
+- BATTLE TEST WORKING: loop = build real project -> surface lmcode bug -> fix lmcode. cycle-2 findings harvested
+  (backlog): #7 subprocess spawn PATH (bun at non-standard /home/mma/.bun/bin); #8 claude-sonnet-4.6 32K output
+  cap fails a big step (retry on codex succeeded) - lmcode should soft-land the cap.
+- MODEL BALANCE active across fleet: toolfix=codex, svg-transit workers=claude+codex, lmvideo=gpt-5.5/claude.
+- NEXT (autopilot): merge lmvideo svg/diagram slice when green; resume svg-transit M3 (split/merge, path morph,
+  PNG encode); consider lmcode fixes for #7/#8. No review-gating.
