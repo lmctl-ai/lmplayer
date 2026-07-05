@@ -45,10 +45,6 @@ export type Classification = {
 
 // A single argv token that is a command-execution vector, regardless of position.
 function isDangerousToken(a: string): boolean {
-  // Inline config injection: `-c key=val` / `--config-env key=ENV` can set
-  // core.pager, core.editor, core.sshCommand, core.fsmonitor, core.hooksPath,
-  // alias.*, uploadpack.*, etc. Reject ALL `-c` / `--config-env` for now.
-  if (a === "-c" || a === "--config-env" || a.startsWith("--config-env=")) return true
   // Hijack the directory git searches for its subcommand binaries.
   if (a === "--exec-path" || a.startsWith("--exec-path=")) return true
   // Run an attacker-chosen program as the pack transport (any position).
@@ -60,9 +56,42 @@ function isDangerousToken(a: string): boolean {
 // Return the first offending token (or the `filter-branch` subcommand), else
 // undefined. Exported for reuse (policy/tests).
 export function dangerousArgv(args: readonly string[]): string | undefined {
+  const prefix = dangerousGlobalPrefix(args)
+  if (prefix) return prefix
   for (const a of args) if (isDangerousToken(a)) return a
   // `filter-branch` runs a user-supplied shell command per commit.
   if (splitGlobals(args).subcommand === "filter-branch") return "filter-branch"
+  return undefined
+}
+
+function dangerousGlobalPrefix(args: readonly string[]): string | undefined {
+  let i = 0
+  while (i < args.length) {
+    const token = args[i]
+    if (token === "--") return undefined
+    // Inline config injection: pre-subcommand `-c key=val` /
+    // `--config-env key=ENV` can set core.pager, core.editor,
+    // core.sshCommand, core.fsmonitor, core.hooksPath, alias.*, etc.
+    if (token === "-c" || token === "--config-env" || token.startsWith("--config-env=")) return token
+    if (token === "--exec-path" || token.startsWith("--exec-path=")) return token
+    if (GLOBAL_VALUE.has(token)) {
+      i += 2
+      continue
+    }
+    if (GLOBAL_INLINE_PREFIXES.some((prefix) => token.startsWith(prefix))) {
+      i++
+      continue
+    }
+    if (GLOBAL_BOOL.has(token)) {
+      i++
+      continue
+    }
+    if (token.startsWith("-")) {
+      i++
+      continue
+    }
+    return undefined
+  }
   return undefined
 }
 

@@ -185,7 +185,19 @@ describe("tool.git deny-list", () => {
     Effect.sync(() => {
       expect(dangerousArgv(["status"])).toBeUndefined()
       expect(dangerousArgv(["commit", "-m", "msg"])).toBeUndefined()
+      expect(dangerousArgv(["switch", "-c", "feature/foo"])).toBeUndefined()
+      expect(dangerousArgv(["switch", "--create", "feature/foo"])).toBeUndefined()
+      expect(() => validateArgv(["switch", "-c", "feature/foo"])).not.toThrow()
       expect(() => validateArgv(["log", "--oneline"])).not.toThrow()
+    }),
+  )
+
+  it.effect("rejects pre-subcommand -c config injection", () =>
+    Effect.sync(() => {
+      expect(dangerousArgv(["-c", "core.pager=x", "status"])).toBe("-c")
+      expect(() => validateArgv(["-c", "core.pager=x", "status"])).toThrow(
+        "is not permitted (command-execution vector)",
+      )
     }),
   )
 })
