@@ -347,3 +347,22 @@
   (earlier project leads done). Enforce balance from next resume/seed onward.
 - OPERATOR ASLEEP: FULL AUTONOMY. Do NOT wait for review. Keep dogfooding + autopiloting: review+merge on own
   judgment, keep fleet running with balanced models, harvest lmcode findings, maintain durable memory.
+
+## AUTONOMOUS CYCLE (operator asleep) — first battle-test results MERGED + fleet rebalanced
+- svg-transit Milestone 1 MERGED to svg-transit master (9c20b10): TS parse/flatten-transforms/match/classify/
+  interpolate + CLI, 8 tests. Escalated design: matching needs a confidence threshold (over-matches).
+- lmvideo e2e proof MERGED to lmvideo master (e9b2b0d): storyboard->lmsound(real narration)->timeline->ffmpeg
+  mp4 + report.json, swappable renderer, PLAN.md (6 slices). Produced REAL mp4s. Screenshot scene = placeholder.
+- DOGFOOD lmcode findings harvested -> backlog/lmcode-dogfood-findings.md. Top issues (BOTH teams hit #1):
+  P1: git tool workdir rejects EXTERNAL repos; git `switch -c` false-positive in deny-list. P2: `branch
+  --show-current` misclassified modify; glob ignores .gitignore (node_modules noise). P3: no structured
+  session-tail tool / dense JSONL logs; shell-quoting fragility.
+- ACTIONS (all fire-and-forget, BALANCED models):
+  - toolfix lead ses_0cf5dd02d on gpt-5.3-codex: fix git switch -c + branch classify + glob gitignore + opt-in
+    external workdir roots (in lmcode repo, branch team-toolfix). Meta-lead merges to dev when green.
+  - svg-transit lead RESUMED ses_0cf7db799 on claude-sonnet-4.6: Milestone 2 = matching confidence threshold
+    (below thresh -> crossfade not morph) + color-interp restyle + text bounds. Branch milestone-2.
+  - lmvideo lead RESUMED ses_0cf6e683e on gemini-2.5-pro: next slice = SVG/diagram path integrating svg-transit
+    (browser-free; deferred Playwright renderer due to host load). Branch TBD.
+- ALL leads told the model-rotation policy so their workers diversify too. Meta-lead loop: verify+merge each
+  green result to its master/dev, harvest new findings, resume next slice on a rotated model. No review-gating.
