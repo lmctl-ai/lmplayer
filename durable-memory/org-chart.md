@@ -304,3 +304,15 @@
   boxes config without options; interactive permissions are error-prone -> predefine deterministic security.
 - When green: meta-lead re-verifies (agent removes bash, no "ask", build unchanged) + merges -> dev. This makes the
   non-coding secured profile first-class: `lmcode run --agent secured` = bash-free, prompt-free, no config.
+
+## SECURED AGENT — CLOSED (dev dce9bd884) + REFRAME: lmcode = CODING TOOL FIRST
+- Operator reframe: lmcode's DEFAULT identity is a coding tool (enhanced opencode, BASH ON); we dogfood it as
+  such (the fleet uses lmcode to build lmcode). "safe by default" is NOT the posture. `secured` agent = OPTIONAL
+  opt-in profile only (bash-free, non-interactive, deny secrets/external-dir); do NOT gold-plate safety or make it
+  default. Merged as opt-in; default build agent unchanged (bash on). Test: "never asks for secured permissions".
+- NEXT (meta-lead recommendation): durable-memory ON-DEMAND WRITE TOOL. Confirmed NO write tool exists today
+  (index.md only written by the organize compaction pass or session import). Adding a model/user-facing tool to
+  read/write per-session durable-memory index.md on demand makes our FLAGSHIP differentiator actively usable during
+  coding (agent curates its own persistent memory continuously, not only at compaction). Self-contained,
+  autopilot-able, directly improves the coding dogfood loop. Alternatives: (2) make lmcode installable as a real
+  binary for day-to-day coding use; (3) continuous dogfood-driven bug hunting. Awaiting operator pick.
