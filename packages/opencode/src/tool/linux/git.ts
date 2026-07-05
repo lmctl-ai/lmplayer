@@ -3,7 +3,7 @@ import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner
 import path from "path"
 import { InstanceState } from "@/effect/instance-state"
 import { Tool } from "../tool"
-import { exec, report, resolveWorkdir, resourceWithWorkdir, Workdir } from "./exec"
+import { exec, report, resolveWorkdirWithConfig, resourceWithWorkdir, Workdir } from "./exec"
 
 export const Parameters = Schema.Struct({
   args: Schema.Array(Schema.String).annotate({
@@ -304,7 +304,8 @@ export const GitTool = Tool.define(
         Effect.gen(function* () {
           const instance = yield* InstanceState.context
           if (params.args.length === 0) throw new Error("git requires a subcommand")
-          const cwd = resolveWorkdir(instance.directory, params.workdir)
+          const workdir = yield* resolveWorkdirWithConfig(instance.directory, params.workdir)
+          const cwd = workdir.cwd
 
           // HARD guard: reject known command-execution vectors from the raw argv
           // BEFORE any permission ask or spawning git. git can run arbitrary
@@ -325,7 +326,15 @@ export const GitTool = Tool.define(
             metadata: { classification, args: params.args, workdir: cwd },
           })
 
-          const result = yield* exec(spawner, "git", [...params.args], instance.directory, params.workdir)
+          const result = yield* exec(
+            spawner,
+            "git",
+            [...params.args],
+            instance.directory,
+            params.workdir,
+            30_000,
+            workdir.extraRoots,
+          )
           const shaped = report({
             binary: "git",
             result,

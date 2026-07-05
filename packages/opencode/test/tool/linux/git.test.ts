@@ -2,15 +2,16 @@ import { describe, expect } from "bun:test"
 import path from "path"
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
-import { Effect } from "effect"
+import { Effect, Layer } from "effect"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { Truncate } from "@/tool/truncate"
 import { Agent } from "../../../src/agent/agent"
 import { Git } from "@/git"
+import { Config } from "@/config/config"
 import { GitTool, classify, validateArgv, dangerousArgv } from "../../../src/tool/linux/git"
 import { SessionID, MessageID } from "../../../src/session/schema"
-import { TestInstance } from "../../fixture/fixture"
+import { TestInstance, tmpdirScoped } from "../../fixture/fixture"
 import { testEffect } from "../../lib/effect"
 import { Cause, Exit } from "effect"
 import type { Tool } from "@/tool/tool"
@@ -20,6 +21,14 @@ const toolLayer = LayerNode.compile(
 )
 
 const it = testEffect(toolLayer)
+const itWithWorkdirConfig = testEffect(
+  Layer.merge(
+    toolLayer,
+    Layer.mock(Config.Service)({
+      get: () => Effect.succeed({ tool_workdir: { extra_roots: ["/tmp"] } }),
+    }),
+  ),
+)
 
 const ctx = {
   sessionID: SessionID.make("ses_test"),
@@ -278,6 +287,22 @@ describe("tool.git behavioral", () => {
           expect(err instanceof Error ? err.message : String(err)).toContain("resolves outside the workspace root")
         }
         expect(rec.requests.length).toBe(0)
+      }),
+    { git: true },
+  )
+
+  itWithWorkdirConfig.instance(
+    "allows an absolute workdir in configured extra roots",
+    () =>
+      Effect.gen(function* () {
+        const outside = yield* tmpdirScoped({ git: true })
+        const info = yield* GitTool
+        const tool = yield* info.init()
+        const rec = makeCtx()
+        const result = yield* tool.execute({ args: ["status"], workdir: outside }, rec.ctx)
+        expect(result.metadata.exit).toBe(0)
+        expect(result.metadata.classification).toMatchObject({ verb: "read", subcommand: "status" })
+        expect(rec.requests.some((r) => (r.metadata as { workdir?: string } | undefined)?.workdir === outside)).toBe(true)
       }),
     { git: true },
   )
