@@ -390,3 +390,19 @@
   (undermines balancing; investigate). (b) ffmpeg SVG-decode gap -> PPM handoff (env/lmvideo, not lmcode).
 - CHALLENGE now central: verifying OUTPUT QUALITY (visual transitions / video look-right / sync) - tests prove it
   RUNS not that it is GOOD; needs human/visual review. Plus host saturation+reboots + model reliability variance.
+
+## AUTONOMOUS CYCLE 3 (info reqs answered; still autopiloting)
+- MODEL FINDING (empirical, supersedes "gpt-5.5 only"): claude/gemini/codex are REAL DISTINCT models, usable
+  CONFIG-FREE via --model github-copilot/<id> (each self-IDs correct maker/version). Earlier "ran as gpt-5.5"
+  = lead spawn didn't pass --model (orchestration bug), not a fallback. gpt-5.5 fine default; can use per-role.
+- lmprobe DOGFOODED + filed to lmprobedev seq2 + backlog/lmprobe-dogfood.md: glibc-2.39 floor blocks native run
+  on this host (2.34) and only 0.42.1 published; WORKS in glibc>=2.39 container (node:24-trixie-slim); functional
+  output is clean/structured (find/grep/def/ref/GraphQL); casing inconsistency; integration = back lmcode
+  grep/glob/find + code-nav tool, guard glibc + rg fallback.
+- svg-transit M3 VISUAL FIX merged to master (c8efd54): text crossfades not morphs, safe class matching, no
+  ghosting - GATED BY gpt-5.5 VISUAL QA (rejected v1, accepted v2). 14 tests. The visual-QA loop (render->PNG->
+  gpt-5.5 multimodal review) is VALIDATED - catches defects tests miss = the answer to the output-quality challenge.
+- lmvideo USABILITY: usable today for simple SVG/diagram + crossfade + narration presentations (verdict merged
+  a29429a). RESUMED lead to re-validate WITH the now-fixed svg-transit morphs -> upgrade verdict if morphs pass QA.
+- cycle-3 findings harvested (backlog): visual-QA validated; need standard SVG->PNG rasterizer; failed-worker
+  state residue across branch switch; long resumed-lead sessions need summarized-resume.
