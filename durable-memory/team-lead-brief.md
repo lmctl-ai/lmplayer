@@ -12,7 +12,12 @@ Environment (post-reboot facts — VM auto-shuts-down each evening, `/tmp` is wi
 - MAIN checkout (run the CLI from here): `/niceapps/mma/oc/lmcode` (branch `dev`).
 - bun (persistent): `/home/mma/.bun/bin/bun` → `export PATH=/home/mma/.bun/bin:$PATH`.
   If it ever goes missing: `BUN_INSTALL=/home/mma/.bun curl -fsSL https://bun.sh/install | bash`.
-- Model: `github-copilot/gpt-5.5` (use this). `gpt-5.4` is DISABLED. `gpt-5.3-codex` also works.
+- Models: BALANCE across the copilot roster — do NOT put every worker on one model. Rotate workers across:
+  `github-copilot/claude-sonnet-4.6`, `github-copilot/gpt-5.3-codex`, `github-copilot/gemini-2.5-pro`,
+  `github-copilot/gpt-5.5` (all verified working). Pick per worker (e.g. round-robin, or claude/codex for
+  heavy coding, gemini/gpt for breadth). This diversifies strengths AND is part of the dogfood (surfaces
+  model-specific lmcode issues). `gpt-5.4` is DISABLED. Also available: claude-opus-4.8, claude-sonnet-5,
+  claude-haiku-4.5.
 - Auth is persistent at `~/.local/share/lmcode/auth.json` (survives reboot).
 
 Spawn a worker:
@@ -24,7 +29,7 @@ Spawn a worker:
    cd /niceapps/mma/oc/lmcode-wt/<name>
    PATH=/home/mma/.bun/bin:$PATH bun run --conditions=browser \
      /niceapps/mma/oc/lmcode/packages/opencode/src/index.ts \
-     run --format json --model github-copilot/gpt-5.5 "<self-contained task>"
+      run --format json --model github-copilot/<rotate-from-roster> "<self-contained task>"
    ```
    Capture the `sessionID` from the JSONL. Long tasks: background with `& >/tmp/w-<name>.log 2>&1`
    and poll for process exit; the printed final response IS the result.
