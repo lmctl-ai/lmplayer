@@ -44,3 +44,10 @@ lmprobe is read-only evidence (safe: `verb: read`), a clean fit to back lmcode's
 would need a glibc guard + fallback to ripgrep (lmcode already ships rg). If lmprobe ships a lower-glibc build,
 integration gets much cleaner. Happy to prototype an lmcode `codeevidence` tool wrapping the npm package with a
 runtime-capability check + rg fallback.
+
+## RETEST 0.42.2 (2026-07-05) — GLIBC FIXED
+- 0.42.2 runs NATIVELY on this glibc-2.34 host (was blocked at 2.39 floor in 0.42.1). Feedback addressed.
+- Functionality re-verified natively: find/grep/def/ref/GraphQL all clean + structured. def/ref work well.
+- Casing inconsistency (finding #3) still present in 0.42.2 (verb snake_case/lowercase vs GraphQL camelCase/UPPER).
+- Next: prototype lmcode `codeevidence` tool wrapping lmprobe (read-only), rg fallback for sub-floor hosts.
+- Filed confirmation to lmprobedev (retest file).
