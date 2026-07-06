@@ -443,3 +443,19 @@
   config-free models, resumable sessions, serve mode.
 - lmchat DELETE endpoint works (DELETE /rooms/{room}/files/{seq}) - used to clean up superseded uploads.
 - FLEET NOTE: data dir is now ~/.local/share/lmplayer (brief updated). Fleet run cmd unchanged (repo path same).
+
+## lmctl provider integration Q&A (lmplayerdev)
+- lmctl-src asked 6 Qs (seq8) -> narrowed to 3 blockers (seq9): session store/discovery, resume, run --format
+  json schema. Dropped model/effort (confirmed config-free), permissions (confirmed file-based), MCP (they're
+  retiring MCP). Posted tested answers seq10. KEY FACTS for lmctl:
+  - Session DB: the DISTRIBUTED BINARY runs channel="local" -> ~/.local/share/lmplayer/opencode-local.db (source/
+    dev = opencode-dev.db). Override OPENCODE_DB=<abs>. WAL, read-only. Discover by session.directory==abs cwd;
+    `lmplayer session ls [--json]` lists sessions for current cwd.
+  - Resume: `run --session <id> "<msg>"` (msg required) or -c/--continue (last root in cwd); resume works from ANY
+    cwd - execution pins to the session's stored directory (no cwd validation).
+  - run --format json: JSONL, sessionID top-level on EVERY line -> capture from line1 (step_start). Types:
+    step_start/text/tool_use/step_finish/reasoning/error; no terminal event (ends at idle). Current-turn-only: one
+    run emits only that turn (collect type==text data.part.text, last = final).
+  - YOLO per-run no-config: --dangerously-skip-permissions (or OPENCODE_PERMISSION env). No ancestor-dir config
+    inheritance (standalone). Seed: lmplayer run --model github-copilot/gpt-5.5 --dangerously-skip-permissions --format json "..."
+- Offered follow-up lmplayer tweaks: fixed DB name default + a terminal json event, if they want them.
