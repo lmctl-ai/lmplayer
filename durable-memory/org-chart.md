@@ -459,3 +459,17 @@
   - YOLO per-run no-config: --dangerously-skip-permissions (or OPENCODE_PERMISSION env). No ancestor-dir config
     inheritance (standalone). Seed: lmplayer run --model github-copilot/gpt-5.5 --dangerously-skip-permissions --format json "..."
 - Offered follow-up lmplayer tweaks: fixed DB name default + a terminal json event, if they want them.
+
+## Autopilot session 2026-07-07 (operator asleep) — landed + pushed
+- lmplayer PATCHED: merged 199 upstream opencode commits (sonnet-5 + latest models) -> dev, pushed lmplayer/dev
+  (6c8b28821 merge, 94ba935cc). Judgment call: upstream migrated off `defaultLayer` to `.node`/LayerNode; dead
+  defaultLayer exports dropped (zero consumers). Binary rebuilt+reinstalled (0.0.0-dev-202607070713) -> lmctl seed
+  now works for claude-sonnet-5 (was failing on old binary).
+- lmvideo: E1-E7 tree auto-layout (radial/tidy_tree/layered/force) + reveal + clock/metrics overlays + amber-pulse
+  state, committed to master (a41d074, 99165c7). Gemini QA "ship w/ minor fixes" addressed.
+- metrics side-project (foundation): `lmplayer session metrics <id> [--json]` (tokens+cost_usd+latency+tool
+  counts+files created/modified; reads persisted store) shipped+pushed (48cf2f4e0). Contract filed lmplayerdev
+  seq29 / lmctldev seq28 (lmctl to wire health to it).
+- Workflow now: code->commit->review->push (push enabled to lmctlhq/lmplayer). Teams: design council + per-project
+  lmplayer-dev/lmvideo-dev + QA, all provider=lmplayer github-copilot. NEXT: org-metrics analyzer (reads sessions
+  via session metrics + comms -> perf report); lmctl-side health wiring; other products (svg-transit, diagramkit).
