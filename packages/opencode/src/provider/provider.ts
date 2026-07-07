@@ -102,6 +102,7 @@ type BundledSDK = {
   languageModel(modelId: string): LanguageModelV3
   chat?: (modelId: string) => LanguageModelV3
   responses?: (modelId: string) => LanguageModelV3
+  messages?: (modelId: string) => LanguageModelV3
 }
 
 const BUNDLED_PROVIDERS: Record<string, () => Promise<(opts: any) => BundledSDK>> = {
@@ -219,10 +220,12 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
       Effect.succeed({
         autoload: false,
         async getModel(sdk: any, modelID: string, _options?: Record<string, any>, model?: Model) {
-          if (sdk.responses === undefined && sdk.chat === undefined) return sdk.languageModel(modelID)
+          if (sdk.responses === undefined && sdk.chat === undefined && sdk.messages === undefined)
+            return sdk.languageModel(modelID)
           if (model && "endpoint" in model.api) {
             if (model.api.endpoint === "responses" && sdk.responses) return sdk.responses(modelID)
             if (model.api.endpoint === "chat" && sdk.chat) return sdk.chat(modelID)
+            if (model.api.endpoint === "messages" && sdk.messages) return sdk.messages(modelID)
           }
           const match = /^gpt-(\d+)/.exec(modelID)
           if (match && Number(match[1]) >= 5 && !modelID.startsWith("gpt-5-mini")) return sdk.responses(modelID)
@@ -957,6 +960,7 @@ const ProviderApiInfo = Schema.Struct({
   id: Schema.String,
   url: Schema.String,
   npm: Schema.String,
+  endpoint: optional(Schema.Literals(["chat", "responses", "messages"])),
 })
 
 const ProviderModalities = Schema.Struct({

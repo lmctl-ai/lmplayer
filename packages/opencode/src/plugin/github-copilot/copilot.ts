@@ -172,7 +172,16 @@ export async function CopilotAuthPlugin(input: PluginInput): Promise<Hooks> {
             delete headers["x-api-key"]
             delete headers["authorization"]
 
-            return fetch(request, {
+            const target = (() => {
+              const parsed = new URL(url)
+              const copilot = new URL(base(info.enterpriseUrl))
+              if (parsed.origin === copilot.origin && parsed.pathname === "/messages") {
+                parsed.pathname = "/v1/messages"
+              }
+              return parsed.href
+            })()
+
+            return fetch(request instanceof Request ? new Request(target, request) : target, {
               ...init,
               headers,
             })
