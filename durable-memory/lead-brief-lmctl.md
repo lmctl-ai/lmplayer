@@ -15,6 +15,17 @@ every subsequent chat (verified — `--session` returns the same id and retains 
 - The constraint is on the PROVIDER, not the model family — `github-copilot/claude-sonnet-4.6` is copilot-billed
   and fine. Current fleet complies: fleet.lmctl + all leads use `provider=lmplayer` + `github-copilot/*`.
 
+## MODEL ROUTING (use the STRONG models; don't default to sonnet)
+All verified working via `provider=lmplayer` (2026-07-07): `github-copilot/claude-opus-4.8`,
+`github-copilot/gpt-5.5`, `github-copilot/gemini-2.5-pro`, `github-copilot/claude-sonnet-4.6`.
+- **Hard design / leads / tricky logic → `claude-opus-4.8`** (strongest). Don't default to sonnet for these.
+- **Routine coding workers → `claude-sonnet-4.6`** (cheaper, capable).
+- **Adversarial review → a DIFFERENT PROVIDER than the author** (lmctl's core value: uncorrelated blind spots).
+  Anthropic author (sonnet/opus) → review with `gemini-2.5-pro` (Google) or `gpt-5.5` (OpenAI), and vice-versa.
+- gpt-5.5 had a transient "Unexpected server error" window earlier; it recovered. If a model errors, switch, don't stall.
+- Gotcha: `lmplayer models --json` catalog is STALE — it omits opus-4.8/gpt-5.5/gemini-2.5-pro even though they
+  run fine. Don't trust the catalog for availability; smoke-test.
+
 ## Team file
 - `/niceapps/mma/oc/fleet.lmctl` — the migrated fleet (first `_MEMBER_` = Lead; members = product workstreams,
   real sessionids kept + aliased). Lint it with `lmctl lint /niceapps/mma/oc/fleet.lmctl` (passes; only the known
