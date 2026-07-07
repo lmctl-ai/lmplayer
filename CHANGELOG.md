@@ -9,6 +9,29 @@ than enumerated line by line.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased]
+
+### Added
+
+- **TUI regression coverage: CLI registration + resize.** Two prior
+  investigations are now locked in with tests instead of relying on manual
+  verification: (1) `lmplayer tui` and `lmplayer attach` are confirmed
+  reachable and launch the interactive UI — the default `lmplayer` command is
+  the non-interactive prompt/run command (`[message..]`), by design, since the
+  TUI was made explicit-opt-in rather than default. A new subprocess test
+  (`test/cli/tui/registration.test.ts`) spawns the real CLI and asserts
+  `--help`, `tui --help`, and `attach --help` all exit 0 with the expected
+  command text. (2) The interactive TUI's resize path fully re-renders on
+  both grow and shrink, and **session message content reflows (re-wraps) to
+  the new width instead of being cut off or frozen at the old width** — two
+  new headless tests (`packages/tui/test/resize.test.tsx`) drive the real app
+  through `@opentui/core/testing`'s `createTestRenderer`: one resizes the
+  centered home screen (80x24 → 120x40 → 50x16, asserting re-centering and
+  frame bounds), and the other loads a real session with one long assistant
+  message and resizes it (100x30 → 40x20 → 120x40), asserting the message
+  text stays visible and its wrap width tracks each new terminal size (no
+  truncation, no stale-width frame).
+
 ## [1.17.15] - 2026-07-07
 
 ### Fixed
