@@ -30,14 +30,18 @@ notification) · durable-memory (provider-agnostic project knowledge; sessions a
 ## Driving members (the loop maps directly to my meta-lead pattern)
 - `lmctl chat <tf> <alias> "..."` — message a member; Lead relays context. Reviewer being a different
   provider/model = adversarial review.
-- `lmctl chat <tf> <alias> "..." --detach` — BACKGROUND delegation (fire-and-forget). Then `lmctl jobs` /
-  `lmctl jobs watch <id>`. == my "background N-1" step.
-- `lmctl nudge <tf>[:alias]` — WAKE: delivers an idle Lead's completed-but-undelivered `--detach` results by
-  re-invoking it (a Lead only processes detached results on its NEXT turn). Read-only no-op if nothing pending;
-  skips a busy target (never interrupts). == my "harvest bg jobs" step + the pull-based wake.
-- `lmctl loop <tf>:<alias>` — autopilot: repeats a prompt until the member ends with `ALL DONE` or
-  `OPERATOR ESCALATION` (`--max-iterations` default 50, `--prompt`). == the operator's "job 255 round engine".
-  (Ships with provider slice A; not yet in public docs.)
+- `lmctl chat <tf> <alias> "..."` — SYNCHRONOUS (blocking) message to a member; Lead relays context. Use as the
+  "shortest interactive blocking call" slot. (Blocking chat = free wait; its return is my wake.)
+- >>> `--detach` IS BEING REMOVED (2026-07-07, operator: "causing problems"). Do NOT build on `chat --detach`. <<<
+  Background/parallel work goes through the DAEMON, not a detached chat.
+- ASYNC path = daemon-executed JOBS/WORKFLOWS: `lmctl serve &` then `lmctl api submit-job ...` / `lmctl workflow
+  run ...`; track with `lmctl api jobs|runs|run <id>`. This is the real "background N-1" (the daemon runs them).
+- `lmctl loop <tf>:<alias>` — essentially an AUTO META-LEAD: it nudges members round after round automatically,
+  automating the manual meta-lead loop I run by hand (repeat prompt until `ALL DONE` / `OPERATOR ESCALATION`;
+  `--max-iterations` default 50, `--prompt`). >>> JUST BEING ADDED; NOT TESTED, NOT USED (2026-07-07, operator).
+  Do NOT rely on it yet — but it's the intended automation of my role. <<<
+- `lmctl nudge <tf>[:alias]` — re-invokes an idle Lead to process pending results; skips a busy target (no-op if
+  nothing pending). NOTE: its role was tied to `--detach`; confirm its post-detach semantics before relying on it.
 - Inspect: `lmctl ls` / `--runs` · `lmctl tail <session>|--run <id> [--watch]` · `lmctl health <session|tf|--run>` ·
   `lmctl terminal <tf>:<alias>|--run <id>|--size`.
 
@@ -54,10 +58,15 @@ notification) · durable-memory (provider-agnostic project knowledge; sessions a
   `--dangerously-skip-permissions`. Session store = opencode-compatible SQLite at
   `~/.local/share/lmplayer/opencode-local.db` (channel-suffixed; `OPENCODE_DB` override) — lmctl reads it via the
   opencode session-reader, so `lmctl ls/tail/health` all work.
-- I ALSO have an MCP tool `lmctl_lmctl_chat` (synchronous chat to team member by teamfile+alias). Prefer
-  `chat --detach` + `jobs`/`nudge` for background.
+- I ALSO have an MCP tool `lmctl_lmctl_chat` (synchronous chat to team member by teamfile+alias). Use it for the
+  one blocking interactive slot; use daemon jobs/`loop` for background (NOT `--detach`, which is removed).
 
 ## Migration plan (raw subprocess -> lmctl)
-1. `lmctl serve &` (daemon). 2. Author fleet teamfile(s) with `provider=lmplayer` members. 3. `lmctl lint` + `seed`.
-4. Replace `setsid lmplayer run ... &` with `lmctl chat <tf> <alias> "..." --detach`. 5. Replace log-tailing
-   harvest with `lmctl nudge` + `lmctl jobs`. 6. Sub-teams via cross-team calls (automatic). Meta-lead = a Lead.
+1. `lmctl serve &` (daemon executes async work). 2. Author fleet teamfile(s) with `provider=lmplayer` members.
+3. `lmctl lint` + `seed`. 4. Replace `setsid lmplayer run ... &` with daemon-executed JOBS
+   (`lmctl api submit-job`/`lmctl workflow run`) — NOT `chat --detach` (removed) and NOT `loop` (untested/unused).
+5. Replace log-tailing harvest with `lmctl api jobs|runs|run <id>`. 6. Sub-teams via cross-team calls (automatic).
+   Meta-lead = a Lead. Synchronous `lmctl chat` = the single blocking interactive call.
+OPEN QUESTION for operator: with `--detach` gone and `loop` untested, what is the sanctioned pattern for a Lead to
+fan out N parallel sub-tasks and be woken on completion? (daemon jobs + attentions? a new primitive?) — confirm
+before wiring the fleet. Tested/available today = synchronous `lmctl chat` + daemon `submit-job`/`workflow run`.
