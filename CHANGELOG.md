@@ -30,7 +30,44 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   frame bounds), and the other loads a real session with one long assistant
   message and resizes it (100x30 → 40x20 → 120x40), asserting the message
   text stays visible and its wrap width tracks each new terminal size (no
-  truncation, no stale-width frame).
+   truncation, no stale-width frame).
+
+### Fixed
+
+- **Interactive TUI: force a full repaint on terminal resize (no more cut-off
+  that a resize won't fix).** The main `lmplayer tui` renders through
+  `@opentui/core`'s default alternate-screen mode, whose resize path
+  (`CliRenderer.processResize`) reallocates the native buffers and schedules only
+  a *diff* render against `currentRenderBuffer` — the renderer's model of what is
+  physically on screen — but, unlike every other terminal-desync path in that
+  renderer (`resume()`, capability re-detection, split-footer transitions), it
+  never forces a full repaint. On a real terminal a resize can scroll or clear the
+  physical screen out from under that model, so the diff skips cells it believes
+  are unchanged and previously-drawn content stays truncated — and resizing again
+  does not repaint it (the class of bug Claude Code/Ink avoid by full-repainting
+  on resize). Because `@opentui@0.4.3` exposes no public force-full-repaint API
+  (`forceFullRepaintRequested` is private), lmplayer now installs its own resize
+  handler (`packages/tui/src/app.tsx`) that, on every `@opentui` `"resize"` event,
+  clears `currentRenderBuffer` to an off-screen sentinel baseline
+  (`REPAINT_INVALIDATION_COLOR`, `packages/tui/src/util/renderer.ts`) so every
+  visible cell differs from the baseline and is repainted — regardless of theme
+  background. Covered by a deterministic unit test (`test/repaint.test.tsx`) and a
+  wiring test that drives the real app through `@opentui/core/testing` and asserts
+  the sentinel clear fires on resize (`test/resize.test.tsx`).
+
+### Changed
+
+- **Interactive TUI: the session sidebar is now hidden by default.** The
+  right-hand session panel (`Sidebar`, a fixed 42-column column showing
+  context/cost, MCP/LSP, todos, and modified files) previously auto-showed on any
+  terminal wider than 120 columns, stealing horizontal space from the
+  conversation. Its default is now hidden (`routes/session/index.tsx`), giving a
+  clean full-width conversation view; the existing toggle —
+  `session.sidebar.toggle`, default `<leader> b` (Ctrl+X then b) — still shows and
+  hides it and persists the choice. Nothing essential is lost: model, context, and
+  cost remain in the prompt footer and bottom status line, and MCP/LSP remain in
+  the footer and the `/status` dialog. Child/subagent sessions never show the
+  sidebar (unchanged).
 
 ## [1.17.15] - 2026-07-07
 
