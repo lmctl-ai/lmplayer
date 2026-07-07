@@ -48,3 +48,8 @@ setsid bash -c 'cd /niceapps/mma/oc/lmcode && PATH=/home/mma/.bun/bin:$PATH \
 When the fleet moves onto lmctl, this method maps to: synchronous `lmctl chat` = the one blocking interactive
 call; daemon jobs (`lmctl serve` + `submit-job`/`workflow run`) = the backgrounded N−1; `lmctl loop` = the
 automation of the whole cycle once proven. Until then, run the raw-subprocess version above.
+
+## WORKFLOW (operator 2026-07-07): code -> commit -> review -> push
+Standing dev flow for all teams: CODE the change, COMMIT it (conventional), REVIEW it (adversarial, a DIFFERENT
+provider than the author), then PUSH. Push is now ENABLED to the internal repo (`git push lmplayer dev` ->
+lmctlhq/lmplayer). Supersedes the earlier "local only, no push". Meta-lead delegates the review+push tail too.
