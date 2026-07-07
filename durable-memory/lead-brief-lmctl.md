@@ -31,6 +31,15 @@ All verified working via `provider=lmplayer` (2026-07-07): `github-copilot/claud
   real sessionids kept + aliased). Lint it with `lmctl lint /niceapps/mma/oc/fleet.lmctl` (passes; only the known
   model-verify warning until `lmplayer models` lands).
 
+## STRONG TEAM (operator-set 2026-07-07, in fleet.lmctl) — all provider=lmplayer, github-copilot
+- **Lead → claude-opus-4.8** (design + orchestration)
+- **Coder → claude-sonnet-5** (implementation)
+- **Reviewer → gpt-5.5** (adversarial review — different provider from the Anthropic Coder)
+- **QA → gemini-2.5-pro** (search + video/image QA; multimodal)
+Re-seed after any restart (sessionids are ephemeral): `lmctl seed /niceapps/mma/oc/fleet.lmctl`. Drive with
+`lmctl chat /niceapps/mma/oc/fleet.lmctl <Alias> "..."` (auto-resume). Inspect with `lmctl tail`/`health` (set
+`OPENCODE_DB=~/.local/share/lmplayer/opencode-dev.db` since the installed binary is dev-channel).
+
 ## Lead -> member (the everyday send)
 - `lmctl chat /niceapps/mma/oc/fleet.lmctl <Alias> "<prompt>"` — sends to a member; lmctl auto-resumes that
   member's session (stateful). Also accepts `<teamfile>:<alias>` form and `--permission-mode plan|yolo`,
