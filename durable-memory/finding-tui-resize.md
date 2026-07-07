@@ -5,6 +5,48 @@ Reviewer1=gpt-5.5 (APPROVE-WITH-NITS). No functional source change — this task
 verified behavior and locked it in with tests, because the reported bugs were
 already-correct or non-reproducible in our code.
 
+## UPDATE — commit `f1d158f51` (pushed to lmplayer dev): shipped the ACTUAL fix + sidebar declutter
+Operator re-raised the cut-off as a real bug and added a sidebar-declutter task.
+Coder=sonnet-5, Reviewer1=gpt-5.5 (adversarial, APPROVE-WITH-NITS). This time we
+shipped FUNCTIONAL source changes — the prior "non-reproducible" conclusion below
+was headless-only; the bug is real on a physical terminal.
+- Task A (unchanged): `lmplayer tui [project]` / `lmplayer attach <url>` are
+  registered (index.ts:108/:110) and launch the interactive UI — reconfirmed with a
+  REAL PTY launch (~10KB of @opentui capability-handshake bytes; harness
+  `/tmp/lmplayer/ptylaunch.py`). Non-default by design; NO change needed. There is
+  no "COMMANDS set" allowlist — commands are a plain yargs `.command()` chain.
+- Task B FIX — force a full repaint on resize. Root cause: in alternate-screen mode
+  (the default for `lmplayer tui`), `@opentui@0.4.3` `CliRenderer.processResize`
+  (renderer.ts:3707-3789, read via the shipped sourcemap) reallocates buffers and
+  schedules only a DIFF render; it never sets private `forceFullRepaintRequested`
+  (minified `this.ln`; consumed by `lib.render(ptr, force)` ~4546). Every OTHER
+  desync path DOES force it (resume ~4068, capability ~3220, split-footer
+  ~2966/1757/2289). So on a physical terminal a resize desyncs the on-screen model
+  and leaves content cut off with no repaint. No public force-repaint API, but
+  `renderer.currentRenderBuffer` (public field) + `OptimizedBuffer.clear()` (public)
+  are. Fix in `packages/tui/src/util/renderer.ts`: `forceFullRepaint(renderer)`
+  clears currentRenderBuffer to an OFF-SCREEN SENTINEL `REPAINT_INVALIDATION_COLOR =
+  RGBA.fromInts(255,0,255,253)` — NOT the default opaque black (Reviewer1 BLOCKER:
+  under an opaque-black theme, blank cells equal a black-cleared baseline and get
+  skipped). Wired in `app.tsx` App body: `renderer.on("resize", () =>
+  forceFullRepaint(renderer))` + `onCleanup` off. The current buffer is only the
+  diff baseline (swapped out after render), so the sentinel is never displayed.
+  Tests: `test/repaint.test.tsx` (unit: clear(sentinel) then requestRender) +
+  `test/resize.test.tsx` 3rd test (real app via createTestRenderer; asserts a
+  sentinel clear fires on `setup.resize()`). Headless CANNOT reproduce the physical
+  desync (why the earlier pass missed it); unit+wiring tests lock the mechanism.
+- Task C FIX — sidebar hidden by default. `routes/session/index.tsx:249`
+  `kv.signal("sidebar","auto")` → `"hide"`. The 42-col `Sidebar` auto-showed on
+  terminals >120 cols. kv.signal persists only on explicit set (kv.tsx:41 seeds the
+  default in-memory only; the ONLY setSidebar is the toggle at index.tsx:673), so
+  non-togglers (incl. the operator) now get a clean full-width conversation. Toggle
+  preserved: `session.sidebar.toggle`, default `<leader> b` = Ctrl+X then b
+  (config/keybind.ts:81). model/context/cost still live in the prompt footer + bottom
+  Footer + `/status`. Child/subagent sessions never showed it (parentID guard).
+
+The investigation notes below remain accurate CONTEXT, but the headline
+"no functional source change / non-reproducible" is SUPERSEDED by this fix.
+
 ## Task A — TUI is NON-DEFAULT, not disabled
 - Commit `144352880` moved the TUI from the yargs default `$0 [project]` to the
   explicit subcommand `tui [project]` (`packages/opencode/src/cli/cmd/tui.ts:72`)
