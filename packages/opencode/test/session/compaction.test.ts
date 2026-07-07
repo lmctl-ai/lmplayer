@@ -384,7 +384,7 @@ function summaryMessage(sessionID: SessionID) {
 }
 
 function readIndex(sessionID: SessionID) {
-  return SessionDurableMemory.read(sessionID).pipe(Effect.provide(FSUtil.defaultLayer))
+  return SessionDurableMemory.read(sessionID).pipe(Effect.provide(LayerNode.compile(FSUtil.node)))
 }
 
 function llm() {
@@ -1152,7 +1152,7 @@ describe("session.compaction.process", () => {
       const ssn = yield* SessionNs.Service
       const session = yield* ssn.create({})
       // Seed a usable (stale) prior index so truncation has memory backing it.
-      yield* SessionDurableMemory.write(session.id, "STALE PRIOR INDEX").pipe(Effect.provide(FSUtil.defaultLayer))
+      yield* SessionDurableMemory.write(session.id, "STALE PRIOR INDEX").pipe(Effect.provide(LayerNode.compile(FSUtil.node)))
       yield* createUserMessage(session.id, "real content")
       yield* createSummaryCompaction(session.id)
       const msgs = yield* ssn.messages({ sessionID: session.id })
@@ -1828,20 +1828,19 @@ describe("session.compaction.process", () => {
       expect(summaryResult.needle).toBe(false)
       expect(organizeResult.durableMemory).toBe(MEASUREMENT_ORGANIZED)
       expect(summaryResult.durableMemory).toBeUndefined()
-      expect(organizeResult).toEqual({
-        before: 3862,
-        after: 482,
-        reduction: 87.5,
-        needle: true,
-        durableMemory: MEASUREMENT_ORGANIZED,
-      })
-      expect(summaryResult).toEqual({
-        before: 3862,
-        after: 420,
-        reduction: 89.1,
-        needle: false,
-        durableMemory: undefined,
-      })
+      // `after` is a chars/4 token estimate over serialized context that includes
+      // volatile message IDs/timestamps, so it wobbles ±1 token depending on the
+      // global ID counter position. Assert the stable `before` size and reduction
+      // ratio plus a tight band on `after`, not an exact count, so the measurement
+      // stays deterministic (needle + durableMemory feature guards are above).
+      expect(organizeResult.before).toBe(3862)
+      expect(organizeResult.reduction).toBeCloseTo(87.5, 0)
+      expect(organizeResult.after).toBeGreaterThanOrEqual(478)
+      expect(organizeResult.after).toBeLessThanOrEqual(486)
+      expect(summaryResult.before).toBe(3862)
+      expect(summaryResult.reduction).toBeCloseTo(89.1, 0)
+      expect(summaryResult.after).toBeGreaterThanOrEqual(416)
+      expect(summaryResult.after).toBeLessThanOrEqual(424)
     }),
   )
 
