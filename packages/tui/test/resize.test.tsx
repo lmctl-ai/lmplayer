@@ -1,10 +1,12 @@
-import { expect, mock, test } from "bun:test"
+import { expect, mock, spyOn, test } from "bun:test"
 import { createTestRenderer } from "@opentui/core/testing"
+import { OptimizedBuffer } from "@opentui/core"
 import { Effect } from "effect"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { Global } from "@opencode-ai/core/global"
 import { createTuiResolvedConfig } from "./fixture/tui-runtime"
 import { createEventSource, createFetch, directory, json } from "./fixture/tui-sdk"
+import { REPAINT_INVALIDATION_COLOR } from "../src/util/renderer"
 
 // Regression coverage for the interactive TUI's resize path: growing or
 // shrinking the terminal must fully re-render at the new dimensions (no
@@ -220,6 +222,51 @@ test("session message content reflows (re-wraps) on resize, with no truncation",
       .filter((line, index, all) => index < all.length - 1 || line.length > 0)
     expect(linesWideAgain.some((line) => line.trimEnd().length > 40)).toBe(true)
   } finally {
+    if (!setup.renderer.isDestroyed) setup.renderer.destroy()
+    mock.restore()
+    await task
+  }
+})
+
+test("forces a full repaint (clears the current buffer) on resize", async () => {
+  const setup = await createTestRenderer({ width: 80, height: 24, useThread: false })
+  const core = await import("@opentui/core")
+  mock.module("@opentui/core", () => ({ ...core, createCliRenderer: async () => setup.renderer }))
+  const events = createEventSource()
+  const calls = createFetch()
+  let started!: () => void
+  const ready = new Promise<void>((resolve) => {
+    started = resolve
+  })
+  let task!: Promise<void>
+  const clearSpy = spyOn(OptimizedBuffer.prototype, "clear")
+  try {
+    const { run } = await import("../src/app")
+    task = Effect.runPromise(
+      run({
+        url: "http://test",
+        directory,
+        config: createTuiResolvedConfig({ plugin_enabled: {} }),
+        fetch: calls.fetch,
+        events: events.source,
+        args: {},
+        pluginHost: {
+          async start() {
+            started()
+          },
+          async dispose() {},
+        },
+      }).pipe(Effect.provide(AppNodeBuilder.build(Global.node))),
+    )
+    task.catch(() => {})
+    await ready
+    for (let i = 0; i < 6; i++) await setup.renderOnce()
+    clearSpy.mockClear()
+    setup.resize(120, 40)
+    const sentinelClears = clearSpy.mock.calls.filter((args) => args[0] === REPAINT_INVALIDATION_COLOR).length
+    expect(sentinelClears).toBeGreaterThan(0)
+  } finally {
+    clearSpy.mockRestore()
     if (!setup.renderer.isDestroyed) setup.renderer.destroy()
     mock.restore()
     await task

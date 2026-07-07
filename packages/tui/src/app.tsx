@@ -84,7 +84,7 @@ import { DialogVariant } from "./component/dialog-variant"
 import { createTuiAttention } from "./attention"
 import * as TuiAudio from "./audio"
 import { win32DisableProcessedInput, win32FlushInputBuffer } from "./terminal-win32"
-import { destroyRenderer } from "./util/renderer"
+import { destroyRenderer, forceFullRepaint } from "./util/renderer"
 import { cliErrorMessage, errorFormat } from "./util/error"
 
 registerOpencodeSpinner()
@@ -368,6 +368,12 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
   const route = useRoute()
   const dimensions = useTerminalDimensions()
   const renderer = useRenderer()
+  // Force a full repaint on terminal resize so content is never left cut off.
+  // @opentui's alternate-screen resize does only a diff render that can skip cells
+  // the physical terminal lost on resize; see util/renderer.ts forceFullRepaint.
+  const handleResize = () => forceFullRepaint(renderer)
+  renderer.on("resize", handleResize)
+  onCleanup(() => renderer.off("resize", handleResize))
   const dialog = useDialog()
   const local = useLocal()
   const kv = useKV()
