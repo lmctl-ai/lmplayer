@@ -1,4 +1,28 @@
-# Design: lmcode Semantic Permissions (settled with operator)
+# Design: lmplayer Semantic Permissions (settled with operator)
+
+## CURRENT MODEL — re-engineering clarification (operator 2026-07-07)
+TWO modes. Precise control is a SEPARATE MODE, not a restriction baked into the tools.
+
+1. DEFAULT = CODING (like opencode): permissive. General shell (bash) ON. **Native tools (`tool/linux/*`) are
+   the SAME PERMISSION TIER as the shell** — equally broad. In coding mode a native tool must NOT be more
+   restricted than bash.
+   - BUG (the wfm81 `external_directory` asymmetry): LINTOOLS added `external_directory` folder-gating to native
+     tools "mirrored from write/edit" — so `ls`/`cp` are workspace-confined while bash reads anywhere. That makes
+     native tools STRICTER than shell in coding mode = wrong. FIX: in coding/default mode native tools match the
+     shell's reach (drop the extra folder-gate; keep the sensitive-file guard). Also `rg` bypasses the gate that
+     `ls`/`cp` enforce — inconsistent; unify all native tools to the same (shell-tier) policy.
+
+2. PRECISE CONTROL = SECURED mode (e.g. production troubleshooting — the "run where Claude Code can't" value):
+   - DISABLE the general shell (bash off).
+   - Allow ONLY certain native tools, restricted to their SPECIFIC OPTIONS (per-tool AND per-flag/option allowlist
+     — finer than verb/resource; the engineer declares exactly which tools + which options are permitted).
+   - OR write our own WRAPPER around native tools (the MCP-WRAPPED form: declared, typed tool calls).
+   - **lmprobe is THE EXEMPLAR of a precise-control tool** (read-only, bounded operations) — model the
+     wrapped/precise approach on it.
+   - Enforced by the IAM-style, engineer-authored, default-deny policy; per-agent + per-session (secured agent).
+
+Net: coding mode → native tools == shell (broad); secured mode → no general shell, allowlisted native tools +
+specific options, and/or wrappers. The per-folder / verb-resource scoping lives in SECURED mode, not the default.
 
 ## Philosophy
 - AWS IAM-style: precise, declarative policy authored by an ENGINEER / company policy. The END USER never

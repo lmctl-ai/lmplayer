@@ -20,6 +20,7 @@ the default.
 - `config-cli.md` — config schema, writers (updateGlobal/patchJsonc), precedence/shadowing, effort-default decision, non-interactive gaps.
 - `build.md` — the single source of truth for XDG app dirs (global.ts:10) + rename notes.
 - `design-cli-only.md` — design + reviewer findings for the agent-CLI direction (default command, the "5-minute timeout" investigation, config).
+- `design-permissions.md` — THE permission model: 2 modes — default CODING (native tools == shell tier, broad) vs SECURED/precise control (no general shell, allowlisted native tools + specific options, or wrappers; lmprobe = exemplar; IAM-style default-deny). Read before touching tool permissions.
 - `metalead-loop.md` — MY core operating method: background N−1 + 1 interactive blocking call = fan-out + wake (no `--detach`). Fleet run command. Read this to run the fleet.
 - `lmctl-manual.md` — lmctl operational cheat-sheet for migrating the fleet onto lmctl (chat/jobs/loop, `--detach` removed).
 - `lead-brief-lmctl.md` — how the Lead sends via lmctl (chat/seed/auto-resume), fleet.lmctl, and the operator's web console (lmctl.ai, not for me). Docs at lmctl.com.
