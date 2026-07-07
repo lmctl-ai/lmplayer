@@ -209,7 +209,7 @@ describe("PermissionV2", () => {
 
       const denied = yield* service.assert(assertion()).pipe(Effect.flip)
 
-      expect(denied).toBeInstanceOf(PermissionV2.DeniedError)
+      expect(denied).toBeInstanceOf(PermissionV2.BlockedError)
       expect(yield* service.ask(assertion())).toEqual({ id: PermissionV2.ID.create("per_test"), effect: "deny" })
       expect(yield* service.list()).toEqual([])
     }),
@@ -223,7 +223,7 @@ describe("PermissionV2", () => {
 
       const denied = yield* service.assert(assertion()).pipe(Effect.flip)
 
-      expect(denied).toBeInstanceOf(PermissionV2.DeniedError)
+      expect(denied).toBeInstanceOf(PermissionV2.BlockedError)
       expect(yield* service.ask(assertion())).toEqual({ id: PermissionV2.ID.create("per_test"), effect: "deny" })
       expect(yield* service.list()).toEqual([])
     }),
