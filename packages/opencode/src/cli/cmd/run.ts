@@ -25,6 +25,7 @@ import { Filesystem } from "@/util/filesystem"
 import { createOpencodeClient, type OpencodeClient, type ToolPart } from "@opencode-ai/sdk/v2"
 import { FormatError, FormatUnknownError } from "../error"
 import { INTERACTIVE_INPUT_ERROR, resolveInteractiveStdin } from "./run/runtime.stdin"
+import { resolveRunCompletion } from "./run/completion"
 
 type ModelInput = Parameters<OpencodeClient["session"]["prompt"]>[0]["model"]
 
@@ -777,6 +778,10 @@ export const RunCommand = effectCmd({
         async function loop(client: OpencodeClient, events: Awaited<ReturnType<typeof sdk.event.subscribe>>) {
           const toggles = new Map<string, boolean>()
           let error: string | undefined
+          // Tracks whether a terminal `session.status: idle` was actually
+          // observed. If the stream ends without setting this (and without an
+          // error), the run reached no terminal state — see finish() below.
+          let idle = false
 
           for await (const event of events.stream) {
             if (
@@ -873,6 +878,7 @@ export const RunCommand = effectCmd({
               event.properties.sessionID === sessionID &&
               event.properties.status.type === "idle"
             ) {
+              idle = true
               break
             }
 
@@ -898,7 +904,7 @@ export const RunCommand = effectCmd({
               }
             }
           }
-          return error
+          return { error, idle }
         }
         const cwd = args.attach ? (directory ?? sess.directory ?? (await current(sdk))) : (directory ?? root)
         const client = args.attach ? attachSDK(cwd) : sdk
@@ -913,11 +919,28 @@ export const RunCommand = effectCmd({
           const completed = loop(client, events).catch((e) => {
             console.error(e)
             process.exitCode = 1
+            return undefined
           })
+          // Guard against false success. A non-interactive run must observe a
+          // terminal `session.status: idle` (or a `session.error`). If the event
+          // stream ends before either, confirm the session is actually idle via a
+          // direct status check; a premature stream close exits nonzero rather
+          // than reporting exit 0 with empty output. --attach returns immediately
+          // and is unaffected.
           async function finish() {
             if (args.attach) return
-            const error = await completed
-            if (error) process.exitCode = 1
+            const outcome = await completed
+            if (!outcome) return
+            const resolution = await resolveRunCompletion({
+              result: outcome,
+              activeStatus: () => client.session.status().then((res) => res.data?.[sessionID]),
+            })
+            if (resolution === "idle") return
+            if (resolution === "incomplete") {
+              const message = "run ended before the session reached a terminal state"
+              if (!emit("error", { error: { name: "RunIncomplete", message } })) UI.error(message)
+            }
+            process.exitCode = 1
           }
 
           if (args.command) {
