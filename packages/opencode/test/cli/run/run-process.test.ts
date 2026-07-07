@@ -249,8 +249,14 @@ describe("opencode run (non-interactive subprocess)", () => {
         yield* llm.text("continued after rejection")
         const denied = yield* opencode.run("request permission", { permission: { bash: "ask" } })
         opencode.expectExit(denied, 0)
-        expect(denied.stderr).toContain("permission requested: bash")
-        expect(denied.stdout).toBe("")
+        // File-based permissions (see src/permission/index.ts): with no interactive
+        // responder, a residual "ask" rule collapses to the default "deny" fallback
+        // and surfaces a rule denial to the model rather than an interactive
+        // "permission requested" prompt. The model then continues past the denied
+        // tool call.
+        expect(denied.stderr).toContain("specified a rule which prevents you")
+        expect(denied.stderr).not.toContain("permission requested: bash")
+        expect(denied.stdout).toContain("continued after rejection")
 
         yield* llm.reset
         yield* llm.tool("bash", { command: "rm -f allowed-file", description: "Remove a test file" })
