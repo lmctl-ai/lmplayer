@@ -1,9 +1,9 @@
 // Bun Snapshot v1, https://bun.sh/docs/test/snapshots
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode acp --help 1`] = `
-"lmcode
+"lmplayer
 
-lmcode acp
+lmplayer acp
 
 start ACP (Agent Client Protocol) server
 
@@ -25,18 +25,18 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode mcp --help 1`] = `
-"lmcode
+"lmplayer
 
-lmcode mcp
+lmplayer mcp
 
 manage MCP (Model Context Protocol) servers
 
 Commands:
-  lmcode mcp add [name]     add an MCP server
-  lmcode mcp list           list MCP servers and their status                          [aliases: ls]
-  lmcode mcp auth [name]    authenticate with an OAuth-enabled MCP server
-  lmcode mcp logout [name]  remove OAuth credentials for an MCP server
-  lmcode mcp debug <name>   debug OAuth connection for an MCP server
+  lmplayer mcp add [name]     add an MCP server
+  lmplayer mcp list           list MCP servers and their status                        [aliases: ls]
+  lmplayer mcp auth [name]    authenticate with an OAuth-enabled MCP server
+  lmplayer mcp logout [name]  remove OAuth credentials for an MCP server
+  lmplayer mcp debug <name>   debug OAuth connection for an MCP server
 
 Options:
   -h, --help        show help                                                              [boolean]
@@ -48,14 +48,14 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode tui --help 1`] = `
-"lmcode
+"lmplayer
 
-lmcode tui [project]
+lmplayer tui [project]
 
-start lmcode tui
+start lmplayer tui
 
 Positionals:
-  project  path to start lmcode in                                                          [string]
+  project  path to start lmplayer in                                                        [string]
 
 Options:
   -h, --help          show help                                                            [boolean]
@@ -76,6 +76,8 @@ Options:
       --fork          fork the session when continuing (use with --continue or --session)  [boolean]
       --prompt        prompt to use                                                         [string]
       --agent         agent to use                                                          [string]
+      --auto          auto-approve permissions that are not explicitly denied (dangerous!)
+                                                                          [boolean] [default: false]
       --mini          start the minimal interactive interface             [boolean] [default: false]
       --no-replay     disable mini session history replay on resume and after resize       [boolean]
       --replay-limit  cap visible mini replay to the newest N messages                      [number]
@@ -83,11 +85,11 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode attach --help 1`] = `
-"lmcode
+"lmplayer
 
-lmcode attach <url>
+lmplayer attach <url>
 
-attach to a running lmcode server
+attach to a running lmplayer server
 
 Positionals:
   url  http://localhost:4096                                                     [string] [required]
@@ -112,73 +114,71 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode run --help 1`] = `
-"lmcode
+"lmplayer
 
-lmcode run [message..]
+lmplayer run [message..]
 
-run lmcode with a message
+run lmplayer with a message
 
 Positionals:
   message  message to send                                                     [array] [default: []]
 
 Options:
-  -h, --help                          show help                                            [boolean]
-  -v, --version                       show version number                                  [boolean]
-      --print-logs                    print logs to stderr                                 [boolean]
-      --log-level                     log level [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
-      --pure                          run without external plugins                         [boolean]
-      --command                       the command to run, use message for args              [string]
-  -c, --continue                      continue the last session                            [boolean]
-  -s, --session                       session id to continue                                [string]
-      --fork                          fork the session before continuing (requires --continue or
-                                      --session)                                           [boolean]
-      --share                         share the session                                    [boolean]
-  -m, --model                         model to use in the format of provider/model          [string]
-      --agent                         agent to use                                          [string]
-      --format                        format: default (formatted) or json (raw JSON events)
+  -h, --help               show help                                                       [boolean]
+  -v, --version            show version number                                             [boolean]
+      --print-logs         print logs to stderr                                            [boolean]
+      --log-level          log level            [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
+      --pure               run without external plugins                                    [boolean]
+      --command            the command to run, use message for args                         [string]
+  -c, --continue           continue the last session                                       [boolean]
+  -s, --session            session id to continue                                           [string]
+      --fork               fork the session before continuing (requires --continue or --session)
+                                                                                           [boolean]
+      --share              share the session                                               [boolean]
+  -m, --model              model to use in the format of provider/model                     [string]
+      --agent              agent to use                                                     [string]
+      --format             format: default (formatted) or json (raw JSON events)
                                           [string] [choices: "default", "json"] [default: "default"]
-  -f, --file                          file(s) to attach to message                           [array]
-      --title                         title for the session (uses truncated prompt if no value
-                                      provided)                                             [string]
-      --attach                        attach to a running lmcode server (e.g.,
-                                      http://localhost:4096)                                [string]
-  -p, --password                      basic auth password (defaults to OPENCODE_SERVER_PASSWORD)
+  -f, --file               file(s) to attach to message                                      [array]
+      --title              title for the session (uses truncated prompt if no value provided)
                                                                                             [string]
-  -u, --username                      basic auth username (defaults to OPENCODE_SERVER_USERNAME or
-                                      'opencode')                                           [string]
-      --dir                           directory to run in, path on remote server if attaching
+      --attach             attach to a running lmplayer server (e.g., http://localhost:4096)[string]
+  -p, --password           basic auth password (defaults to OPENCODE_SERVER_PASSWORD)       [string]
+  -u, --username           basic auth username (defaults to OPENCODE_SERVER_USERNAME or 'opencode')
                                                                                             [string]
-      --port                          port for the local server (defaults to random port if no value
-                                      provided)                                             [number]
-      --variant, --effort             reasoning effort / model variant (e.g. low, medium, high,
-                                      xhigh, max — see \`models --json\` variants per model)  [string]
-      --thinking                      show thinking blocks                                 [boolean]
-      --dangerously-skip-permissions  auto-approve permissions that are not explicitly denied
-                                      (dangerous!)                        [boolean] [default: false]
+      --dir                directory to run in, path on remote server if attaching          [string]
+      --port               port for the local server (defaults to random port if no value provided)
+                                                                                            [number]
+      --variant, --effort  reasoning effort / model variant (e.g. low, medium, high, xhigh, max —
+                           see \`models --json\` variants per model)                          [string]
+      --thinking           show thinking blocks                                            [boolean]
+  -i, --interactive        run in direct interactive split-footer mode    [boolean] [default: false]
+      --auto               auto-approve permissions that are not explicitly denied (dangerous!)
+                                                                          [boolean] [default: false]
 "
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode debug --help 1`] = `
-"lmcode
+"lmplayer
 
-lmcode debug
+lmplayer debug
 
 debugging and troubleshooting tools
 
 Commands:
-  lmcode debug config        show resolved configuration
-  lmcode debug lsp           LSP debugging utilities
-  lmcode debug rg            ripgrep debugging utilities
-  lmcode debug file          file system debugging utilities
-  lmcode debug scrap         list all known projects
-  lmcode debug skill         list all available skills
-  lmcode debug snapshot      snapshot debugging utilities
-  lmcode debug startup       print startup timing
-  lmcode debug agent <name>  show agent configuration details
-  lmcode debug v2            debug v2 catalog and built-in plugins
-  lmcode debug info          show debug information
-  lmcode debug paths         show global paths (data, config, cache, state)
-  lmcode debug wait          wait indefinitely (for debugging)
+  lmplayer debug config        show resolved configuration
+  lmplayer debug lsp           LSP debugging utilities
+  lmplayer debug rg            ripgrep debugging utilities
+  lmplayer debug file          file system debugging utilities
+  lmplayer debug scrap         list all known projects
+  lmplayer debug skill         list all available skills
+  lmplayer debug snapshot      snapshot debugging utilities
+  lmplayer debug startup       print startup timing
+  lmplayer debug agent <name>  show agent configuration details
+  lmplayer debug v2            debug v2 catalog and built-in plugins
+  lmplayer debug info          show debug information
+  lmplayer debug paths         show global paths (data, config, cache, state)
+  lmplayer debug wait          wait indefinitely (for debugging)
 
 Options:
   -h, --help        show help                                                              [boolean]
@@ -190,16 +190,16 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode providers --help 1`] = `
-"lmcode
+"lmplayer
 
-lmcode providers
+lmplayer providers
 
 manage AI providers and credentials
 
 Commands:
-  lmcode providers list               list providers and credentials                   [aliases: ls]
-  lmcode providers login [url]        log in to a provider
-  lmcode providers logout [provider]  log out from a configured provider
+  lmplayer providers list               list providers and credentials                 [aliases: ls]
+  lmplayer providers login [url]        log in to a provider
+  lmplayer providers logout [provider]  log out from a configured provider
 
 Options:
   -h, --help        show help                                                              [boolean]
@@ -211,15 +211,15 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode agent --help 1`] = `
-"lmcode
+"lmplayer
 
-lmcode agent
+lmplayer agent
 
 manage agents
 
 Commands:
-  lmcode agent create  create a new agent
-  lmcode agent list    list all available agents
+  lmplayer agent create  create a new agent
+  lmplayer agent list    list all available agents
 
 Options:
   -h, --help        show help                                                              [boolean]
@@ -231,11 +231,11 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode upgrade --help 1`] = `
-"lmcode
+"lmplayer
 
-lmcode upgrade [target]
+lmplayer upgrade [target]
 
-upgrade lmcode to the latest or a specific version
+upgrade lmplayer to the latest or a specific version
 
 Positionals:
   target  version to upgrade to, for ex '0.1.48' or 'v0.1.48'                               [string]
@@ -252,11 +252,11 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode uninstall --help 1`] = `
-"lmcode
+"lmplayer
 
-lmcode uninstall
+lmplayer uninstall
 
-uninstall lmcode and remove all related files
+uninstall lmplayer and remove all related files
 
 Options:
   -h, --help         show help                                                             [boolean]
@@ -272,11 +272,11 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode serve --help 1`] = `
-"lmcode
+"lmplayer
 
-lmcode serve
+lmplayer serve
 
-starts a headless lmcode server
+starts a headless lmplayer server
 
 Options:
   -h, --help         show help                                                             [boolean]
@@ -295,11 +295,11 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode web --help 1`] = `
-"lmcode
+"lmplayer
 
-lmcode web
+lmplayer web
 
-start lmcode server and open web interface
+start lmplayer server and open web interface
 
 Options:
   -h, --help         show help                                                             [boolean]
@@ -318,11 +318,15 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode models --help 1`] = `
-"lmcode
+"lmplayer
 
-lmcode models [provider]
+lmplayer models [provider]
 
 list all available models
+
+Commands:
+  lmplayer models verify <model>  verify a model is known and available; exit non-zero with a reason
+                                  if not
 
 Positionals:
   provider  provider ID to filter models by                                                 [string]
@@ -346,9 +350,9 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode stats --help 1`] = `
-"lmcode
+"lmplayer
 
-lmcode stats
+lmplayer stats
 
 show token usage and cost statistics
 
@@ -367,9 +371,9 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode export --help 1`] = `
-"lmcode
+"lmplayer
 
-lmcode export [sessionID]
+lmplayer export [sessionID]
 
 export session data as JSON
 
@@ -387,9 +391,9 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode import --help 1`] = `
-"lmcode
+"lmplayer
 
-lmcode import <file>
+lmplayer import <file>
 
 import session data from JSON file or URL
 
@@ -406,15 +410,15 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode github --help 1`] = `
-"lmcode
+"lmplayer
 
-lmcode github
+lmplayer github
 
 manage GitHub agent
 
 Commands:
-  lmcode github install  install the GitHub agent
-  lmcode github run      run the GitHub agent
+  lmplayer github install  install the GitHub agent
+  lmplayer github run      run the GitHub agent
 
 Options:
   -h, --help        show help                                                              [boolean]
@@ -426,11 +430,11 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode pr --help 1`] = `
-"lmcode
+"lmplayer
 
-lmcode pr <number>
+lmplayer pr <number>
 
-fetch and checkout a GitHub PR branch, then run lmcode
+fetch and checkout a GitHub PR branch, then run lmplayer
 
 Positionals:
   number  PR number to checkout                                                  [number] [required]
@@ -445,15 +449,19 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode session --help 1`] = `
-"lmcode
+"lmplayer
 
-lmcode session
+lmplayer session
 
 manage sessions
 
 Commands:
-  lmcode session list                list sessions
-  lmcode session delete <sessionID>  delete a session
+  lmplayer session ls                  list sessions
+  lmplayer session tail <sessionID>    print recent session messages
+  lmplayer session report <sessionID>  report session metrics
+  lmplayer session health <sessionID>  report session context health
+  lmplayer session list                list sessions
+  lmplayer session delete <sessionID>  delete a session
 
 Options:
   -h, --help        show help                                                              [boolean]
@@ -465,9 +473,9 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode plugin --help 1`] = `
-"lmcode
+"lmplayer
 
-lmcode plugin <module>
+lmplayer plugin <module>
 
 install plugin and update config
 
@@ -486,15 +494,15 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode db --help 1`] = `
-"lmcode
+"lmplayer
 
-lmcode db
+lmplayer db
 
 database tools
 
 Commands:
-  lmcode db [query]     open an interactive sqlite3 shell or run a query                   [default]
-  lmcode db path        print the database path
+  lmplayer db [query]     open an interactive sqlite3 shell or run a query                 [default]
+  lmplayer db path        print the database path
 
 Positionals:
   query  SQL query to execute                                                               [string]
@@ -510,9 +518,9 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode mcp list --help 1`] = `
-"lmcode
+"lmplayer
 
-lmcode mcp list
+lmplayer mcp list
 
 list MCP servers and their status
 
@@ -526,9 +534,9 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode mcp add --help 1`] = `
-"lmcode
+"lmplayer
 
-lmcode mcp add [name]
+lmplayer mcp add [name]
 
 add an MCP server
 
@@ -548,14 +556,14 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode mcp auth --help 1`] = `
-"lmcode
+"lmplayer
 
-lmcode mcp auth [name]
+lmplayer mcp auth [name]
 
 authenticate with an OAuth-enabled MCP server
 
 Commands:
-  lmcode mcp auth list  list OAuth-capable MCP servers and their auth status           [aliases: ls]
+  lmplayer mcp auth list  list OAuth-capable MCP servers and their auth status         [aliases: ls]
 
 Positionals:
   name  name of the MCP server                                                              [string]
@@ -570,9 +578,9 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode mcp logout --help 1`] = `
-"lmcode
+"lmplayer
 
-lmcode mcp logout [name]
+lmplayer mcp logout [name]
 
 remove OAuth credentials for an MCP server
 
@@ -589,9 +597,9 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode providers list --help 1`] = `
-"lmcode
+"lmplayer
 
-lmcode providers list
+lmplayer providers list
 
 list providers and credentials
 
@@ -606,9 +614,9 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode providers login --help 1`] = `
-"lmcode
+"lmplayer
 
-lmcode providers login [url]
+lmplayer providers login [url]
 
 log in to a provider
 
@@ -627,9 +635,9 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode providers logout --help 1`] = `
-"lmcode
+"lmplayer
 
-lmcode providers logout [provider]
+lmplayer providers logout [provider]
 
 log out from a configured provider
 
@@ -646,9 +654,9 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode agent create --help 1`] = `
-"lmcode
+"lmplayer
 
-lmcode agent create
+lmplayer agent create
 
 create a new agent
 
@@ -669,9 +677,9 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode agent list --help 1`] = `
-"lmcode
+"lmplayer
 
-lmcode agent list
+lmplayer agent list
 
 list all available agents
 
@@ -685,9 +693,9 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode session list --help 1`] = `
-"lmcode
+"lmplayer
 
-lmcode session list
+lmplayer session list
 
 list sessions
 
@@ -703,9 +711,9 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode session delete --help 1`] = `
-"lmcode
+"lmplayer
 
-lmcode session delete <sessionID>
+lmplayer session delete <sessionID>
 
 delete a session
 
@@ -722,9 +730,9 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode github install --help 1`] = `
-"lmcode
+"lmplayer
 
-lmcode github install
+lmplayer github install
 
 install the GitHub agent
 
@@ -738,9 +746,9 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode github run --help 1`] = `
-"lmcode
+"lmplayer
 
-lmcode github run
+lmplayer github run
 
 run the GitHub agent
 
@@ -756,9 +764,9 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode db path --help 1`] = `
-"lmcode
+"lmplayer
 
-lmcode db path
+lmplayer db path
 
 print the database path
 
