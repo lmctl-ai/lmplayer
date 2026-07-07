@@ -261,6 +261,30 @@ export const RunCommand = effectCmd({
         default: false,
         hidden: true,
         describe: "enable direct interactive demo slash commands; pass one as the message to run it immediately",
+      })
+      .option("remote-poll", {
+        type: "string",
+        hidden: true,
+        describe:
+          "PROTOTYPE: outbound poll target base URL for remote-operator instructions (e.g. https://mailbox.example/instructions). Absent = no behavior change.",
+      })
+      .option("poll-token", {
+        type: "string",
+        hidden: true,
+        describe: "PROTOTYPE: bearer token for --remote-poll requests",
+      })
+      .option("poll-interval", {
+        type: "number",
+        hidden: true,
+        default: 2000,
+        describe: "PROTOTYPE: --remote-poll interval in milliseconds",
+      })
+      .option("response-detail", {
+        type: "string",
+        hidden: true,
+        choices: ["full", "delta", "summary"],
+        default: "full",
+        describe: "PROTOTYPE: --remote-poll reply detail level",
       }),
   handler: Effect.fn("Cli.run")(function* (args) {
     const { Agent } = yield* Effect.promise(() => import("@/agent/agent"))
@@ -669,6 +693,60 @@ export const RunCommand = effectCmd({
         return localAgent()
       }
 
+      // PROTOTYPE: --remote-poll. Resident, outbound-only poll loop that
+      // injects remote-operator instructions into the CURRENT session
+      // through the exact same admission path as a normal `run` prompt:
+      // `sdk.session.prompt(...)`. Zero behavior change when the flag is
+      // absent (this function is only ever called from the guarded branch
+      // below). Resolves the session via the existing `session()` helper so
+      // --continue/--session/--fork behave the same as the default path.
+      async function runRemotePoll(sdk: OpencodeClient) {
+        const { RemoteChannel } = await import("@/remote/channel")
+        const { RemotePoller } = await import("@/remote/poller")
+        const { FetchHttpClient } = await import("effect/unstable/http")
+
+        const sess = await session(sdk)
+        if (!sess?.id) {
+          UI.error("Session not found")
+          process.exit(1)
+        }
+        const sessionID = sess.id
+        const agent = await pickAgent(sdk)
+        const model = pick(args.model)
+        const detail = args["response-detail"] as "full" | "delta" | "summary"
+
+        const channel = RemoteChannel.httpMailbox({ url: args["remote-poll"]!, token: args["poll-token"] })
+        const submit = (text: string) =>
+          Effect.tryPromise(() =>
+            sdk.session
+              .prompt(
+                { sessionID, agent, model, variant: args.variant, parts: [{ type: "text", text }] },
+                { throwOnError: true },
+              )
+              .then((result) => result.data ?? result),
+          )
+
+        UI.println(UI.Style.TEXT_INFO_BOLD + "~  " + `remote poll enabled: ${args["remote-poll"]} (session ${sessionID})`)
+
+        await Effect.runPromise(
+          Effect.scoped(
+            Effect.gen(function* () {
+              yield* RemotePoller.run({
+                channel,
+                submit,
+                detail,
+                interval: args["poll-interval"],
+              })
+              yield* Effect.callback<void>((resume) => {
+                const onSigint = () => resume(Effect.void)
+                process.on("SIGINT", onSigint)
+                return Effect.sync(() => process.off("SIGINT", onSigint))
+              })
+            }),
+          ).pipe(Effect.provide(FetchHttpClient.layer)),
+        )
+      }
+
       async function execute(sdk: OpencodeClient) {
         const sess = await session(sdk)
         if (!sess?.id) {
@@ -942,6 +1020,7 @@ export const RunCommand = effectCmd({
 
       if (args.attach) {
         const sdk = attachSDK(directory)
+        if (args["remote-poll"]) return await runRemotePoll(sdk)
         return await execute(sdk)
       }
 
@@ -958,6 +1037,7 @@ export const RunCommand = effectCmd({
         fetch: fetchFn,
         directory,
       })
+      if (args["remote-poll"]) return await runRemotePoll(sdk)
       await execute(sdk)
     })
   }),
@@ -1013,5 +1093,13 @@ export async function runMini(input: MiniCommandInput) {
     "dangerously-skip-permissions": false,
     dangerouslySkipPermissions: false,
     demo: input.demo ?? false,
+    "remote-poll": undefined,
+    remotePoll: undefined,
+    "poll-token": undefined,
+    pollToken: undefined,
+    "poll-interval": 2000,
+    pollInterval: 2000,
+    "response-detail": "full",
+    responseDetail: "full",
   })
 }
