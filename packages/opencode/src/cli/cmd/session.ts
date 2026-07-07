@@ -58,6 +58,7 @@ export const SessionCommand = cmd({
       .command(SessionLsCommand)
       .command(SessionTailCommand)
       .command(SessionReportCommand)
+      .command(SessionMetricsCommand)
       .command(SessionHealthCommand)
       .command(SessionListCommand)
       .command(SessionDeleteCommand)
@@ -177,6 +178,58 @@ export const SessionReportCommand = effectCmd({
       }
 
       console.log(formatSessionReport(report))
+    })
+  }),
+})
+
+export const SessionMetricsCommand = effectCmd({
+  command: "metrics <sessionID>",
+  describe: "report machine-queryable session metrics (tokens, cost, latency, tools, files)",
+  builder: (yargs) =>
+    yargs
+      .positional("sessionID", {
+        describe: "session ID to inspect",
+        type: "string",
+        demandOption: true,
+      })
+      .option("json", {
+        describe: "output JSON",
+        type: "boolean",
+      }),
+  handler: Effect.fn("Cli.session.metrics")(function* (args) {
+    const sdk = yield* localSdk()
+    const { Provider } = yield* Effect.promise(() => import("@/provider/provider"))
+    // FIX 1: fetch session info first and fail fast if not found
+    const info = yield* Effect.promise(() => sdk.session.get({ sessionID: args.sessionID }).then((r) => r.data))
+    if (!info) return yield* fail(`Session not found: ${args.sessionID}`)
+    // FIX 2: fetch messages before pricing so we can fall back to assistant-message model
+    const msgs = yield* Effect.promise(() =>
+      sdk.session.messages({ sessionID: args.sessionID }).then((r) => r.data ?? []),
+    )
+    // Effective model = session.model if present, else latest assistant message model
+    const effectiveProviderID = info.model?.providerID ?? latestModel(msgs)?.providerID
+    const effectiveModelID = info.model?.id ?? latestModel(msgs)?.modelID
+    const resolvePricing =
+      effectiveProviderID && effectiveModelID
+        ? Provider.Service.use((p) =>
+            p.getModel(ProviderV2.ID.make(effectiveProviderID), ModelV2.ID.make(effectiveModelID)),
+          ).pipe(
+            Effect.map((m) => ({
+              input: m.cost.input,
+              output: m.cost.output,
+              cache: { read: m.cost.cache.read, write: m.cost.cache.write },
+            })),
+            Effect.orElseSucceed(() => undefined),
+          )
+        : Effect.succeed(undefined)
+    const pricing = yield* resolvePricing
+    yield* Effect.promise(async () => {
+      const metrics = createSessionMetrics(args.sessionID, msgs, { session: info, pricing })
+      if (args.json) {
+        console.log(JSON.stringify(metrics, null, 2))
+        return
+      }
+      console.log(formatSessionMetrics(metrics))
     })
   }),
 })
@@ -376,6 +429,138 @@ export function createSessionReport(sessionID: string, messages: SessionMessage[
   }
 }
 
+type SessionInfo = {
+  tokens?: {
+    input: number
+    output: number
+    reasoning: number
+    cache: { read: number; write: number }
+  }
+  model?: { id: string; providerID: string }
+  cost?: number
+}
+
+type Pricing = {
+  input: number
+  output: number
+  cache: { read: number; write: number }
+}
+
+export function createSessionMetrics(
+  sessionID: string,
+  messages: SessionMessage[],
+  options?: { session?: SessionInfo; pricing?: Pricing },
+) {
+  const report = createSessionReport(sessionID, messages)
+
+  // Tokens: prefer persisted session row totals; fall back to summed report tokens
+  const sessionTokens = options?.session?.tokens
+  const sessionSum = sessionTokens
+    ? sessionTokens.input + sessionTokens.output + sessionTokens.reasoning + sessionTokens.cache.read + sessionTokens.cache.write
+    : 0
+  const baseTokens = sessionTokens && sessionSum > 0 ? sessionTokens : report.tokens
+  const tokens = {
+    input: baseTokens.input,
+    output: baseTokens.output,
+    reasoning: baseTokens.reasoning,
+    cache: { read: baseTokens.cache.read, write: baseTokens.cache.write },
+    total: baseTokens.input + baseTokens.output + baseTokens.reasoning + baseTokens.cache.read + baseTokens.cache.write,
+  }
+
+  // Model: prefer persisted session row; fall back to latest assistant message
+  const sessionModel = options?.session?.model
+  const fallbackModel = latestModel(messages)
+  const providerID = sessionModel?.providerID ?? fallbackModel?.providerID ?? null
+  const modelID = sessionModel ? sessionModel.id : (fallbackModel?.modelID ?? null)
+  const model = providerID && modelID ? `${providerID}/${modelID}` : null
+
+  const turns = messages.filter((m) => m.info.role === "assistant").length
+
+  // Cost: derived from tokens × pricing; 0 when pricing unavailable
+  const pricing = options?.pricing
+  const costUsd = pricing
+    ? (tokens.input * pricing.input +
+        tokens.output * pricing.output +
+        tokens.reasoning * pricing.output +
+        tokens.cache.read * pricing.cache.read +
+        tokens.cache.write * pricing.cache.write) /
+      1_000_000
+    : 0
+
+  // Latency: per-turn durations from assistant time.completed - time.created
+  const turnDurations = messages.flatMap((message) => {
+    if (message.info.role !== "assistant") return []
+    const completed = message.info.time.completed
+    if (!completed || completed <= message.info.time.created) return []
+    return [completed - message.info.time.created]
+  })
+
+  // Tool durations from completed/error tool parts
+  const toolDurations = messages
+    .flatMap((message) => message.parts.flatMap((part) => (part.type === "tool" ? [part] : [])))
+    .flatMap((part) => {
+      if (part.state.status !== "completed" && part.state.status !== "error") return []
+      const duration = part.state.time.end - part.state.time.start
+      return duration < 0 ? [] : [duration]
+    })
+
+  const latencyTotal = turnDurations.reduce((a, b) => a + b, 0)
+  const toolTotal = toolDurations.reduce((a, b) => a + b, 0)
+
+  // Tools: count of each tool name across all parts
+  const tools = messages
+    .flatMap((message) => message.parts.flatMap((part) => (part.type === "tool" ? [part.tool] : [])))
+    .reduce<Record<string, number>>((acc, tool) => {
+      acc[tool] = (acc[tool] ?? 0) + 1
+      return acc
+    }, {})
+
+  return {
+    schema: "session-metrics/v1" as const,
+    sessionID,
+    model,
+    providerID,
+    modelID,
+    messages: messages.length,
+    turns,
+    tokens,
+    cost_usd: costUsd,
+    cost: {
+      usd: costUsd,
+      source: pricing ? ("derived" as const) : ("unavailable" as const),
+      pricing_available: !!pricing,
+    },
+    latency_ms: {
+      total: latencyTotal,
+      per_turn_p50: p50(turnDurations),
+      per_turn_max: turnDurations.length > 0 ? Math.max(...turnDurations) : 0,
+      thinking_total: Math.max(0, latencyTotal - toolTotal),
+      tool_total: toolTotal,
+      tool_p50: p50(toolDurations),
+      tool_max: toolDurations.length > 0 ? Math.max(...toolDurations) : 0,
+    },
+    tools,
+    files: deriveFileBuckets(messages, report.files.paths),
+  }
+}
+
+export function formatSessionMetrics(metrics: ReturnType<typeof createSessionMetrics>) {
+  const lines = [
+    `Session: ${metrics.sessionID}`,
+    `Model: ${metrics.model ?? "unknown"}`,
+    `Messages: ${metrics.messages}, Turns: ${metrics.turns}`,
+    `Tokens: total ${metrics.tokens.total}, input ${metrics.tokens.input}, output ${metrics.tokens.output}, reasoning ${metrics.tokens.reasoning}, cache-read ${metrics.tokens.cache.read}, cache-write ${metrics.tokens.cache.write}`,
+    `Cost: $${metrics.cost_usd.toFixed(6)} (${metrics.cost.source})`,
+    `Latency: total ${metrics.latency_ms.total}ms, p50/turn ${metrics.latency_ms.per_turn_p50}ms, max/turn ${metrics.latency_ms.per_turn_max}ms, thinking ${metrics.latency_ms.thinking_total}ms, tool ${metrics.latency_ms.tool_total}ms (p50 ${metrics.latency_ms.tool_p50}ms, max ${metrics.latency_ms.tool_max}ms)`,
+  ]
+  const toolEntries = Object.entries(metrics.tools)
+  if (toolEntries.length > 0) lines.push(`Tools: ${toolEntries.map(([t, c]) => `${t}:${c}`).join(", ")}`)
+  lines.push(
+    `Files: created ${metrics.files.created.length}, modified ${metrics.files.modified.length}, deleted ${metrics.files.deleted.length}`,
+  )
+  return lines.join(EOL)
+}
+
 export function createSessionHealth(
   sessionID: string,
   messages: SessionMessage[],
@@ -552,6 +737,108 @@ function stringValue(value: unknown) {
 
 function asRecord(value: unknown) {
   return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : undefined
+}
+
+// --- Helpers for createSessionMetrics ---
+
+function p50(values: number[]): number {
+  if (values.length === 0) return 0
+  const sorted = values.toSorted((a, b) => a - b)
+  return sorted.at(Math.floor((sorted.length - 1) / 2)) ?? 0
+}
+
+function deriveFileBuckets(messages: SessionMessage[], touchedPaths: string[]) {
+  const firstBucket = new Map<string, "created" | "modified" | "deleted">()
+  messages.forEach((message) => {
+    message.parts.forEach((part) => {
+      if (part.type !== "tool") return
+      const metadata = part.state.status === "pending" ? undefined : part.state.metadata
+      bucketedPathOps(part.tool, part.state.input, metadata).forEach(({ path, bucket }) => {
+        if (!firstBucket.has(path)) firstBucket.set(path, bucket)
+      })
+    })
+  })
+
+  const created: string[] = []
+  const modified: string[] = []
+  const deleted: string[] = []
+  firstBucket.forEach((bucket, path) => {
+    if (bucket === "created") created.push(path)
+    if (bucket === "modified") modified.push(path)
+    if (bucket === "deleted") deleted.push(path)
+  })
+
+  return {
+    created: created.toSorted(),
+    modified: modified.toSorted(),
+    deleted: deleted.toSorted(),
+    touched: touchedPaths,
+  }
+}
+
+function bucketedPathOps(
+  tool: string,
+  input: unknown,
+  metadata: unknown,
+): Array<{ path: string; bucket: "created" | "modified" | "deleted" }> {
+  if (tool === "write") {
+    const inp = asRecord(input)
+    const path = stringValue(inp?.filePath) ?? stringValue(inp?.filepath)
+    if (!path) return []
+    const meta = asRecord(metadata)
+    const notExisted = meta?.exists === false || meta?.existed === false
+    const existed = !notExisted && (meta?.exists === true || meta?.existed === true)
+    const bucket: "created" | "modified" = existed ? "modified" : "created"
+    return [{ path, bucket }]
+  }
+  if (tool === "edit") {
+    const inp = asRecord(input)
+    const path = stringValue(inp?.filePath) ?? stringValue(inp?.filepath) ?? stringValue(inp?.file)
+    return path ? [{ path, bucket: "modified" }] : []
+  }
+  if (tool === "mkdir" || tool === "touch") {
+    const path = stringValue(asRecord(input)?.path)
+    return path ? [{ path, bucket: "created" }] : []
+  }
+  if (tool === "rm") {
+    return pathsFromField(input, "paths").map((path) => ({ path, bucket: "deleted" as const }))
+  }
+  if (tool === "mv") {
+    const inp = asRecord(input)
+    const results: Array<{ path: string; bucket: "created" | "modified" | "deleted" }> = []
+    const src = stringValue(inp?.source)
+    const dst = stringValue(inp?.dest)
+    if (src) results.push({ path: src, bucket: "deleted" })
+    if (dst) results.push({ path: dst, bucket: "created" })
+    return results
+  }
+  if (tool === "cp") {
+    const path = stringValue(asRecord(input)?.dest)
+    return path ? [{ path, bucket: "created" }] : []
+  }
+  if (tool === "apply_patch") return applyPatchBuckets(metadata)
+  return []
+}
+
+function applyPatchBuckets(metadata: unknown): Array<{ path: string; bucket: "created" | "modified" | "deleted" }> {
+  const record = asRecord(metadata)
+  const value = Array.isArray(record?.files) ? record.files : []
+  return value.flatMap((item): Array<{ path: string; bucket: "created" | "modified" | "deleted" }> => {
+    if (typeof item === "string" && item.length > 0) return [{ path: item, bucket: "modified" as const }]
+    const file = asRecord(item)
+    const filePath = stringValue(file?.filePath) ?? stringValue(file?.relativePath)
+    if (!filePath) return []
+    if (file?.type === "add") return [{ path: filePath, bucket: "created" as const }]
+    if (file?.type === "delete") return [{ path: filePath, bucket: "deleted" as const }]
+    if (file?.type === "move") {
+      const movePath = stringValue(file?.movePath)
+      const results: Array<{ path: string; bucket: "created" | "modified" | "deleted" }> = []
+      if (filePath) results.push({ path: filePath, bucket: "deleted" })
+      if (movePath) results.push({ path: movePath, bucket: "created" })
+      return results
+    }
+    return [{ path: filePath, bucket: "modified" as const }]
+  })
 }
 
 const localSdk = Effect.fn("Cli.session.localSdk")(function* () {
