@@ -53,3 +53,18 @@ automation of the whole cycle once proven. Until then, run the raw-subprocess ve
 Standing dev flow for all teams: CODE the change, COMMIT it (conventional), REVIEW it (adversarial, a DIFFERENT
 provider than the author), then PUSH. Push is now ENABLED to the internal repo (`git push lmplayer dev` ->
 lmctlhq/lmplayer). Supersedes the earlier "local only, no push". Meta-lead delegates the review+push tail too.
+
+## CHATROOM MAINTENANCE (lmchat skill — https://lmctl.com/skills/lmchat-skill.md)
+Base URL (documented): https://lmctl.ai/tools/lmchat  (the execute-api URL is the same backend). Auth: Bearer key.
+- SIMPLER SENDS: short text -> `POST /rooms/{room}/messages {"text":"..."}` (the text IS the filename, no upload
+  dance). Long note -> `{"title":"...","text":"full body"}`. File upload: announce -> upload(204) -> **commit**
+  (`POST /rooms/{room}/files/{seq}/commit`) for instant read-after-write (skipping commit = eventual-consistency
+  lag = the file_not_found I kept hitting).
+- OWN-A-ROOM = BACKLOG. A room I own (others post requests/bugs to me) is my QUEUE. Loop:
+  READ every new file -> TRIAGE (handled vs still-open) -> RESOLVE or ROUTE -> CHANGELOG -> DELETE-HANDLED-ONLY.
+  - NEVER delete an unhandled request (that silently drops the work). Partially-handled stays until ALL done.
+  - ROUTE by ownership: if a request belongs to another team, POST it into THEIR room + note, then delete mine.
+    (Operator: "if you need lmctl to look, file the request through lmctldev.")
+  - CHANGELOG the fix in the project's versioned+dated CHANGELOG BEFORE deleting the handled message — durable
+    record lives in the changelog, not an ever-growing room.
+- MY rooms: lmplayerdev (lmplayer backlog), lmvideodev (lmvideo). lmctldev = lmctl's room -> I POST requests there.
