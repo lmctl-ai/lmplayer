@@ -27,6 +27,7 @@ the default.
 - `contract-session-metrics.md` — STABLE `session-metrics/v1` JSON contract for `lmplayer session metrics <id> --json` (ORG-METRICS). What lmctl `health`/queries consume; persisted-vs-derived rules, cost formula.
 - `integration-lmctl-tokens.md` — lmctl token health contract: read `session` table token columns (or `GET /session/:id .tokens`). Superseded/extended by `contract-session-metrics.md`.
 - `remote-poll-channel.md` — CLIENT-ONLY/OUTBOUND-ONLY remote-operator poll channel prototype: `RemoteChannel` (poll/respond) + `RemotePoller`, `run --remote-poll` flags, how it reuses the exact `client.session.prompt` admission path, and the fake-LLM round-trip test. Includes the "copilot Claude must be declared for lmctl" gotcha.
+- `finding-tui-resize.md` — TUI is NON-DEFAULT not disabled (launch `lmplayer tui`/`attach`); the interactive resize path is byte-identical to upstream and fully re-renders on SIGWINCH (verified 3 ways: tmux, raw pty, @opentui `createTestRenderer`); `@opentui` `processResize` has no public force-full-repaint; how to test the TUI headlessly. Commit `ae534e94c`.
 
 ## How to use / extend this memory
 - Start here; open the focused doc for your area.
@@ -62,6 +63,7 @@ A dev `lmcode` command is installed at `~/.local/bin/lmcode` (runs from source).
 - `feat(cli)`: `models --test` probes each entitled model (tool-less single turn), reports OK/FAIL, exit non-zero on any fail.
 - `feat(opencode)`: `session metrics <id> [--json]` — stable `session-metrics/v1` (tokens+cost_usd+latency+tools+files) read offline from the persisted SQLite store; tokens from the `session` row (fixes lmctl `Tokens: n/a`), cost DERIVED from tokens×model pricing (persisted `session.cost` is 0). Pure `createSessionMetrics` in `packages/opencode/src/cli/cmd/session.ts`; test `test/cli/session-metrics.test.ts`. Contract: `durable-memory/contract-session-metrics.md`.
 - `feat(opencode)`: remote-operator poll channel PROTOTYPE (branch `remote-poll-channel`, commit `4ea42dbab`, pushed to lmplayer; Coder=sonnet-5, Reviewer1=gpt-5.5 APPROVE). Client-only/outbound-only in-process poll loop: `RemoteChannel` (poll/respond; HTTP-mailbox + stub) + `RemotePoller` in `packages/opencode/src/remote/`, `run --remote-poll [--poll-token --poll-interval --response-detail]` (hidden, zero change when absent), injects via the exact `client.session.prompt` path, fake-LLM round-trip test `test/remote/poller.test.ts` (5 pass). See `durable-memory/remote-poll-channel.md`.
+- `test`: TUI launch-registration + interactive resize regression coverage (commit `ae534e94c`, pushed to lmplayer dev; Coder=sonnet-5, Reviewer1=gpt-5.5 APPROVE-WITH-NITS). Confirms `lmplayer tui`/`attach` reachable (non-default by design) and that the interactive TUI + session message content fully re-render/re-wrap on resize (no cut-off). No functional source change — the reported "TUI disabled" / "resize cut-off" were already-correct/non-reproducible; findings in `durable-memory/finding-tui-resize.md`.
 
 ## Open / TODO (not done)
 - The operator-reported "hard 5-minute timeout" is NOT in lmcode's default batch path (in-process run is
