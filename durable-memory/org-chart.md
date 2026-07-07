@@ -473,3 +473,9 @@
 - Workflow now: code->commit->review->push (push enabled to lmctlhq/lmplayer). Teams: design council + per-project
   lmplayer-dev/lmvideo-dev + QA, all provider=lmplayer github-copilot. NEXT: org-metrics analyzer (reads sessions
   via session metrics + comms -> perf report); lmctl-side health wiring; other products (svg-transit, diagramkit).
+- org-metrics ANALYZER (first slice): new repo /niceapps/mma/oc/org-metrics — `org-metrics report <teamfile>
+  [--json]` aggregates `lmplayer session metrics` into per-member + org rollup (cost/tokens/files/tools/latency),
+  reviewed (c969b11, 1eab5d6). No remote yet (local master). NEXT: communication-analysis slice; lmctl integration.
+- Autopilot session END state: all operator priorities (lmvideo, patch lmplayer) + metrics side-project DONE.
+  Fleet idle+healthy, ready for direction. Queued: org-metrics comms slice, other products (svg-transit,
+  diagramkit-rs), lmctl-side health-wiring (their repo). Binary=0713, teams seeded, sonnet-5 works via lmctl.
