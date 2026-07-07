@@ -23,6 +23,8 @@ the default.
 - `metalead-loop.md` — MY core operating method: background N−1 + 1 interactive blocking call = fan-out + wake (no `--detach`). Fleet run command. Read this to run the fleet.
 - `lmctl-manual.md` — lmctl operational cheat-sheet for migrating the fleet onto lmctl (chat/jobs/loop, `--detach` removed).
 - `lead-brief-lmctl.md` — how the Lead sends via lmctl (chat/seed/auto-resume), fleet.lmctl, and the operator's web console (lmctl.ai, not for me). Docs at lmctl.com.
+- `contract-session-metrics.md` — STABLE `session-metrics/v1` JSON contract for `lmplayer session metrics <id> --json` (ORG-METRICS). What lmctl `health`/queries consume; persisted-vs-derived rules, cost formula.
+- `integration-lmctl-tokens.md` — lmctl token health contract: read `session` table token columns (or `GET /session/:id .tokens`). Superseded/extended by `contract-session-metrics.md`.
 
 ## How to use / extend this memory
 - Start here; open the focused doc for your area.
@@ -56,6 +58,7 @@ A dev `lmcode` command is installed at `~/.local/bin/lmcode` (runs from source).
 - `chore`: rename CLI binary/command `opencode` -> `lmcode` (bin, build, scriptName, Dockerfile).
 - `feat(cli)`: default command sends a prompt; TUI moved to explicit `lmcode tui`; piped stdin runs; bare lmcode -> help.
 - `feat(cli)`: `models --test` probes each entitled model (tool-less single turn), reports OK/FAIL, exit non-zero on any fail.
+- `feat(opencode)`: `session metrics <id> [--json]` — stable `session-metrics/v1` (tokens+cost_usd+latency+tools+files) read offline from the persisted SQLite store; tokens from the `session` row (fixes lmctl `Tokens: n/a`), cost DERIVED from tokens×model pricing (persisted `session.cost` is 0). Pure `createSessionMetrics` in `packages/opencode/src/cli/cmd/session.ts`; test `test/cli/session-metrics.test.ts`. Contract: `durable-memory/contract-session-metrics.md`.
 
 ## Open / TODO (not done)
 - The operator-reported "hard 5-minute timeout" is NOT in lmcode's default batch path (in-process run is
