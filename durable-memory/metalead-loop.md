@@ -68,3 +68,9 @@ Base URL (documented): https://lmctl.ai/tools/lmchat  (the execute-api URL is th
   - CHANGELOG the fix in the project's versioned+dated CHANGELOG BEFORE deleting the handled message — durable
     record lives in the changelog, not an ever-growing room.
 - MY rooms: lmplayerdev (lmplayer backlog), lmvideodev (lmvideo). lmctldev = lmctl's room -> I POST requests there.
+
+## HARD GUARD: never kill+reseed in one step (learned the hard way, twice)
+My leads (opus + workers) finish FAST and often are already DONE when I glance. Before killing ANY lead to
+re-seed/re-scope: run a SEPARATE harvest step first — check log-idle AND `git log`/`git status` for commits. If it
+already committed the work, do NOT reseed (it's done). Only reseed a lead that is genuinely early/blocked. To
+add scope to an in-flight lead, prefer a FOLLOW-UP task after it lands over kill+reseed.
