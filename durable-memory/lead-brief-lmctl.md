@@ -8,6 +8,13 @@ every subsequent chat (verified — `--session` returns the same id and retains 
 - **My interface = the `lmctl` CLI** (chat/ls/tail/health/seed). https://lmctl.ai is the human operator's browser
   console — NOT much use to me as a CLI agent; I don't drive it. It's just how the operator reaches the Lead.
 
+## PROVIDER + MODEL RULE (operator, standing)
+- Use **`provider=lmplayer`** (dogfood our own provider) with **`github-copilot/*` models** (GH Copilot models,
+  covered by the copilot subscription). `provider=opencode` was the interim path — prefer lmplayer now.
+- NEVER `provider=claude` or `provider=codex` (separately billed = costs money). The constraint is on the paid
+  PROVIDER CLIs, not the model family — `github-copilot/claude-sonnet-4.6` is copilot-billed and fine.
+- Current fleet complies: fleet.lmctl + all leads use `provider=lmplayer` + `github-copilot/*`.
+
 ## Team file
 - `/niceapps/mma/oc/fleet.lmctl` — the migrated fleet (first `_MEMBER_` = Lead; members = product workstreams,
   real sessionids kept + aliased). Lint it with `lmctl lint /niceapps/mma/oc/fleet.lmctl` (passes; only the known
