@@ -5,12 +5,149 @@ import { effectCmd, fail } from "../effect-cmd"
 import { UI } from "../ui"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { createOpencodeClient, type OpencodeClient } from "@opencode-ai/sdk/v2"
+import { Auth } from "../../auth"
+import type { Provider } from "@/provider/provider"
+
+// ─── --json wire shape ───────────────────────────────────────────────────────
+
+export type ModelJsonEntry = {
+  id: string
+  provider: string
+  name: string
+  limit: { context: number | null; input: number | null; output: number | null }
+  capabilities: { reasoning: boolean; toolcall: boolean; attachment: boolean; temperature: boolean }
+  variants: string[]
+  available: true
+}
+
+/**
+ * Maps one Provider.Model to the `models --json` wire shape.
+ * Exported for unit tests.
+ */
+export function modelToJsonEntry(providerID: string, modelID: string, model: Provider.Model): ModelJsonEntry {
+  return {
+    id: `${providerID}/${modelID}`,
+    provider: providerID,
+    name: model.name,
+    limit: {
+      context: model.limit.context ?? null,
+      input: model.limit.input ?? null,
+      output: model.limit.output ?? null,
+    },
+    capabilities: {
+      reasoning: model.capabilities.reasoning,
+      toolcall: model.capabilities.toolcall,
+      attachment: model.capabilities.attachment,
+      temperature: model.capabilities.temperature,
+    },
+    variants: Object.keys(model.variants ?? {}),
+    available: true as const,
+  }
+}
+
+// ─── verify helpers ──────────────────────────────────────────────────────────
+
+export type VerifyResult = { ok: true } | { ok: false; reason: string }
+
+/**
+ * Pure resolver — no I/O. Checks catalog membership, provider authentication,
+ * and (optionally) effort validity. Supply `builtProvider` only when --effort
+ * is given; it carries the variant map built by fromModelsDevProvider so the
+ * caller can defer that import to the --effort path.
+ */
+export function resolveVerify(
+  modelId: string,
+  effort: string | undefined,
+  database: Record<string, ModelsDev.Provider>,
+  allCreds: Record<string, Auth.Info>,
+  builtProvider?: { models: Record<string, { variants?: Record<string, unknown> }> },
+): VerifyResult {
+  const slash = modelId.indexOf("/")
+  if (slash <= 0 || slash === modelId.length - 1)
+    return { ok: false, reason: `model must be in "providerID/modelID" format, got: ${modelId}` }
+
+  const providerID = modelId.slice(0, slash)
+  const modelID = modelId.slice(slash + 1)
+
+  const providerDef = database[providerID]
+  if (!providerDef) return { ok: false, reason: `unknown provider "${providerID}"` }
+  if (!providerDef.models[modelID])
+    return { ok: false, reason: `unknown model "${modelID}" for provider "${providerID}"` }
+
+  const isAuthed = Boolean(allCreds[providerID]) || providerDef.env.some((e) => Boolean(process.env[e]))
+  if (!isAuthed) {
+    const envHint = providerDef.env.length ? ` (set one of: ${providerDef.env.join(", ")})` : ""
+    return { ok: false, reason: `provider "${providerID}" is not authenticated${envHint}` }
+  }
+
+  if (effort) {
+    const validEfforts = Object.keys(builtProvider?.models[modelID]?.variants ?? {})
+    if (!validEfforts.includes(effort)) {
+      const list = validEfforts.length ? validEfforts.join(", ") : "(none)"
+      return { ok: false, reason: `effort "${effort}" is not valid for ${modelId}; valid: ${list}` }
+    }
+  }
+
+  return { ok: true }
+}
+
+// ─── verify subcommand ───────────────────────────────────────────────────────
+
+const ModelsVerifyCommand = effectCmd({
+  command: "verify <model>",
+  describe: "verify a model is known and available; exit non-zero with a reason if not",
+  instance: false,
+  builder: (yargs) =>
+    yargs
+      .positional("model", {
+        describe: 'model in "providerID/modelID" format (e.g. github-copilot/claude-sonnet-4.6)',
+        type: "string",
+        demandOption: true,
+      })
+      .option("effort", {
+        alias: "e",
+        describe: "effort/variant to validate (e.g. low, medium, high, xhigh, max)",
+        type: "string",
+      }),
+  handler: Effect.fn("Cli.models.verify")(function* (args) {
+    const modelId = args.model!
+    const modelsDev = yield* ModelsDev.Service
+    const database = yield* modelsDev.get()
+    const authSvc = yield* Auth.Service
+    const allCreds = yield* Effect.orDie(authSvc.all())
+
+    // Only compute per-model variant data when --effort is given; avoids the
+    // large provider.ts dynamic import on the common no-effort path.
+    let builtProvider: { models: Record<string, { variants?: Record<string, unknown> }> } | undefined
+    if (args.effort) {
+      const slash = modelId.indexOf("/")
+      if (slash > 0 && slash < modelId.length - 1) {
+        const pDef = database[modelId.slice(0, slash)]
+        if (pDef) {
+          const { Provider } = yield* Effect.promise(() => import("@/provider/provider"))
+          builtProvider = Provider.fromModelsDevProvider(pDef)
+        }
+      }
+    }
+
+    const result = resolveVerify(modelId, args.effort, database, allCreds, builtProvider)
+    if (!result.ok) {
+      process.stderr.write(`error: ${result.reason}\n`)
+      process.exitCode = 1
+      return
+    }
+    process.stdout.write(`ok: ${modelId} is available\n`)
+  }),
+})
+
+// ─── models list ─────────────────────────────────────────────────────────────
 
 export const ModelsCommand = effectCmd({
   command: "models [provider]",
   describe: "list all available models",
   builder: (yargs) =>
     yargs
+      .command(ModelsVerifyCommand)
       .positional("provider", {
         describe: "provider ID to filter models by",
         type: "string",
@@ -91,23 +228,7 @@ export const ModelsCommand = effectCmd({
       const p = providers[providerID]
       return Object.entries(p.models)
         .sort(([a], [b]) => a.localeCompare(b))
-        .map(([modelID, model]) => ({
-          id: `${providerID}/${modelID}`,
-          provider: providerID as string,
-          name: model.name,
-          limit: {
-            context: model.limit.context ?? null,
-            input: model.limit.input ?? null,
-            output: model.limit.output ?? null,
-          },
-          capabilities: {
-            reasoning: model.capabilities.reasoning,
-            toolcall: model.capabilities.toolcall,
-            attachment: model.capabilities.attachment,
-            temperature: model.capabilities.temperature,
-          },
-          variants: Object.keys(model.variants ?? {}),
-        }))
+        .map(([modelID, model]) => modelToJsonEntry(providerID as string, modelID, model))
     }
 
     if (args.provider) {
@@ -267,4 +388,3 @@ function errorText(error: unknown): string {
   }
   return String(error)
 }
-
