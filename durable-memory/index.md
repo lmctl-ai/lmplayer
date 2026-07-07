@@ -22,6 +22,7 @@ the default.
 - `design-cli-only.md` — design + reviewer findings for the agent-CLI direction (default command, the "5-minute timeout" investigation, config).
 - `metalead-loop.md` — MY core operating method: background N−1 + 1 interactive blocking call = fan-out + wake (no `--detach`). Fleet run command. Read this to run the fleet.
 - `lmctl-manual.md` — lmctl operational cheat-sheet for migrating the fleet onto lmctl (chat/jobs/loop, `--detach` removed).
+- `lead-brief-lmctl.md` — how the Lead sends via lmctl (chat/seed/auto-resume), fleet.lmctl, and the operator's web console (lmctl.ai, not for me). Docs at lmctl.com.
 
 ## How to use / extend this memory
 - Start here; open the focused doc for your area.
