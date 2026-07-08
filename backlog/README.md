@@ -19,6 +19,12 @@ bash on); we dogfood it by using it to build real projects. Ordered by current t
 3. **dogfood-driven hardening** — keep running real coding tasks through the fleet; fix whatever pain
    surfaces (this loop already produced the `git workdir` fix + `wc` tool + the tokens/permission fixes).
    Empirical prioritization over guessing.
+4. **model-specific prompt + tool profiles** — let a provider/model select a specialized system prompt and
+   tool definition set instead of always receiving the generic coding-agent catalog. Immediate case:
+   `ollama/qwen2.5+tools` should not receive read/write/git/gh/rg/etc. For qwen2.5, define one narrow
+   lmctl-oriented tool (or one simple command wrapper) with a schema it can reliably call, so lmctl can run
+   external shell commands on its behalf. This avoids granting or hiding broad permissions for unrelated
+   tools and avoids relying on qwen to choose among the full lmplayer tool catalog.
 
 ## Umbrella / upstream
 - **lmvideo** — LLM-first HTTP video service (storyboard-as-data → mp4 + timing report). Requirements +

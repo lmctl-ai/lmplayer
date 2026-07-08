@@ -68,12 +68,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   plumbing are proven offline; an operator with local ollama should pull this,
   run `lmplayer run --model ollama/qwen2.5 "hello"`, and report/fix any live
   gaps.
+- **Opt-in Ollama function calling with a `+tools` model suffix.** Local
+  Ollama models remain chat-only by default (`ollama/qwen2.5`) so weak/simple
+  models are not offered tools unless explicitly requested. To test a local
+  model's native function-call behavior, use `ollama/qwen2.5+tools` or
+  `ollama/qwen2.5+tools@host:11434`; lmplayer strips the suffix before sending
+  the model id to Ollama but marks the model `toolcall:true`, routing it through
+  the normal tool pipeline. Live probe from WSL to Windows Ollama at
+  `http://172.18.32.1:11434` confirmed `qwen2.5:14b` returns valid
+  OpenAI-compatible `tool_calls` with JSON-string arguments on
+  `/v1/chat/completions`, and native Ollama `/api/chat` returns structured
+  `message.tool_calls`. A bash-only lmplayer permission profile
+  (`permission: {"*":"deny","bash":"allow"}`) also lets qwen2.5 reliably shell
+  out through the `bash` tool; a live probe ran
+  `lmctl chat "/home/mma/repos/lmplayer/lmplayer.lmctl" Coder "reply OK"` via
+  bash and received `OK`.
 - **Conditional chat-only mode for simple models (no tools offered).** Models
   flagged `tool_call:false` — which now includes every synthesized `ollama/*`
   model, and any other provider/model configured that way — are sent to the
   provider with **no tools at all** (empty/omitted), so a weak model
   (e.g. ollama qwen2.5) produces a plain **text** reply and can never emit the
-  malformed tool-call JSON that breaks parsing. This is a *conditional*
+  malformed tool-call JSON that breaks parsing. This is a _conditional_
   exception, not a global change: capable models (all `github-copilot` ones are
   `toolcall:true`) keep their **full, unchanged** tool set. The gate lives in
   `packages/opencode/src/session/llm/request.ts` (`prepare()`): when
@@ -132,7 +147,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   frame bounds), and the other loads a real session with one long assistant
   message and resizes it (100x30 → 40x20 → 120x40), asserting the message
   text stays visible and its wrap width tracks each new terminal size (no
-   truncation, no stale-width frame).
+  truncation, no stale-width frame).
 
 ### Fixed
 
@@ -140,7 +155,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   that a resize won't fix).** The main `lmplayer tui` renders through
   `@opentui/core`'s default alternate-screen mode, whose resize path
   (`CliRenderer.processResize`) reallocates the native buffers and schedules only
-  a *diff* render against `currentRenderBuffer` — the renderer's model of what is
+  a _diff_ render against `currentRenderBuffer` — the renderer's model of what is
   physically on screen — but, unlike every other terminal-desync path in that
   renderer (`resume()`, capability re-detection, split-footer transitions), it
   never forces a full repaint. On a real terminal a resize can scroll or clear the

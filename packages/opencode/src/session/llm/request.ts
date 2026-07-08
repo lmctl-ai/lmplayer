@@ -102,12 +102,10 @@ export const prepare = Effect.fn("LLMRequestPrep.prepare")(function* (input: Pre
     isOpenaiOauth || input.isWorkflow
       ? input.messages
       : [
-          ...system.map(
-            (x): ModelMessage => ({
-              role: "system",
-              content: x,
-            }),
-          ),
+          ...system.map((x): ModelMessage => ({
+            role: "system",
+            content: x,
+          })),
           ...input.messages,
         ]
 
@@ -146,10 +144,10 @@ export const prepare = Effect.fn("LLMRequestPrep.prepare")(function* (input: Pre
   )
 
   // Capable models (github-copilot etc., toolcall:true) keep their full tool
-  // set. chat-only is the exception for simple/weak models (ollama qwen2.5
-  // and any model flagged tool_call:false) so they never emit malformed
-  // tool-call JSON: offer NO tools at all, and skip the tool-shape fixups
-  // below since there are no tools to fix up.
+  // set. chat-only is the exception for simple/weak models (default ollama
+  // models and any model flagged tool_call:false) so they never emit malformed
+  // tool-call JSON. Ollama models can explicitly opt into this path with the
+  // `+tools` model suffix.
   const chatOnly = input.model.capabilities.toolcall === false
   const tools = chatOnly ? {} : resolveTools(input)
   if (!chatOnly) {
