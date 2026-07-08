@@ -13,6 +13,42 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- **Positive tool provisioning + lean system prompt ("profiles"), and a built-in
+  `lean` profile for weak/simple models (e.g. `ollama/qwen2.5`).** Inverts the
+  default request-building model. Today the runtime materializes the full ~28-tool
+  catalog and then *subtractively* removes tools via permission deny rules
+  (`registry.tools()` → `Permission.disabled`, then `resolveTools()`), and it
+  picks a large provider prompt file by model family. A **profile** flips this to
+  *positive provisioning*: an agent may now declare `provision: string[]`, a
+  closed positive allowlist of tool ids. When set, only those tools' model-facing
+  definitions are built and sent — nothing outside the set is ever offered to the
+  model — regardless of the permission ruleset (so it is genuinely different from a
+  `{"*":"deny", …}` allowlist: even under an allow-all permission, a provisioned
+  agent still sends only its listed tools). The lean/override system prompt half
+  reuses the existing agent `prompt` field, which already replaces the provider
+  prompt file. Two infra sentinels are exempt and never offered to the model: the
+  `invalid` malformed-tool-call repair target (kept for weak models) and the
+  Copilot `_noop` replay shim (never injected for provisioned agents).
+  - **Built-in `lean` agent** (`--agent lean`, additive; the default `build` agent
+    is byte-for-byte unchanged): a short "monitor + delegate via lmctl"
+    system prompt (`src/session/prompt/lean.txt`, 783 chars vs `default.txt`'s
+    8528 — ~91% smaller) plus `provision: ["bash"]` (permission `{"*":"deny",
+    bash:"allow"}`, which also suppresses the skills/MCP prompt blocks). Rationale:
+    real qwen2.5 testing showed the full generic tool catalog is unreliable for
+    weak models (wrong arg keys/types; describing tool calls instead of emitting
+    them), but shelling out via `bash` to `lmctl`/`git`/`curl` is reliable — so the
+    lean profile hands the model exactly one dependable tool.
+  - **Reduction:** ~28 model-facing tool definitions → 1 (`bash`); base system
+    prompt ~91% smaller. Selection is per-agent for this first slice (per-model
+    auto-selection and a config-defined `provision` for user profiles are wired
+    through `ConfigAgentV1` but left as follow-ups). Legacy `packages/opencode`
+    runtime only (the active `lmcode run` path); the V2 `packages/core`
+    `ToolRegistry.materialize()` choke point is the documented follow-up seam.
+  - Proof tests: `test/tool/registry.test.ts` (under allow-all permission,
+    `registry.tools()` yields exactly `bash` among non-infra tools) and
+    `test/session/llm.test.ts` (a `tool_call:true` model with allow-all permission
+    and `provision:["bash"]` sends an outgoing request whose `body.tools` is
+    exactly `["bash"]` and whose system text is the lean prompt).
 - **Forced-delegation `plan` agent (backs the lmctl `model="<model>+plan"`
   expression).** The built-in `plan` agent is now a pure orchestrator: it can
   read, inspect, and plan, and it MUST delegate every change through the `task`

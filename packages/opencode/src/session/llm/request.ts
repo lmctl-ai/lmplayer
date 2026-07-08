@@ -14,6 +14,7 @@ import { Effect, Record } from "effect"
 import { jsonSchema, tool as aiTool, type ModelMessage, type Tool } from "ai"
 import type { Plugin } from "@/plugin"
 import { mergeDeep } from "remeda"
+import { InvalidTool } from "@/tool/invalid"
 
 const USER_AGENT = `opencode/${InstallationVersion}`
 
@@ -164,10 +165,13 @@ export const prepare = Effect.fn("LLMRequestPrep.prepare")(function* (input: Pre
       for (const key of Object.keys(tools)) tools[key] = { ...tools[key], strict: false }
     }
     if (
+      input.agent.provision === undefined &&
       input.model.providerID.includes("github-copilot") &&
       Object.keys(tools).length === 0 &&
       hasToolCalls(input.messages)
     ) {
+      // Provisioned profiles declare their own tool surface; never inject the
+      // _noop compat shim for them.
       // Copilot needs a tools field when replaying prior tool calls, even if no tools are currently enabled.
       tools["_noop"] = aiTool({
         description: "Do not call this tool. It exists only for API compatibility and must never be invoked.",
@@ -214,11 +218,20 @@ export const prepare = Effect.fn("LLMRequestPrep.prepare")(function* (input: Pre
 })
 
 function resolveTools(input: Pick<PrepareInput, "tools" | "agent" | "permission" | "user">) {
+  const provision = input.agent.provision ? new Set(input.agent.provision) : undefined
   const disabled = Permission.disabled(
     Object.keys(input.tools),
     Permission.merge(input.agent.permission, input.permission ?? []),
   )
-  return Record.filter(input.tools, (_, k) => input.user.tools?.[k] !== false && !disabled.has(k))
+  return Record.filter(input.tools, (_, k) => {
+    if (input.user.tools?.[k] === false) return false
+    // POSITIVE PROVISIONING final gate: only the profile's allowlist (plus the infra
+    // `invalid` sentinel) reaches the model. `invalid` is excluded from activeTools upstream
+    // and is always retained so weak-model malformed-tool-call repair keeps a target — even
+    // under a deny-all profile.
+    if (provision) return k === InvalidTool.id || (provision.has(k) && !disabled.has(k))
+    return !disabled.has(k)
+  })
 }
 
 export function hasToolCalls(messages: ModelMessage[]): boolean {
