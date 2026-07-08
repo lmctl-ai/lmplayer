@@ -12,6 +12,7 @@ import { ProviderTransform } from "@/provider/transform"
 import PROMPT_GENERATE from "./generate.txt"
 import PROMPT_COMPACTION from "./prompt/compaction.txt"
 import PROMPT_EXPLORE from "./prompt/explore.txt"
+import PROMPT_LEAN from "@/session/prompt/lean.txt"
 import PROMPT_SECURED from "./prompt/secured.txt"
 import PROMPT_SUMMARY from "./prompt/summary.txt"
 import PROMPT_TITLE from "./prompt/title.txt"
@@ -50,6 +51,11 @@ export const Info = Schema.Struct({
     }),
   ),
   variant: Schema.optional(Schema.String),
+  // Positive tool allowlist. When set, ONLY these tools (plus the infra
+  // `invalid` sentinel) are built as model-facing definitions and sent — the
+  // inverse of the default materialize-all-then-deny path. Undefined =
+  // unchanged behavior.
+  provision: Schema.optional(Schema.Array(Schema.String)),
   prompt: Schema.optional(Schema.String),
   options: Schema.Record(Schema.String, Schema.Unknown),
   steps: Schema.optional(Schema.Finite),
@@ -299,6 +305,20 @@ const layer = Layer.effect(
             mode: "primary",
             native: true,
           },
+          lean: {
+            name: "lean",
+            description:
+              "Lean profile for weak/simple models (e.g. qwen2.5). A short monitor+delegate system prompt and a positively-provisioned minimal tool set (bash only) so the model shells out to lmctl/git/curl instead of receiving the full tool catalog.",
+            permission: Permission.fromConfig({
+              "*": "deny",
+              bash: "allow",
+            }),
+            provision: ["bash"],
+            prompt: PROMPT_LEAN,
+            options: {},
+            mode: "primary",
+            native: true,
+          },
           compaction: {
             name: "compaction",
             mode: "primary",
@@ -364,6 +384,7 @@ const layer = Layer.effect(
           if (value.model) item.model = Provider.parseModel(value.model)
           item.variant = value.variant ?? item.variant
           item.prompt = value.prompt ?? item.prompt
+          item.provision = value.provision ?? item.provision
           item.description = value.description ?? item.description
           item.temperature = value.temperature ?? item.temperature
           item.topP = value.top_p ?? item.topP

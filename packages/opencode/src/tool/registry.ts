@@ -348,11 +348,23 @@ const layer = Layer.effect(
     })
 
     const tools: Interface["tools"] = Effect.fn("ToolRegistry.tools")(function* (input) {
-      const disabled = Permission.disabled(
-        (yield* all()).map((tool) => tool.id),
-        input.agent.permission,
-      )
-      const filtered = (yield* all()).filter((tool) => {
+      const registered = yield* all()
+      // POSITIVE PROVISIONING: a profile's `provision` is a positive allowlist. Build model-facing
+      // definitions for ONLY those tools (+ the infra `invalid` sentinel, which is never OFFERED to
+      // the model but is retained so malformed tool-call repair still has a target for weak models).
+      // No other tool's model-facing definition is built or sent — the inverse of
+      // materialize-all-then-deny. (The built-in Tool objects are still initialized
+      // once at layer init, agent-independent; positive provisioning governs which
+      // DEFINITIONS are built and sent, not process-level instantiation.)
+      const provisionSet = input.agent.provision ? new Set(input.agent.provision) : undefined
+      const disabled = provisionSet
+        ? new Set<string>()
+        : Permission.disabled(
+            registered.map((tool) => tool.id),
+            input.agent.permission,
+          )
+      const filtered = registered.filter((tool) => {
+        if (provisionSet) return provisionSet.has(tool.id) || tool.id === InvalidTool.id
         if (disabled.has(tool.id)) return false
         if (tool.id === WebSearchTool.id) {
           return webSearchEnabled(input.providerID, { exa: flags.enableExa, parallel: flags.enableParallel })
