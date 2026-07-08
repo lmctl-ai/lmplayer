@@ -61,12 +61,27 @@ test("parseOllamaModel defaults to localhost", () => {
   const result = Provider.parseOllamaModel("qwen2.5")
   expect(result.model).toBe("qwen2.5")
   expect(result.baseURL).toBe("http://localhost:11434/v1")
+  expect(result.toolcall).toBe(false)
+})
+
+test("parseOllamaModel strips +tools and enables tool calls", () => {
+  const result = Provider.parseOllamaModel("qwen2.5+tools")
+  expect(result.model).toBe("qwen2.5")
+  expect(result.baseURL).toBe("http://localhost:11434/v1")
+  expect(result.toolcall).toBe(true)
 })
 
 test("parseOllamaModel honors an in-name @host override", () => {
   const result = Provider.parseOllamaModel("qwen2.5@192.168.1.5:11434")
   expect(result.model).toBe("qwen2.5")
   expect(result.baseURL).toBe("http://192.168.1.5:11434/v1")
+})
+
+test("parseOllamaModel supports +tools with an in-name @host override", () => {
+  const result = Provider.parseOllamaModel("qwen2.5+tools@192.168.1.5:11434")
+  expect(result.model).toBe("qwen2.5")
+  expect(result.baseURL).toBe("http://192.168.1.5:11434/v1")
+  expect(result.toolcall).toBe(true)
 })
 
 test("parseOllamaModel honors OLLAMA_HOST env when no @host override is given", () => {
@@ -83,6 +98,14 @@ test("parseOllamaModel: @host override wins over OLLAMA_HOST env", () => {
 test("ollamaModel synthesizes a chat-only, openai-compatible model", () => {
   const model = Provider.ollamaModel("qwen2.5")
   expect(model.capabilities.toolcall).toBe(false)
+  expect(model.api.npm).toBe("@ai-sdk/openai-compatible")
+  expect(model.api.url).toBe("http://localhost:11434/v1")
+  expect(model.api.id).toBe("qwen2.5")
+})
+
+test("ollamaModel synthesizes a tool-enabled model with the same Ollama model id", () => {
+  const model = Provider.ollamaModel("qwen2.5+tools")
+  expect(model.capabilities.toolcall).toBe(true)
   expect(model.api.npm).toBe("@ai-sdk/openai-compatible")
   expect(model.api.url).toBe("http://localhost:11434/v1")
   expect(model.api.id).toBe("qwen2.5")
@@ -164,9 +187,7 @@ it.instance(
   "disabled_providers: getModel(ollama, qwen2.5) fails with ModelNotFoundError, is NOT synthesized as a bypass",
   Effect.gen(function* () {
     const provider = yield* Provider.Service
-    const error = yield* provider
-      .getModel(ProviderV2.ID.make("ollama"), ModelV2.ID.make("qwen2.5"))
-      .pipe(Effect.flip)
+    const error = yield* provider.getModel(ProviderV2.ID.make("ollama"), ModelV2.ID.make("qwen2.5")).pipe(Effect.flip)
     expect(error).toBeInstanceOf(Provider.ModelNotFoundError)
   }),
   { config: { disabled_providers: ["ollama"] } },

@@ -1331,24 +1331,30 @@ function normalizeOllamaBaseURL(host: string): string {
 export function parseOllamaModel(
   modelID: string,
   env: Record<string, string | undefined> = {},
-): { model: string; baseURL: string; hasHostOverride: boolean } {
+): { model: string; baseURL: string; hasHostOverride: boolean; toolcall: boolean } {
   const at = modelID.lastIndexOf("@")
-  const model = at === -1 ? modelID : modelID.slice(0, at)
+  const rawModel = at === -1 ? modelID : modelID.slice(0, at)
+  const toolcall = rawModel.endsWith("+tools")
+  const model = toolcall ? rawModel.slice(0, -"+tools".length) : rawModel
   const hostOverride = at === -1 ? undefined : modelID.slice(at + 1)
   const host = hostOverride || env["OLLAMA_HOST"] || OLLAMA_DEFAULT_HOST
-  return { model, baseURL: normalizeOllamaBaseURL(host), hasHostOverride: hostOverride !== undefined }
+  return { model, baseURL: normalizeOllamaBaseURL(host), hasHostOverride: hostOverride !== undefined, toolcall }
 }
 
-// Synthesizes a Model for an ollama model id. `baseURLOverride` (e.g. a
+// Synthesizes a Model for an ollama model id. A `+tools` suffix opts into
+// normal tool calling for local models that can handle Ollama tool-call JSON
+// reliably; the default remains chat-only for weak/simple local models.
+// `baseURLOverride` (e.g. a
 // user-configured provider.options.baseURL) wins over the env/default
 // resolution in `parseOllamaModel` — but an explicit in-name `@host` suffix
 // is the highest-precedence signal (the user is naming a specific box for
-// this one model) and always wins over `baseURLOverride`. toolcall is
-// hardcoded false: this is the chat-only marker consumed by
-// session/llm/request.ts so simple ollama models never get offered tools
-// they can't reliably call.
-export function ollamaModel(modelID: string, env?: Record<string, string | undefined>, baseURLOverride?: string): Model {
-  const { model, baseURL, hasHostOverride } = parseOllamaModel(modelID, env)
+// this one model) and always wins over `baseURLOverride`.
+export function ollamaModel(
+  modelID: string,
+  env?: Record<string, string | undefined>,
+  baseURLOverride?: string,
+): Model {
+  const { model, baseURL, hasHostOverride, toolcall } = parseOllamaModel(modelID, env)
   return {
     id: ModelV2.ID.make(modelID),
     providerID: ProviderV2.ID.make("ollama"),
@@ -1367,7 +1373,7 @@ export function ollamaModel(modelID: string, env?: Record<string, string | undef
       temperature: true,
       reasoning: false,
       attachment: false,
-      toolcall: false,
+      toolcall,
       input: { text: true, audio: false, image: false, video: false, pdf: false },
       output: { text: true, audio: false, image: false, video: false, pdf: false },
       interleaved: false,
@@ -1672,7 +1678,8 @@ const layer = Layer.effect(
               typeof existing?.options?.["baseURL"] === "string" && existing.options["baseURL"] !== ""
                 ? existing.options["baseURL"]
                 : undefined
-            const ollamaBaseURL = configuredBaseURL ?? normalizeOllamaBaseURL(envs["OLLAMA_HOST"] || OLLAMA_DEFAULT_HOST)
+            const ollamaBaseURL =
+              configuredBaseURL ?? normalizeOllamaBaseURL(envs["OLLAMA_HOST"] || OLLAMA_DEFAULT_HOST)
             const models = Object.fromEntries(
               OLLAMA_SEED_MODELS.map((modelID) => [modelID, ollamaModel(modelID, envs, ollamaBaseURL)]),
             )
@@ -2082,7 +2089,9 @@ const layer = Layer.effect(
       // it. A user who explicitly configured ollama (present in `configured`)
       // remains eligible, same as any other provider.
       const provider = Object.values(s.providers).find(
-        (p) => (p.id !== "ollama" || configured.includes("ollama")) && (configured.length === 0 || configured.includes(p.id)),
+        (p) =>
+          (p.id !== "ollama" || configured.includes("ollama")) &&
+          (configured.length === 0 || configured.includes(p.id)),
       )
       if (!provider) return yield* new NoProvidersError()
       const [model] = sort(Object.values(provider.models))

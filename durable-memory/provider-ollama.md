@@ -102,3 +102,23 @@ Likely live gaps to check: ollama's `/v1` streaming shape vs ai-sdk
 openai-compatible expectations, and whether `includeUsage` (auto-set for
 openai-compatible in resolveSDK) upsets ollama. Fix in provider.ts / request.ts
 and report back.
+
+## Live qwen2.5 follow-up (2026-07-08)
+WSL can reach Windows Ollama at `http://172.18.32.1:11434`; `qwen2.5:14b`
+advertises tools and returns valid OpenAI-compatible `tool_calls` in standalone
+Ollama probes. In lmplayer, a `+tools` suffix is the local opt-in shape under
+test (`ollama/qwen2.5:14b+tools@172.18.32.1:11434`): strip `+tools` before
+calling Ollama, but mark the model as tool-capable.
+
+Empirical result: full lmplayer tool catalog is too noisy for qwen2.5. It can
+call `bash`, `read`, `write`, `ls`, and `rg` in some prompts, but it sometimes
+uses wrong argument keys/types or describes a structured `git` call instead of
+emitting it. A bash-only permission profile (`{"*":"deny","bash":"allow"}`)
+was reliable enough to run `lmctl chat "/home/mma/repos/lmplayer/lmplayer.lmctl"
+Coder "reply OK"` through qwen -> lmplayer bash -> lmctl CLI and receive `OK`.
+
+Backlog direction: make system prompt and offered tool definitions
+model-specific. For qwen2.5, do not expose generic coding tools. Prefer a narrow
+lmctl-specific tool/definition (or simple command-wrapper profile) that lets
+lmctl perform external shell commands, so qwen only has to call one small schema
+instead of navigating the full tool catalog or broad permissions.
