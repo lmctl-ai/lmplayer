@@ -69,6 +69,10 @@ export function resolveVerify(
   const providerID = modelId.slice(0, slash)
   const modelID = modelId.slice(slash + 1)
 
+  // ollama is config-free: no auth, and its model set is dynamic (arbitrary
+  // local tags), so it isn't in the models.dev catalog to check against.
+  if (providerID === "ollama") return { ok: true }
+
   const providerDef = database[providerID]
   if (!providerDef) return { ok: false, reason: `unknown provider "${providerID}"` }
   if (!providerDef.models[modelID])
@@ -193,7 +197,12 @@ export const ModelsCommand = effectCmd({
       if (args.provider && !providers[ProviderV2.ID.make(args.provider)]) {
         return yield* fail(`Provider not found: ${args.provider}`)
       }
-      const targets = (args.provider ? [args.provider] : Object.keys(providers))
+      // When probing ALL providers (no explicit --provider filter), skip the
+      // local, config-free "ollama" provider: it may not even be running, so
+      // probing its handful of seeded models would just add noise/timeouts
+      // to an all-providers smoke test. `models --test ollama` (explicit)
+      // still probes it.
+      const targets = (args.provider ? [args.provider] : Object.keys(providers).filter((id) => id !== "ollama"))
         .flatMap((providerID) =>
           Object.keys(providers[ProviderV2.ID.make(providerID)].models)
             .sort((a, b) => a.localeCompare(b))

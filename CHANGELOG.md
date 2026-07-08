@@ -13,6 +13,61 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- **Config-free local Ollama via an extended model name (`ollama/<model>`).**
+  You can now run `lmplayer run --model ollama/qwen2.5` (and `lmplayer models`
+  / `lmplayer models verify ollama/qwen2.5`) with **no `opencode.json` and no
+  API key** — mirroring how `github-copilot/<id>` works config-free. Ollama is
+  not in the models.dev catalog (only `ollama-cloud`, which needs a key), so
+  lmplayer now seeds a built-in, keyless, OpenAI-compatible `ollama` provider
+  (`packages/opencode/src/provider/provider.ts`) pointed at ollama's own
+  `http://localhost:11434/v1` endpoint. A curated seed list
+  (`qwen2.5`, `qwen2.5-coder`, `llama3.2`, `llama3.1`, `mistral`) makes
+  `models ollama` list something useful, and **any other tag is synthesized on
+  demand** (`ollama/qwen2.5:7b`, `ollama/deepseek-r1`, …) so the model set stays
+  as dynamic as `ollama pull`. **Extended-name (self-sufficient) scheme** for
+  a non-default host, highest precedence first: (1) an in-name `@host` suffix,
+  e.g. `ollama/qwen2.5@192.168.1.5:11434` (safe delimiter — ollama tags use
+  `:` and namespaces use `/`, never `@`); (2) the `OLLAMA_HOST` env var
+  (ollama's own standard var); (3) the `http://localhost:11434` default. Any
+  host form is normalized to an OpenAI-compatible `/v1` base. Synthesized ollama
+  models are flagged `toolcall:false` (see chat-only below). The built-in is
+  additive and respects config: `disabled_providers`/`enabled_providers` opt it
+  out, a user-configured `provider.ollama` with its own model list wins
+  untouched, and a configured `provider.ollama` that only sets `options.baseURL`
+  is seeded against **that** URL. It is deliberately excluded from `defaultModel`
+  auto-selection (a user with no real provider still gets the actionable
+  "no providers" path, not a silent default to a possibly-not-running local
+  daemon) and from unfiltered `models --test` (run `models --test ollama`
+  explicitly to probe it). Covered by offline unit/instance tests
+  (`packages/opencode/test/provider/ollama.test.ts`): the `@host`/`OLLAMA_HOST`
+  precedence, config-free `getModel`/`getLanguage` base-URL resolution through
+  the real OpenAI-compatible SDK, on-demand tag synthesis, and the
+  disabled/config/default-selection guards.
+  **BUILT-BUT-UNTESTED (live-ollama path):** this host has no ollama installed,
+  so the actual HTTP round-trip against a running `ollama serve` (real `/v1`
+  streaming, real absence-of-`Authorization` behavior, real qwen2.5 output) has
+  **not** been exercised end-to-end. The wiring, resolution, and base-URL
+  plumbing are proven offline; an operator with local ollama should pull this,
+  run `lmplayer run --model ollama/qwen2.5 "hello"`, and report/fix any live
+  gaps.
+- **Conditional chat-only mode for simple models (no tools offered).** Models
+  flagged `tool_call:false` — which now includes every synthesized `ollama/*`
+  model, and any other provider/model configured that way — are sent to the
+  provider with **no tools at all** (empty/omitted), so a weak model
+  (e.g. ollama qwen2.5) produces a plain **text** reply and can never emit the
+  malformed tool-call JSON that breaks parsing. This is a *conditional*
+  exception, not a global change: capable models (all `github-copilot` ones are
+  `toolcall:true`) keep their **full, unchanged** tool set. The gate lives in
+  `packages/opencode/src/session/llm/request.ts` (`prepare()`): when
+  `capabilities.toolcall === false` the tool set becomes `{}` and the
+  OpenAI-strict and Copilot `_noop` fixups are skipped; every non-chat-only path
+  is byte-for-byte unchanged. The final assistant text flows cleanly to a
+  control system via `--format json` (a `text` event carrying `part.text`),
+  which is the intended use case (e.g. a translator member returns text; a
+  control system decides done / has-issue / needs-escalation). Proven at the
+  wire level offline (`packages/opencode/test/session/llm.test.ts`): a
+  `tool_call:false` model with a real tool in the request still sends
+  `body.tools === undefined`, while a `tool_call:true` control keeps its tools.
 - **TUI regression coverage: CLI registration + resize.** Two prior
   investigations are now locked in with tests instead of relying on manual
   verification: (1) `lmplayer tui` and `lmplayer attach` are confirmed
