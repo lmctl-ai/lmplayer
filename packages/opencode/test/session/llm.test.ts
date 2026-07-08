@@ -1037,6 +1037,163 @@ describe("session.llm.stream", () => {
     },
   )
 
+  // Slice 3: chat-only models (capabilities.toolcall === false, e.g. ollama's
+  // simple/weak models) must never be offered tools, even when the caller
+  // passes a non-empty `tools` input — see session/llm/request.ts prepare().
+  const chatOnlyProviderID = "test-chatonly-openai-compatible"
+  it.instance(
+    "omits tools entirely for a chat-only (tool_call:false) model",
+    () =>
+      Effect.gen(function* () {
+        const request = waitRequest(
+          "/chat/completions",
+          new Response(createChatStream("Hello"), {
+            status: 200,
+            headers: { "Content-Type": "text/event-stream" },
+          }),
+        )
+
+        const resolved = yield* Provider.use.getModel(
+          ProviderV2.ID.make(chatOnlyProviderID),
+          ModelV2.ID.make("chat-only-model"),
+        )
+        expect(resolved.capabilities.toolcall).toBe(false)
+
+        const sessionID = SessionID.make("session-test-chatonly")
+        const agent = {
+          name: "test",
+          mode: "primary",
+          options: {},
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        } satisfies Agent.Info
+
+        const user = {
+          id: MessageID.make("msg_user-chatonly"),
+          sessionID,
+          role: "user",
+          time: { created: Date.now() },
+          agent: agent.name,
+          model: { providerID: ProviderV2.ID.make(chatOnlyProviderID), modelID: resolved.id },
+        } satisfies SessionV1.User
+
+        yield* drain({
+          user,
+          sessionID,
+          model: resolved,
+          agent,
+          system: ["You are a helpful assistant."],
+          messages: [{ role: "user", content: "Hello" }],
+          tools: {
+            question: tool({
+              description: "Ask a question",
+              inputSchema: z.object({}),
+              execute: async () => ({ output: "" }),
+            }),
+          },
+        })
+
+        const capture = yield* Effect.promise(() => request)
+        expect(capture.body.tools).toBeUndefined()
+      }),
+    {
+      config: () => ({
+        enabled_providers: [chatOnlyProviderID],
+        provider: {
+          [chatOnlyProviderID]: {
+            name: "Test Chat-Only",
+            npm: "@ai-sdk/openai-compatible",
+            api: `${state.server!.url.origin}/v1`,
+            models: {
+              "chat-only-model": {
+                name: "Chat Only Model",
+                tool_call: false,
+                limit: { context: 32768, output: 8192 },
+              },
+            },
+            options: { apiKey: "test-key", baseURL: `${state.server!.url.origin}/v1` },
+          },
+        },
+      }),
+    },
+  )
+
+  it.instance(
+    "keeps tools for a tool_call:true model (control)",
+    () =>
+      Effect.gen(function* () {
+        const request = waitRequest(
+          "/chat/completions",
+          new Response(createChatStream("Hello"), {
+            status: 200,
+            headers: { "Content-Type": "text/event-stream" },
+          }),
+        )
+
+        const resolved = yield* Provider.use.getModel(
+          ProviderV2.ID.make(chatOnlyProviderID),
+          ModelV2.ID.make("capable-model"),
+        )
+        expect(resolved.capabilities.toolcall).toBe(true)
+
+        const sessionID = SessionID.make("session-test-capable")
+        const agent = {
+          name: "test",
+          mode: "primary",
+          options: {},
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        } satisfies Agent.Info
+
+        const user = {
+          id: MessageID.make("msg_user-capable"),
+          sessionID,
+          role: "user",
+          time: { created: Date.now() },
+          agent: agent.name,
+          model: { providerID: ProviderV2.ID.make(chatOnlyProviderID), modelID: resolved.id },
+        } satisfies SessionV1.User
+
+        yield* drain({
+          user,
+          sessionID,
+          model: resolved,
+          agent,
+          system: ["You are a helpful assistant."],
+          messages: [{ role: "user", content: "Hello" }],
+          tools: {
+            question: tool({
+              description: "Ask a question",
+              inputSchema: z.object({}),
+              execute: async () => ({ output: "" }),
+            }),
+          },
+        })
+
+        const capture = yield* Effect.promise(() => request)
+        const tools = capture.body.tools as Array<{ function?: { name?: string } }> | undefined
+        expect(tools?.some((item) => item.function?.name === "question")).toBe(true)
+      }),
+    {
+      config: () => ({
+        enabled_providers: [chatOnlyProviderID],
+        provider: {
+          [chatOnlyProviderID]: {
+            name: "Test Chat-Only",
+            npm: "@ai-sdk/openai-compatible",
+            api: `${state.server!.url.origin}/v1`,
+            models: {
+              "capable-model": {
+                name: "Capable Model",
+                tool_call: true,
+                limit: { context: 32768, output: 8192 },
+              },
+            },
+            options: { apiKey: "test-key", baseURL: `${state.server!.url.origin}/v1` },
+          },
+        },
+      }),
+    },
+  )
+
   it.instance(
     "sends responses API payload for OpenAI models",
     () =>

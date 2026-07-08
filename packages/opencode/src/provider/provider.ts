@@ -1307,6 +1307,78 @@ function modelSuggestions(provider: Info | undefined, modelID: ModelV2.ID, enabl
     .map((item) => item.id)
 }
 
+// ─── ollama: config-free local provider ─────────────────────────────────────
+//
+// "ollama" is not in the models.dev catalog (only "ollama-cloud", which needs
+// a key), so we synthesize a small built-in provider ourselves. It is
+// OpenAI-compatible (ollama's own `/v1` endpoint), needs no API key, and its
+// model set is dynamic (arbitrary local tags), so models are also synthesized
+// on demand in getModel() below for tags outside the curated seed list.
+const OLLAMA_DEFAULT_HOST = "http://localhost:11434"
+
+// Normalize any host form the user/env gives us to an OpenAI-compatible
+// `/v1` base URL: prepend a scheme if missing, strip trailing slashes, and
+// append `/v1` unless it's already there.
+function normalizeOllamaBaseURL(host: string): string {
+  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(host) ? host : `http://${host}`
+  const trimmed = withScheme.replace(/\/+$/, "")
+  return trimmed.endsWith("/v1") ? trimmed : `${trimmed}/v1`
+}
+
+// Splits an extended ollama model id on the last `@` (in-name host override,
+// e.g. "qwen2.5@192.168.1.5:11434") and resolves the base URL by precedence:
+// 1. `@host` suffix in the model id, 2. `OLLAMA_HOST` env, 3. localhost default.
+export function parseOllamaModel(
+  modelID: string,
+  env: Record<string, string | undefined> = {},
+): { model: string; baseURL: string; hasHostOverride: boolean } {
+  const at = modelID.lastIndexOf("@")
+  const model = at === -1 ? modelID : modelID.slice(0, at)
+  const hostOverride = at === -1 ? undefined : modelID.slice(at + 1)
+  const host = hostOverride || env["OLLAMA_HOST"] || OLLAMA_DEFAULT_HOST
+  return { model, baseURL: normalizeOllamaBaseURL(host), hasHostOverride: hostOverride !== undefined }
+}
+
+// Synthesizes a Model for an ollama model id. `baseURLOverride` (e.g. a
+// user-configured provider.options.baseURL) wins over the env/default
+// resolution in `parseOllamaModel` — but an explicit in-name `@host` suffix
+// is the highest-precedence signal (the user is naming a specific box for
+// this one model) and always wins over `baseURLOverride`. toolcall is
+// hardcoded false: this is the chat-only marker consumed by
+// session/llm/request.ts so simple ollama models never get offered tools
+// they can't reliably call.
+export function ollamaModel(modelID: string, env?: Record<string, string | undefined>, baseURLOverride?: string): Model {
+  const { model, baseURL, hasHostOverride } = parseOllamaModel(modelID, env)
+  return {
+    id: ModelV2.ID.make(modelID),
+    providerID: ProviderV2.ID.make("ollama"),
+    name: model,
+    api: {
+      id: model,
+      url: hasHostOverride ? baseURL : baseURLOverride || baseURL,
+      npm: "@ai-sdk/openai-compatible",
+    },
+    status: "active",
+    headers: {},
+    options: {},
+    cost: { input: 0, output: 0, cache: { read: 0, write: 0 } },
+    limit: { context: 32768, output: 8192 },
+    capabilities: {
+      temperature: true,
+      reasoning: false,
+      attachment: false,
+      toolcall: false,
+      input: { text: true, audio: false, image: false, video: false, pdf: false },
+      output: { text: true, audio: false, image: false, video: false, pdf: false },
+      interleaved: false,
+    },
+    release_date: "",
+    variants: {},
+  }
+}
+
+const OLLAMA_SEED_MODELS = ["qwen2.5", "qwen2.5-coder", "llama3.2", "llama3.1", "mistral"]
+
 const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
@@ -1582,6 +1654,43 @@ const layer = Layer.effect(
           })
         }
 
+        // Seed a config-free "ollama" provider (local, OpenAI-compatible, no
+        // API key) unless the user disabled/excluded it. The curated seed
+        // list just makes `models ollama` list something useful; getModel()
+        // below synthesizes any other tag on demand. Only seeds when there
+        // are no models yet, so: (a) no config -> fresh localhost provider;
+        // (b) a user-configured `provider.ollama` with a baseURL but no
+        // models -> seed the curated models pointed at THAT baseURL,
+        // preserving the rest of their config; (c) a user-configured
+        // provider WITH models -> left untouched (their exact list wins);
+        // (d) disabled/excluded -> not seeded at all.
+        const ollamaID = ProviderV2.ID.make("ollama")
+        if (isProviderAllowed(ollamaID)) {
+          const existing = providers[ollamaID]
+          if (!existing || Object.keys(existing.models).length === 0) {
+            const configuredBaseURL =
+              typeof existing?.options?.["baseURL"] === "string" && existing.options["baseURL"] !== ""
+                ? existing.options["baseURL"]
+                : undefined
+            const ollamaBaseURL = configuredBaseURL ?? normalizeOllamaBaseURL(envs["OLLAMA_HOST"] || OLLAMA_DEFAULT_HOST)
+            const models = Object.fromEntries(
+              OLLAMA_SEED_MODELS.map((modelID) => [modelID, ollamaModel(modelID, envs, ollamaBaseURL)]),
+            )
+            const ollamaInfo: Info = existing
+              ? { ...existing, source: existing.source, models }
+              : {
+                  id: ollamaID,
+                  source: "custom",
+                  name: "Ollama (local)",
+                  env: [],
+                  options: { baseURL: ollamaBaseURL },
+                  models,
+                }
+            database[ollamaID] = ollamaInfo
+            providers[ollamaID] = ollamaInfo
+          }
+        }
+
         for (const [id, provider] of Object.entries(providers)) {
           const providerID = ProviderV2.ID.make(id)
           if (!isProviderAllowed(providerID)) {
@@ -1670,8 +1779,19 @@ const layer = Layer.effect(
         }
 
         const baseURL = iife(() => {
-          let url =
-            typeof options["baseURL"] === "string" && options["baseURL"] !== "" ? options["baseURL"] : model.api.url
+          // ollama models resolve their own per-model baseURL (in-name `@host`
+          // override, then OLLAMA_HOST, then localhost — see parseOllamaModel)
+          // and always carry it on model.api.url, so it must win over the
+          // shared provider-level options.baseURL (otherwise every ollama
+          // model would collapse onto one host and `@host` overrides would be
+          // silently ignored). Every other provider keeps its existing
+          // options.baseURL-wins-when-set precedence, unchanged.
+          let url: string | undefined =
+            model.providerID === "ollama"
+              ? model.api.url || options["baseURL"]
+              : typeof options["baseURL"] === "string" && options["baseURL"] !== ""
+                ? options["baseURL"]
+                : model.api.url
           if (!url) return
 
           const loader = s.varsLoaders[model.providerID]
@@ -1786,6 +1906,10 @@ const layer = Layer.effect(
       const s = yield* InstanceState.get(state)
       const provider = s.providers[providerID]
       if (!provider) {
+        // Note: no ollama-specific fallback here — if ollama isn't in
+        // s.providers, seeding decided it's disallowed (disabled_providers /
+        // enabled_providers), and it must behave like any other disallowed
+        // provider: ModelNotFoundError, not a config-free bypass.
         const catalogProvider = s.catalog[providerID]
         const suggestions = catalogProvider
           ? modelSuggestions(catalogProvider, modelID, runtimeFlags.enableExperimentalModels)
@@ -1797,6 +1921,15 @@ const layer = Layer.effect(
 
       const info = provider.models[modelID]
       if (!info) {
+        // Arbitrary ollama tags (qwen2.5:7b, deepseek-r1, @host overrides,
+        // ...) aren't in the curated seed list — synthesize on demand,
+        // honoring an existing user-configured provider baseURL if set.
+        if (providerID === "ollama") {
+          const envs = yield* env.all()
+          const model = ollamaModel(modelID, envs, provider.options?.["baseURL"])
+          provider.models[modelID] = model
+          return model
+        }
         const current = modelSuggestions(provider, modelID, runtimeFlags.enableExperimentalModels)
         const suggestions = current.length
           ? current
@@ -1943,7 +2076,14 @@ const layer = Layer.effect(
       }
 
       const configured = Object.keys(cfg.provider ?? {})
-      const provider = Object.values(s.providers).find((p) => configured.length === 0 || configured.includes(p.id))
+      // Skip the auto-seeded, config-free ollama in the automatic pick — it
+      // may not even be running locally, and a user with zero real providers
+      // should still get NoProvidersError rather than silently defaulting to
+      // it. A user who explicitly configured ollama (present in `configured`)
+      // remains eligible, same as any other provider.
+      const provider = Object.values(s.providers).find(
+        (p) => (p.id !== "ollama" || configured.includes("ollama")) && (configured.length === 0 || configured.includes(p.id)),
+      )
       if (!provider) return yield* new NoProvidersError()
       const [model] = sort(Object.values(provider.models))
       if (!model) return yield* new NoModelsError({ providerID: provider.id })

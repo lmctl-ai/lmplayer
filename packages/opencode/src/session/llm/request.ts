@@ -145,33 +145,41 @@ export const prepare = Effect.fn("LLMRequestPrep.prepare")(function* (input: Pre
     },
   )
 
-  const tools = resolveTools(input)
-  // Codex parity: OpenAI Responses-family providers hardcode `strict: false`
-  // on every function tool so MCP-sourced and dynamic schemas that don't
-  // satisfy OpenAI's structured-outputs constraints still register.
-  if (
-    input.model.api.npm === "@ai-sdk/openai" ||
-    input.model.api.npm === "@ai-sdk/azure" ||
-    input.model.api.npm === "@ai-sdk/amazon-bedrock/mantle"
-  ) {
-    for (const key of Object.keys(tools)) tools[key] = { ...tools[key], strict: false }
-  }
-  if (
-    input.model.providerID.includes("github-copilot") &&
-    Object.keys(tools).length === 0 &&
-    hasToolCalls(input.messages)
-  ) {
-    // Copilot needs a tools field when replaying prior tool calls, even if no tools are currently enabled.
-    tools["_noop"] = aiTool({
-      description: "Do not call this tool. It exists only for API compatibility and must never be invoked.",
-      inputSchema: jsonSchema({
-        type: "object",
-        properties: {
-          reason: { type: "string", description: "Unused" },
-        },
-      }),
-      execute: async () => ({ output: "", title: "", metadata: {} }),
-    })
+  // Capable models (github-copilot etc., toolcall:true) keep their full tool
+  // set. chat-only is the exception for simple/weak models (ollama qwen2.5
+  // and any model flagged tool_call:false) so they never emit malformed
+  // tool-call JSON: offer NO tools at all, and skip the tool-shape fixups
+  // below since there are no tools to fix up.
+  const chatOnly = input.model.capabilities.toolcall === false
+  const tools = chatOnly ? {} : resolveTools(input)
+  if (!chatOnly) {
+    // Codex parity: OpenAI Responses-family providers hardcode `strict: false`
+    // on every function tool so MCP-sourced and dynamic schemas that don't
+    // satisfy OpenAI's structured-outputs constraints still register.
+    if (
+      input.model.api.npm === "@ai-sdk/openai" ||
+      input.model.api.npm === "@ai-sdk/azure" ||
+      input.model.api.npm === "@ai-sdk/amazon-bedrock/mantle"
+    ) {
+      for (const key of Object.keys(tools)) tools[key] = { ...tools[key], strict: false }
+    }
+    if (
+      input.model.providerID.includes("github-copilot") &&
+      Object.keys(tools).length === 0 &&
+      hasToolCalls(input.messages)
+    ) {
+      // Copilot needs a tools field when replaying prior tool calls, even if no tools are currently enabled.
+      tools["_noop"] = aiTool({
+        description: "Do not call this tool. It exists only for API compatibility and must never be invoked.",
+        inputSchema: jsonSchema({
+          type: "object",
+          properties: {
+            reason: { type: "string", description: "Unused" },
+          },
+        }),
+        execute: async () => ({ output: "", title: "", metadata: {} }),
+      })
+    }
   }
 
   const opencodeProjectID = input.model.providerID.startsWith("opencode")
