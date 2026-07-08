@@ -236,20 +236,17 @@ export const Plugin = define({
       })
 
       draft.update(AgentV2.ID.make("plan"), (item) => {
-        item.description = "Plan mode. Disallows all edit tools."
+        item.description =
+          "Forced-delegation plan mode. Reads, analyzes, and plans, then delegates every change rather than mutating directly. Cannot edit files or run shell."
         item.mode = "primary"
         item.permissions.push(
           ...PermissionV2.merge(defaults, [
             { action: "question", resource: "*", effect: "allow" },
             { action: "plan_exit", resource: "*", effect: "allow" },
-            { action: "external_directory", resource: path.join(Global.Path.data, "plans", "*"), effect: "allow" },
+            // Forced delegation: block all direct mutation. In V2 the only mutating
+            // built-ins are edit/write/apply_patch (shared `edit` action) and bash.
             { action: "edit", resource: "*", effect: "deny" },
-            { action: "edit", resource: path.join(".opencode", "plans", "*.md"), effect: "allow" },
-            {
-              action: "edit",
-              resource: path.relative(worktree, path.join(Global.Path.data, "plans", "*.md")),
-              effect: "allow",
-            },
+            { action: "bash", resource: "*", effect: "deny" },
           ]),
         )
       })

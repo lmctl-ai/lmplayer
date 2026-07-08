@@ -13,6 +13,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- **Forced-delegation `plan` agent (backs the lmctl `model="<model>+plan"`
+  expression).** The built-in `plan` agent is now a pure orchestrator: it can
+  read, inspect, and plan, and it MUST delegate every change through the `task`
+  tool, but it cannot mutate anything itself. `edit` is denied outright (which,
+  because write/edit/apply_patch and the mutating native tools — mkdir/rm/mv/cp/
+  touch and git/gh/tar/unzip writes — all evaluate under the `edit` permission,
+  blocks and hides them), `bash` is denied, and the mutating native tools
+  (`mkdir`, `rm`, `mv`, `cp`, `touch`, `tar`, `unzip`, `curl`, `wget`) are
+  removed from the toolset by id — `curl`/`wget` ask under the `read`
+  permission (so the `edit` deny alone would not block them) but can still
+  write files (e.g. `curl -O`), so they must be denied by id too. Read/inspection
+  tools (`read`, `ls`, `grep`, `rg`, `find`,
+  `wc`, `glob`, `session_inspect`, and git read subcommands like status/log/diff)
+  stay available. Crucially, `task` delegation — previously partly disabled under
+  plan (`task.general` was denied) — is now fully re-enabled, and delegated
+  subagents are NOT bound by the plan agent's mutation denies (those live in
+  `agent.permission`, not session permission), so the delegated worker can make
+  the actual changes. User `permission` config still overrides.
 - **Config-free local Ollama via an extended model name (`ollama/<model>`).**
   You can now run `lmplayer run --model ollama/qwen2.5` (and `lmplayer models`
   / `lmplayer models verify ollama/qwen2.5`) with **no `opencode.json` and no

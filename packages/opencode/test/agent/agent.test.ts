@@ -5,6 +5,7 @@ import path from "path"
 import { disposeAllInstances, TestInstance } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 import { Agent } from "../../src/agent/agent"
+import { deriveSubagentSessionPermission } from "../../src/agent/subagent-permissions"
 import { Auth } from "../../src/auth"
 import { Config } from "../../src/config/config"
 import { RuntimeFlags } from "../../src/effect/runtime-flags"
@@ -70,40 +71,82 @@ it.instance("build agent has correct default properties", () =>
   }),
 )
 
-it.instance("plan agent denies edits except .opencode/plans/*", () =>
+it.instance("plan agent forces delegation: denies all direct mutation", () =>
   Effect.gen(function* () {
     const plan = yield* load((svc) => svc.get("plan"))
     expect(plan).toBeDefined()
-    // Wildcard is denied
+    // Every file mutation is denied: write/edit/apply_patch + mutating native
+    // tools all evaluate under `edit`; git writes route through `edit` too.
     expect(evalPerm(plan, "edit")).toBe("deny")
-    // But specific path is allowed
-    expect(Permission.evaluate("edit", ".opencode/plans/foo.md", plan!.permission).action).toBe("allow")
+    expect(Permission.evaluate("edit", "src/index.ts", plan!.permission).action).toBe("deny")
+    expect(Permission.evaluate("edit", ".opencode/plans/foo.md", plan!.permission).action).toBe("deny")
+    expect(Permission.evaluate("edit", "git:commit", plan!.permission).action).toBe("deny")
+    // Raw shell is denied outright.
+    expect(evalPerm(plan, "bash")).toBe("deny")
+    // write/edit/apply_patch + the mutating native tools are removed from the toolset.
+    // curl/wget ask under `read` but can write files, so they are denied by id too.
+    const mutating = ["edit", "write", "apply_patch", "mkdir", "rm", "mv", "cp", "touch", "tar", "unzip", "curl", "wget", "bash"]
+    expect(Permission.disabled(mutating, plan!.permission)).toEqual(new Set(mutating))
   }),
 )
 
-it.instance("plan agent denies the general subagent by default", () =>
+it.instance("plan agent keeps read/inspection tools and delegation available", () =>
   Effect.gen(function* () {
     const plan = yield* load((svc) => svc.get("plan"))
     expect(plan).toBeDefined()
-    expect(Permission.evaluate("task", "general", plan!.permission).action).toBe("deny")
+    // Delegation stays fully enabled to ALL subagents — the whole point.
+    expect(Permission.evaluate("task", "general", plan!.permission).action).toBe("allow")
     expect(Permission.evaluate("task", "explore", plan!.permission).action).toBe("allow")
     expect(Permission.evaluate("task", "custom", plan!.permission).action).toBe("allow")
+    // Read + inspection + delegation tools remain visible (not disabled).
+    const keep = ["read", "ls", "grep", "glob", "rg", "find", "wc", "session_inspect", "task", "git"]
+    expect(Permission.disabled(keep, plan!.permission)).toEqual(new Set())
+    expect(evalPerm(plan, "read")).toBe("allow")
+    // git read subcommands stay allowed (they ask under the `read` key).
+    expect(Permission.evaluate("read", "git:status", plan!.permission).action).toBe("allow")
+    expect(Permission.evaluate("read", "git:log", plan!.permission).action).toBe("allow")
+    expect(Permission.evaluate("read", "git:diff", plan!.permission).action).toBe("allow")
+  }),
+)
+
+it.instance("plan agent delegation yields a worker that CAN mutate", () =>
+  Effect.gen(function* () {
+    const general = yield* load((svc) => svc.get("general"))
+    expect(general).toBeDefined()
+    // The plan Lead's mutation denies live in agent.permission, NOT session
+    // permission, so a subagent spawned via `task` does not inherit them. Mirror
+    // the runtime: merge(subagent.permission, deriveSubagentSessionPermission(...)).
+    const worker = Permission.merge(
+      general!.permission,
+      deriveSubagentSessionPermission({ parentSessionPermission: [], subagent: general! }),
+    )
+    expect(Permission.evaluate("edit", "src/index.ts", worker).action).toBe("allow")
+    // Even inheriting a plan Lead's non-mutation session denies, the worker still edits.
+    const workerNonInteractive = Permission.merge(
+      general!.permission,
+      deriveSubagentSessionPermission({
+        parentSessionPermission: Permission.fromConfig({ question: "deny", plan_enter: "deny", plan_exit: "deny" }),
+        subagent: general!,
+      }),
+    )
+    expect(Permission.evaluate("edit", "src/index.ts", workerNonInteractive).action).toBe("allow")
   }),
 )
 
 it.instance(
-  "user permission can allow the general subagent from plan mode",
+  "user permission can still restrict delegation from plan mode",
   () =>
     Effect.gen(function* () {
       const plan = yield* load((svc) => svc.get("plan"))
       expect(plan).toBeDefined()
-      expect(Permission.evaluate("task", "general", plan!.permission).action).toBe("allow")
+      // task is allowed by default now, but a user deny still wins (user merges last).
+      expect(Permission.evaluate("task", "general", plan!.permission).action).toBe("deny")
     }),
   {
     config: {
       permission: {
         task: {
-          general: "allow",
+          general: "deny",
         },
       },
     },

@@ -156,24 +156,38 @@ const layer = Layer.effect(
           },
           plan: {
             name: "plan",
-            description: "Plan mode. Disallows all edit tools.",
+            description:
+              "Forced-delegation plan mode. Reads, analyzes, and plans, then delegates every change through the task tool. Cannot edit files, run shell, or mutate repo state directly.",
             options: {},
             permission: Permission.merge(
               defaults,
               Permission.fromConfig({
                 question: "allow",
                 plan_exit: "allow",
-                task: {
-                  general: "deny",
-                },
-                external_directory: {
-                  [path.join(Global.Path.data, "plans", "*")]: "allow",
-                },
-                edit: {
-                  "*": "deny",
-                  [path.join(".opencode", "plans", "*.md")]: "allow",
-                  [path.relative(ctx.worktree, path.join(Global.Path.data, path.join("plans", "*.md")))]: "allow",
-                },
+                // Forced delegation: `task` is the whole point — keep delegation
+                // fully enabled so the Lead can hand every change to a subagent.
+                task: "allow",
+                // Block all direct file mutation. write/edit/apply_patch and the
+                // mutating native tools (mkdir/rm/mv/cp/touch plus git/gh/tar/unzip
+                // writes) all evaluate under the `edit` permission at runtime, so a
+                // blanket edit deny both blocks them and hides write/edit/apply_patch.
+                edit: "deny",
+                // Raw shell can mutate arbitrarily — deny it outright.
+                bash: "deny",
+                // Also hide the mutating native tools from the toolset (they are
+                // visibility-keyed by their own id, so edit-deny alone leaves them
+                // shown). `curl`/`wget` are download tools that ask under `read`
+                // (so edit-deny does not block them) yet can still write files, so
+                // they must be denied by id too.
+                mkdir: "deny",
+                rm: "deny",
+                mv: "deny",
+                cp: "deny",
+                touch: "deny",
+                tar: "deny",
+                unzip: "deny",
+                curl: "deny",
+                wget: "deny",
               }),
               user,
             ),
