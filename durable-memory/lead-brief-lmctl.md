@@ -66,3 +66,14 @@ exists so I understand where operator prompts come from. Mechanics (operator/set
 ## Status right now
 - Device id: initialized. Daemon: NOT running (`lmctl api status` → network failure) — start `lmctl serve` +
   `device login` when wiring the console. `lmctl status` outside a project: "no project at this path".
+
+## TEAM COMPOSITION / COST TIERS (operator 2026-07-07)
+Mix tiers in a big team to match cost to difficulty:
+- POWERFUL AGENTIC tier (paid, github-copilot): opus-4.8 (design/lead), sonnet-5 (coding), gpt-5.5/gemini
+  (review/QA). Use for COMPLEX multi-turn agentic tool work.
+- FREE SIMPLE tier (local ollama, e.g. `ollama/qwen2.5`, virtually FREE — no API cost): CHAT-ONLY members
+  (tools suppressed for these simple models — conditional, see design-permissions/ollama slice). Use for SIMPLE,
+  high-volume, deterministic-ish tasks: translation, classification, and returning a text signal a CONTROL
+  SYSTEM interprets (done / has-issue / needs-escalation). They are members of the same big team.
+Strategy: route simple/high-volume work to FREE ollama; reserve the paid models for real agentic reasoning.
+(Enabler in progress: config-free `ollama/<model>` extended name + conditional chat-only mode — ollama lead.)
