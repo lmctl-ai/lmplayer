@@ -371,4 +371,44 @@ describe("RuntimeFlags", () => {
       expect(flags.disableClaudeCodeSkills).toBe(true)
     }),
   )
+
+  it.effect("llmVerbose defaults to false", () =>
+    Effect.gen(function* () {
+      const flags = yield* readFlags.pipe(Effect.provide(fromConfig({})))
+
+      expect(flags.llmVerbose).toBe(false)
+    }),
+  )
+
+  it.effect("llmVerbose reads LMPLAYER_LLM_VERBOSE=1 as true", () =>
+    Effect.gen(function* () {
+      const flags = yield* readFlags.pipe(Effect.provide(fromConfig({ LMPLAYER_LLM_VERBOSE: "1" })))
+
+      expect(flags.llmVerbose).toBe(true)
+    }),
+  )
+
+  it.effect("llmVerbose reads LMPLAYER_LLM_VERBOSE=true as true", () =>
+    Effect.gen(function* () {
+      const flags = yield* readFlags.pipe(Effect.provide(fromConfig({ LMPLAYER_LLM_VERBOSE: "true" })))
+
+      expect(flags.llmVerbose).toBe(true)
+    }),
+  )
+
+  it.effect("llmVerbose reads LMPLAYER_LLM_VERBOSE=0 as false", () =>
+    Effect.gen(function* () {
+      const flags = yield* readFlags.pipe(Effect.provide(fromConfig({ LMPLAYER_LLM_VERBOSE: "0" })))
+
+      expect(flags.llmVerbose).toBe(false)
+    }),
+  )
+
+  it.effect("RuntimeFlags.layer override sets llmVerbose without needing the ConfigProvider", () =>
+    Effect.gen(function* () {
+      const flags = yield* readFlags.pipe(Effect.provide(RuntimeFlags.layer({ llmVerbose: true })))
+
+      expect(flags.llmVerbose).toBe(true)
+    }),
+  )
 })

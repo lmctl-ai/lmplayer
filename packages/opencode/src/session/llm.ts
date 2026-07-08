@@ -29,6 +29,7 @@ import * as OtelTracer from "@effect/opentelemetry/Tracer"
 import { LLMAISDK } from "./llm/ai-sdk"
 import { LLMNativeRuntime } from "./llm/native-runtime"
 import { LLMRequestPrep } from "./llm/request"
+import { LLMVerbose } from "./llm/verbose"
 
 export const OUTPUT_TOKEN_MAX = ProviderTransform.OUTPUT_TOKEN_MAX
 
@@ -221,6 +222,24 @@ const live: Layer.Layer<
           })
         : undefined
 
+      // Verbose file logging (LMPLAYER_LLM_VERBOSE=1): capture the fully
+      // prepared request — messages, tool schemas, params, headers — before
+      // the runtime branch, so it logs regardless of native/ai-sdk. Off by
+      // default and a no-op when off.
+      if (flags.llmVerbose) {
+        yield* LLMVerbose.request({
+          sessionID: input.sessionID,
+          providerID: input.model.providerID,
+          modelID: input.model.id,
+          chatOnly: input.model.capabilities.toolcall === false,
+          toolNames: Object.keys(prepared.tools),
+          tools: prepared.tools,
+          messages: prepared.messages,
+          params: prepared.params,
+          headers: prepared.headers,
+        })
+      }
+
       // Runtime seam: native is an opt-in adapter over @opencode-ai/llm. It
       // either returns a ready LLMEvent stream or a concrete fallback reason.
       if (flags.experimentalNativeLlm) {
@@ -292,7 +311,9 @@ const live: Layer.Layer<
             )
           },
           // Copilot returns the authoritative billed amount only in provider-specific response fields.
-          includeRawChunks: input.model.providerID.includes("github-copilot"),
+          // Verbose mode also wants raw provider chunks — that's where malformed
+          // qwen2.5-style tool-call JSON shows up.
+          includeRawChunks: input.model.providerID.includes("github-copilot") || flags.llmVerbose,
           async experimental_repairToolCall(failed) {
             const lower = failed.toolCall.toolName.toLowerCase()
             if (lower !== failed.toolCall.toolName && prepared.tools[lower]) {
@@ -373,6 +394,12 @@ const live: Layer.Layer<
             return Stream.fromAsyncIterable(result.result.fullStream, (e) =>
               e instanceof Error ? e : new Error(String(e)),
             ).pipe(
+              // Verbose file logging: tap the RAW fullStream (tool-input
+              // deltas = raw tool-arg JSON, tool-call = parsed input,
+              // tool-error, error, raw provider chunks) before conversion.
+              // Off by default and a no-op when off; never changes the
+              // stream's error/requirement channels.
+              Stream.tap((raw) => (flags.llmVerbose ? LLMVerbose.event(input.sessionID, raw) : Effect.void)),
               Stream.mapEffect((event) => LLMAISDK.toLLMEvents(state, event)),
               Stream.flatMap((events) => Stream.fromIterable(events)),
             )

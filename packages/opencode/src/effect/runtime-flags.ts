@@ -53,6 +53,11 @@ export class Service extends ConfigService.Service<Service>()("@opencode/Runtime
   bashDefaultTimeoutMs: positiveInteger("OPENCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS"),
   experimentalNativeLlm: bool("OPENCODE_EXPERIMENTAL_NATIVE_LLM"),
   experimentalWebSockets: bool("OPENCODE_EXPERIMENTAL_WEBSOCKETS"),
+  // Verbose LLM file logging (raw request, raw streamed events, raw tool-call
+  // JSON) to a dedicated file — see session/llm/verbose.ts. Off by default;
+  // `Config.boolean` already accepts "1"/"true"/"yes"/"on" (and their
+  // negatives), so LMPLAYER_LLM_VERBOSE=1 works with no extra parsing.
+  llmVerbose: bool("LMPLAYER_LLM_VERBOSE"),
   client: Config.string("OPENCODE_CLIENT").pipe(Config.withDefault("cli")),
 }) {}
 
