@@ -68,6 +68,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   wire level offline (`packages/opencode/test/session/llm.test.ts`): a
   `tool_call:false` model with a real tool in the request still sends
   `body.tools === undefined`, while a `tool_call:true` control keeps its tools.
+- **Verbose LLM file logging for debugging tool-call issues (e.g. qwen2.5).**
+  A single switch, `LMPLAYER_LLM_VERBOSE=1` (or `true`), turns on detailed
+  JSONL logging to a dedicated file, `<XDG_DATA_HOME>/lmplayer/log/llm-verbose.log`
+  (`Global.Path.log/llm-verbose.log`), separate from the normal `opencode.log`
+  stream. **Off by default and additive** — when the flag is unset the code
+  path is unchanged (verified: no request-log call, `includeRawChunks` keeps
+  its prior value via an added `|| flags.llmVerbose` OR-clause that is `false`
+  by default, and the new stream tap is a true `Effect.void` no-op per event).
+  When on, it captures: the fully prepared **raw outgoing request** (messages,
+  tool schemas, params, headers) once per turn before the native/ai-sdk runtime
+  branch; every **raw streamed event** off the AI SDK's `fullStream` — including
+  `tool-input-delta` (the raw JSON text the model emits for tool args, where
+  qwen2.5-style malformed output shows up), the parsed `tool-call`, `tool-error`,
+  and `error` events; and **raw provider chunks** (`includeRawChunks`) which are
+  otherwise Copilot-only. New module `packages/opencode/src/session/llm/verbose.ts`
+  appends one JSON object per line, is `R = never` (plain `fs/promises.appendFile`
+  wrapped in `Effect.promise`, not the Effect `FileSystem` service, so it doesn't
+  leak a requirement into `LLM.Service.stream`'s signature), and every write is
+  wrapped in `Effect.ignore` so a logging failure can never fail an LLM turn.
+  Covered by new tests: `packages/opencode/test/effect/runtime-flags.test.ts`
+  (the flag defaults false and reads `1`/`true`/`0`), and
+  `packages/opencode/test/session/llm.test.ts` (a real turn against the mock
+  HTTP fixture server writes both a `"kind":"request"` and a `"kind":"event"`
+  line for its session when verbose is on; a control turn with the default
+  `llmVerbose: false` writes nothing for its session). **Untested: the live
+  capture against a real qwen2.5/ollama** — this host has no ollama installed,
+  so the actual malformed-tool-call-JSON content this feature is meant to
+  surface has not been observed end-to-end; an operator with local ollama
+  should run with `LMPLAYER_LLM_VERBOSE=1` and inspect `llm-verbose.log`.
 - **TUI regression coverage: CLI registration + resize.** Two prior
   investigations are now locked in with tests instead of relying on manual
   verification: (1) `lmplayer tui` and `lmplayer attach` are confirmed

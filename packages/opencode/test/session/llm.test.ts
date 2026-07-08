@@ -27,6 +27,8 @@ import { ModelV2 } from "@opencode-ai/core/model"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { LayerNodePlatform } from "@opencode-ai/core/effect/app-node-platform"
+import { LLMVerbose } from "@/session/llm/verbose"
+import { readFile } from "fs/promises"
 
 type ConfigModel = NonNullable<NonNullable<ConfigV1.Info["provider"]>[string]["models"]>[string]
 
@@ -1171,6 +1173,157 @@ describe("session.llm.stream", () => {
         const capture = yield* Effect.promise(() => request)
         const tools = capture.body.tools as Array<{ function?: { name?: string } }> | undefined
         expect(tools?.some((item) => item.function?.name === "question")).toBe(true)
+      }),
+    {
+      config: () => ({
+        enabled_providers: [chatOnlyProviderID],
+        provider: {
+          [chatOnlyProviderID]: {
+            name: "Test Chat-Only",
+            npm: "@ai-sdk/openai-compatible",
+            api: `${state.server!.url.origin}/v1`,
+            models: {
+              "capable-model": {
+                name: "Capable Model",
+                tool_call: true,
+                limit: { context: 32768, output: 8192 },
+              },
+            },
+            options: { apiKey: "test-key", baseURL: `${state.server!.url.origin}/v1` },
+          },
+        },
+      }),
+    },
+  )
+
+  // Slice 2: verbose file logging (LMPLAYER_LLM_VERBOSE / RuntimeFlags.llmVerbose).
+  // Off by default (llmVerbose: false is the default RuntimeFlags value), so
+  // the control test below uses plain `drain` (no flags override) while the
+  // "on" test uses `drainWith(llmLayerWithExecutor({ flags: { llmVerbose: true } }))`.
+  async function verboseLogLinesFor(sessionID: string) {
+    const contents = await readFile(LLMVerbose.file(), "utf8").catch(() => "")
+    return contents
+      .split("\n")
+      .filter((line) => line.includes(sessionID))
+      .map((line) => JSON.parse(line) as { kind: string; sessionID: string })
+  }
+
+  it.instance(
+    "writes a request line and at least one event line to the verbose log when llmVerbose is true",
+    () =>
+      Effect.gen(function* () {
+        const request = waitRequest(
+          "/chat/completions",
+          new Response(createChatStream("Hello"), {
+            status: 200,
+            headers: { "Content-Type": "text/event-stream" },
+          }),
+        )
+
+        const resolved = yield* Provider.use.getModel(
+          ProviderV2.ID.make(chatOnlyProviderID),
+          ModelV2.ID.make("capable-model"),
+        )
+        const sessionID = SessionID.make("session-test-verbose-on")
+        const agent = {
+          name: "test",
+          mode: "primary",
+          options: {},
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        } satisfies Agent.Info
+
+        const user = {
+          id: MessageID.make("msg_user-verbose-on"),
+          sessionID,
+          role: "user",
+          time: { created: Date.now() },
+          agent: agent.name,
+          model: { providerID: ProviderV2.ID.make(chatOnlyProviderID), modelID: resolved.id },
+        } satisfies SessionV1.User
+
+        yield* drainWith(llmLayerWithExecutor({ flags: { llmVerbose: true } }), {
+          user,
+          sessionID,
+          model: resolved,
+          agent,
+          system: ["You are a helpful assistant."],
+          messages: [{ role: "user", content: "Hello" }],
+          tools: {},
+        })
+
+        yield* Effect.promise(() => request)
+        const lines = yield* Effect.promise(() => verboseLogLinesFor(sessionID))
+        expect(lines.some((line) => line.kind === "request")).toBe(true)
+        expect(lines.some((line) => line.kind === "event")).toBe(true)
+      }),
+    {
+      config: () => ({
+        enabled_providers: [chatOnlyProviderID],
+        provider: {
+          [chatOnlyProviderID]: {
+            name: "Test Chat-Only",
+            npm: "@ai-sdk/openai-compatible",
+            api: `${state.server!.url.origin}/v1`,
+            models: {
+              "capable-model": {
+                name: "Capable Model",
+                tool_call: true,
+                limit: { context: 32768, output: 8192 },
+              },
+            },
+            options: { apiKey: "test-key", baseURL: `${state.server!.url.origin}/v1` },
+          },
+        },
+      }),
+    },
+  )
+
+  it.instance(
+    "writes nothing to the verbose log for this session when llmVerbose is false (default, no-op)",
+    () =>
+      Effect.gen(function* () {
+        const request = waitRequest(
+          "/chat/completions",
+          new Response(createChatStream("Hello"), {
+            status: 200,
+            headers: { "Content-Type": "text/event-stream" },
+          }),
+        )
+
+        const resolved = yield* Provider.use.getModel(
+          ProviderV2.ID.make(chatOnlyProviderID),
+          ModelV2.ID.make("capable-model"),
+        )
+        const sessionID = SessionID.make("session-test-verbose-off")
+        const agent = {
+          name: "test",
+          mode: "primary",
+          options: {},
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        } satisfies Agent.Info
+
+        const user = {
+          id: MessageID.make("msg_user-verbose-off"),
+          sessionID,
+          role: "user",
+          time: { created: Date.now() },
+          agent: agent.name,
+          model: { providerID: ProviderV2.ID.make(chatOnlyProviderID), modelID: resolved.id },
+        } satisfies SessionV1.User
+
+        yield* drain({
+          user,
+          sessionID,
+          model: resolved,
+          agent,
+          system: ["You are a helpful assistant."],
+          messages: [{ role: "user", content: "Hello" }],
+          tools: {},
+        })
+
+        yield* Effect.promise(() => request)
+        const lines = yield* Effect.promise(() => verboseLogLinesFor(sessionID))
+        expect(lines.length).toBe(0)
       }),
     {
       config: () => ({
