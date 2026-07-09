@@ -865,6 +865,7 @@ it.instance(
         build: { disable: true },
         plan: { disable: true },
         secured: { disable: true },
+        lean: { disable: true },
       },
     },
   },

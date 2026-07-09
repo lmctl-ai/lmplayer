@@ -1119,6 +1119,116 @@ describe("session.llm.stream", () => {
     },
   )
 
+  // POSITIVE PROVISIONING PROOF (end-to-end): permission is allow-all and the
+  // model is tool_call:true (tools would normally be offered — see the
+  // control test above), yet `provision: ["bash"]` still cuts the outgoing
+  // request down to ONLY bash, and the lean `prompt` replaces the system text
+  // — proving provisioning overrides both the permission and the model's
+  // normal tool-call capability.
+  it.instance(
+    "provisioned agent sends only the allowlisted tool and the lean prompt, even with allow-all permission",
+    () =>
+      Effect.gen(function* () {
+        const request = waitRequest(
+          "/chat/completions",
+          new Response(createChatStream("Hello"), {
+            status: 200,
+            headers: { "Content-Type": "text/event-stream" },
+          }),
+        )
+
+        const resolved = yield* Provider.use.getModel(
+          ProviderV2.ID.make(chatOnlyProviderID),
+          ModelV2.ID.make("capable-model"),
+        )
+        expect(resolved.capabilities.toolcall).toBe(true)
+
+        const sessionID = SessionID.make("session-test-provisioned")
+        const agent = {
+          name: "lean-test",
+          mode: "primary",
+          options: {},
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+          provision: ["bash"],
+          prompt: "LEAN-PROMPT-SENTINEL monitor and delegate via lmctl",
+        } satisfies Agent.Info
+
+        const user = {
+          id: MessageID.make("msg_user-provisioned"),
+          sessionID,
+          role: "user",
+          time: { created: Date.now() },
+          agent: agent.name,
+          model: { providerID: ProviderV2.ID.make(chatOnlyProviderID), modelID: resolved.id },
+        } satisfies SessionV1.User
+
+        yield* drain({
+          user,
+          sessionID,
+          model: resolved,
+          agent,
+          system: ["You are a helpful assistant."],
+          messages: [{ role: "user", content: "Hello" }],
+          tools: {
+            bash: tool({
+              description: "Run a shell command",
+              inputSchema: z.object({ command: z.string() }),
+              execute: async () => ({ output: "" }),
+            }),
+            read: tool({
+              description: "Read a file",
+              inputSchema: z.object({ path: z.string() }),
+              execute: async () => ({ output: "" }),
+            }),
+            edit: tool({
+              description: "Edit a file",
+              inputSchema: z.object({ path: z.string() }),
+              execute: async () => ({ output: "" }),
+            }),
+            grep: tool({
+              description: "Search files",
+              inputSchema: z.object({ pattern: z.string() }),
+              execute: async () => ({ output: "" }),
+            }),
+          },
+        })
+
+        const capture = yield* Effect.promise(() => request)
+        const names =
+          (capture.body.tools as Array<{ function?: { name?: string } }> | undefined)?.map(
+            (item) => item.function?.name,
+          ) ?? []
+        expect(names).toEqual(["bash"])
+
+        const messages = capture.body.messages as Array<{ role: string; content: unknown }>
+        const systemText = messages
+          .filter((msg) => msg.role === "system")
+          .map((msg) => msg.content)
+          .join("\n")
+        expect(systemText).toContain("LEAN-PROMPT-SENTINEL")
+      }),
+    {
+      config: () => ({
+        enabled_providers: [chatOnlyProviderID],
+        provider: {
+          [chatOnlyProviderID]: {
+            name: "Test Chat-Only",
+            npm: "@ai-sdk/openai-compatible",
+            api: `${state.server!.url.origin}/v1`,
+            models: {
+              "capable-model": {
+                name: "Capable Model",
+                tool_call: true,
+                limit: { context: 32768, output: 8192 },
+              },
+            },
+            options: { apiKey: "test-key", baseURL: `${state.server!.url.origin}/v1` },
+          },
+        },
+      }),
+    },
+  )
+
   it.instance(
     "keeps tools for a tool_call:true model (control)",
     () =>
