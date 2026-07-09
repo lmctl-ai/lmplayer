@@ -264,6 +264,63 @@ describe("tool.registry", () => {
     }),
   )
 
+  // POSITIVE PROVISIONING PROOF: permission is allow-all (the deny model would
+  // therefore send the ENTIRE tool catalog), yet registry.tools returns only
+  // the `provision` allowlist. This proves provisioning is a positive
+  // allowlist, not a subtractive deny.
+  it.instance("provisioned agent builds only the positive tool set even under allow-all permission", () =>
+    Effect.gen(function* () {
+      const registry = yield* ToolRegistry.Service
+      const agent: Agent.Info = {
+        name: "lean-test",
+        mode: "primary",
+        options: {},
+        permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        provision: ["bash"],
+      }
+
+      const ids = (
+        yield* registry.tools({
+          providerID: ProviderV2.ID.opencode,
+          modelID: ModelV2.ID.make("test"),
+          agent,
+        })
+      ).map((tool) => tool.id)
+
+      expect(ids).toContain("bash")
+      for (const id of [
+        "read",
+        "edit",
+        "write",
+        "grep",
+        "glob",
+        "git",
+        "ls",
+        "task",
+        "webfetch",
+        "todowrite",
+        "find",
+        "rg",
+        "cp",
+        "mv",
+        "mkdir",
+      ]) {
+        expect(ids).not.toContain(id)
+      }
+      // Exact-set proof: the ONLY non-infra tool is bash, not just a sample.
+      expect(ids.filter((id) => id !== "invalid")).toEqual(["bash"])
+    }),
+  )
+
+  it.instance("built-in lean agent is provisioned with bash only", () =>
+    Effect.gen(function* () {
+      const agentSvc = yield* Agent.Service
+      const lean = yield* agentSvc.get("lean")
+      expect(lean).toBeDefined()
+      expect(lean?.provision).toEqual(["bash"])
+    }),
+  )
+
   it.instance("loads tools from .opencode/tool (singular)", () =>
     Effect.gen(function* () {
       const test = yield* TestInstance

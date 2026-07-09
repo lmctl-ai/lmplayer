@@ -18,6 +18,9 @@ const AgentSchema = Schema.StructWithRest(
     temperature: Schema.optional(Schema.Finite),
     top_p: Schema.optional(Schema.Finite),
     prompt: Schema.optional(Schema.String),
+    provision: Schema.optional(Schema.mutable(Schema.Array(Schema.String))).annotate({
+      description: "Positive tool allowlist (profile). When set, only these tools are provisioned and sent to the model.",
+    }),
     tools: Schema.optional(Schema.Record(Schema.String, Schema.Boolean)).annotate({
       description: "@deprecated Use 'permission' field instead",
     }),
@@ -45,6 +48,7 @@ const KNOWN_KEYS = new Set([
   "model",
   "variant",
   "prompt",
+  "provision",
   "description",
   "temperature",
   "top_p",
