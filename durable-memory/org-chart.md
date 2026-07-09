@@ -479,3 +479,20 @@
 - Autopilot session END state: all operator priorities (lmvideo, patch lmplayer) + metrics side-project DONE.
   Fleet idle+healthy, ready for direction. Queued: org-metrics comms slice, other products (svg-transit,
   diagramkit-rs), lmctl-side health-wiring (their repo). Binary=0713, teams seeded, sonnet-5 works via lmctl.
+
+## STATUS SNAPSHOT 2026-07-07 (end of long session)
+LANDED+PUSHED to lmplayer/dev: upstream merge (sonnet-5+latest), run false-success fix (fd9f9c6af), TUI
+resize-repaint+panel-hidden+re-enable (f1d158f51), session metrics (48cf2f4e0), models/verify, remote-poll
+prototype (4ea42dbab), forced-delegation plan agent (4130f7129), ollama config-free+chat-only+`+tools`+verbose
+logging (108b8bfdf/788cc54fc/a0d6c9b03).
+ON BRANCH (verify+merge pending): lmplayer/lean-profiles = item-4 positive tool provisioning + lean qwen2.5
+profile (6a2f51d2d). "provide only allowed tools" not "provide-all-then-deny".
+STANDALONE REPOS (local, no remote): lmcatalog (model+price catalog, dual api_id + multi-provider, 90e9950);
+org-metrics (per-member/org perf analyzer, c969b11); frontdesk (heartbeat+inbox CLI, 45ca0b5 — adopt as loop
+heartbeat + file spec to lmctl).
+FILED TO lmctldev (lmctl team): TUI launch on `lmctl terminal` (seq32/34 area), model-expression/plan grammar.
+OPEN: dev behind origin/dev ~3 (upstream drift); merge lean-profiles->dev; adopt frontdesk.
+KEY DESIGN (durable-memory): design-permissions.md (native==shell tier coding; secured=precise per-tool+option/
+wrapper, lmprobe exemplar); lead-brief-lmctl.md (strong team roster + model routing + cost tiers: free ollama
+chat-only for simple work); metalead-loop.md (delegate-not-groundwork; chatroom own-a-room-as-backlog; hard guard
+never kill+reseed in one step).
