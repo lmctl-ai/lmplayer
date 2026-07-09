@@ -210,6 +210,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 
+- **Upstream refresh:** merged 42 upstream opencode commits (through `sync
+  release versions for v1.17.18`), synchronizing release versions from `1.17.15`
+  to `1.17.18`. Highlights: stats model-comparison pages and home, a built-in
+  `meta` (muse) system prompt, Grok reasoning variants plus the `@ai-sdk/xai`
+  bump to `3.0.102` and improved xai cache-hit rate, Copilot zero
+  billing-batch-size handling, core "watch only git projects", and a batch of
+  app/desktop UI work (inline file-browser tabs, composer add menu, per-session
+  review-state persistence, the v2 revert dock, and the free-model selector).
+  All lmplayer features were preserved (unioned) across the merge; the merge was
+  clean and no lmplayer source required manual conflict resolution.
 - **Interactive TUI: the session sidebar is now hidden by default.** The
   right-hand session panel (`Sidebar`, a fixed 42-column column showing
   context/cost, MCP/LSP, todos, and modified files) previously auto-showed on any
