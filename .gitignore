@@ -32,3 +32,9 @@ UPCOMING_CHANGELOG.md
 logs/
 *.bun-build
 tsconfig.tsbuildinfo
+
+# lmctl team state is machine-specific (seeded sessionids reference local
+# provider session stores) and AI sessions are inherently non-portable — never
+# commit it. durable-memory/ is the portable brain and STAYS committed.
+*.lmctl
+.lmctl/
