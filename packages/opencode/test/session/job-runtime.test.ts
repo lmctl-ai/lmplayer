@@ -452,6 +452,83 @@ describe("SessionJobRuntime", () => {
   )
 
   it.live(
+    "shutdown reconciles only jobs owned by this runtime",
+    Effect.gen(function* () {
+      const runtime = yield* SessionJobRuntime.Service
+      const store = yield* SessionJobStore.Service
+      const ownedSessionID = yield* setup()
+      const foreignSessionID = yield* setup()
+      const owned = yield* runtime.submit({
+        sessionID: ownedSessionID,
+        assistantMessageID: "msg_assistant",
+        toolCallID: "call-runtime-shutdown",
+        command: "sleep 30",
+        cwd: "/tmp",
+        shell: "/bin/sh",
+        timeout: 60_000,
+        env: process.env,
+      })
+      yield* pollWithTimeout(
+        store
+          .get(ownedSessionID, owned.job.id)
+          .pipe(Effect.map((value) => (value.status === "running" ? value : undefined))),
+        "owned background job did not start",
+      )
+
+      const foreign = yield* store.submit({
+        sessionID: foreignSessionID,
+        assistantMessageID: "msg_foreign_assistant",
+        toolCallID: "call-foreign-runtime",
+        command: "sleep 30",
+        cwd: "/tmp",
+        shell: "/bin/sh",
+        timeout: 60_000,
+        outputPath: `/tmp/${crypto.randomUUID()}.log`,
+      })
+      const foreignRuntimeID = crypto.randomUUID()
+      const claimed = yield* store.claimLaunch(foreignSessionID, foreign.row.id, foreignRuntimeID)
+      if (!claimed) return yield* Effect.die("foreign runtime launch claim failed")
+      yield* store.markRunning(foreignSessionID, claimed.id, foreignRuntimeID, claimed.launch_fence)
+      const sameSessionForeign = yield* store.submit({
+        sessionID: ownedSessionID,
+        assistantMessageID: "msg_same_session_foreign_assistant",
+        toolCallID: "call-same-session-foreign-runtime",
+        command: "sleep 30",
+        cwd: "/tmp",
+        shell: "/bin/sh",
+        timeout: 60_000,
+        outputPath: `/tmp/${crypto.randomUUID()}.log`,
+      })
+      const sameSessionForeignRuntimeID = crypto.randomUUID()
+      const sameSessionClaimed = yield* store.claimLaunch(
+        ownedSessionID,
+        sameSessionForeign.row.id,
+        sameSessionForeignRuntimeID,
+      )
+      if (!sameSessionClaimed) return yield* Effect.die("same-session foreign runtime launch claim failed")
+      yield* store.markRunning(
+        ownedSessionID,
+        sameSessionClaimed.id,
+        sameSessionForeignRuntimeID,
+        sameSessionClaimed.launch_fence,
+      )
+
+      yield* runtime.shutdown()
+      yield* runtime.shutdown()
+
+      const stopped = yield* store.get(ownedSessionID, owned.job.id)
+      expect(stopped.status).toBe("interrupted")
+      expect(stopped.error_code).toBe("runtime_shutdown")
+      const untouched = yield* store.get(foreignSessionID, foreign.row.id)
+      expect(untouched.status).toBe("running")
+      expect(untouched.runtime_id).toBe(foreignRuntimeID)
+      const sameSessionUntouched = yield* store.get(ownedSessionID, sameSessionForeign.row.id)
+      expect(sameSessionUntouched.status).toBe("running")
+      expect(sameSessionUntouched.runtime_id).toBe(sameSessionForeignRuntimeID)
+    }),
+  )
+
+  it.live(
     "terminates the owned process tree on explicit stop",
     Effect.gen(function* () {
       if (process.platform === "win32") return

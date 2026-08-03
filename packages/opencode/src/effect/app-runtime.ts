@@ -113,10 +113,11 @@ export const AppLayer = AppNodeBuilderV1.build(
 ).pipe(Layer.provideMerge(AppNodeBuilderV1.build(Ripgrep.node)), Layer.provideMerge(Observability.layer))
 
 const rt = ManagedRuntime.make(AppLayer, { memoMap })
-type Runtime = Pick<typeof rt, "runSync" | "runPromise" | "runPromiseExit" | "runFork" | "runCallback" | "dispose">
+type Runtime = Pick<typeof rt, "runSync" | "runPromise" | "runPromiseExit" | "runFork" | "runCallback">
 
 /** Services provided by AppRuntime — i.e. what an Effect run via AppRuntime.runPromise can yield. */
 export type AppServices = ManagedRuntime.ManagedRuntime.Services<typeof rt>
+export const disposeAppRuntimeForTest = () => rt.dispose()
 const wrap = (effect: Parameters<typeof rt.runSync>[0]) => attach(effect as never) as never
 
 export const AppRuntime: Runtime = {
@@ -135,5 +136,4 @@ export const AppRuntime: Runtime = {
   runCallback(effect) {
     return rt.runCallback(wrap(effect))
   },
-  dispose: () => rt.dispose(),
 }
