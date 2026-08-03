@@ -73,6 +73,10 @@ function normalize(value: unknown, options: { stripNull?: boolean } = {}): unkno
       const { anyOf: _, ...rest } = schema
       return normalize({ ...withoutNull[0], ...rest })
     }
+
+    if (schema.type === undefined && withoutNull.every((item) => isRecord(item) && item.type === "object")) {
+      return { type: "object", ...schema }
+    }
   }
 
   if (Array.isArray(schema.allOf) && schema.allOf.every(isRecord) && canFlattenAllOf(schema.allOf, schema)) {
