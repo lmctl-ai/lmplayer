@@ -31,6 +31,7 @@ import {
   ExportQuery,
   ForkPayload,
   InitPayload,
+  JobOutputQuery,
   ListQuery,
   MessagesQuery,
   PermissionResponsePayload,
@@ -42,6 +43,10 @@ import {
 } from "../groups/session"
 import { PermissionNotFoundError } from "../errors"
 import * as SessionError from "./session-errors"
+import { SessionJobStore, info } from "@/session/job-store"
+import { SessionJobRuntime } from "@/session/job-runtime"
+import { readOutput } from "@/tool/job"
+import { notFound } from "../errors"
 
 const tryParseJson = (text: string) =>
   Effect.try({
@@ -70,6 +75,8 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     const events = yield* EventV2Bridge.Service
     const fsys = yield* FSUtil.Service
     const scope = yield* Scope.Scope
+    const jobStore = yield* SessionJobStore.Service
+    const jobRuntime = yield* SessionJobRuntime.Service
 
     const list = Effect.fn("SessionHttpApi.list")(function* (ctx: { query: typeof ListQuery.Type }) {
       const directory = ctx.query.directory ? yield* InstanceState.directory : undefined
@@ -94,6 +101,43 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
 
     const get = Effect.fn("SessionHttpApi.get")(function* (ctx: { params: { sessionID: SessionID } }) {
       return yield* requireSession(ctx.params.sessionID)
+    })
+
+    const jobs = Effect.fn("SessionHttpApi.jobs")(function* (ctx: { params: { sessionID: SessionID } }) {
+      yield* requireSession(ctx.params.sessionID)
+      return (yield* jobStore.list(ctx.params.sessionID)).map(info)
+    })
+
+    const job = Effect.fn("SessionHttpApi.job")(function* (ctx: { params: { sessionID: SessionID; jobID: string } }) {
+      yield* requireSession(ctx.params.sessionID)
+      return info(
+        yield* jobStore
+          .get(ctx.params.sessionID, ctx.params.jobID)
+          .pipe(Effect.mapError(() => notFound(`Background job not found: ${ctx.params.jobID}`))),
+      )
+    })
+
+    const jobOutput = Effect.fn("SessionHttpApi.jobOutput")(function* (ctx: {
+      params: { sessionID: SessionID; jobID: string }
+      query: typeof JobOutputQuery.Type
+    }) {
+      yield* requireSession(ctx.params.sessionID)
+      return yield* readOutput(
+        jobStore,
+        ctx.params.sessionID,
+        ctx.params.jobID,
+        ctx.query.offset,
+        ctx.query.limit,
+      ).pipe(Effect.mapError(() => notFound(`Background job not found: ${ctx.params.jobID}`)))
+    })
+
+    const jobStop = Effect.fn("SessionHttpApi.jobStop")(function* (ctx: {
+      params: { sessionID: SessionID; jobID: string }
+    }) {
+      yield* requireSession(ctx.params.sessionID)
+      return yield* jobRuntime
+        .stop(ctx.params.sessionID, ctx.params.jobID)
+        .pipe(Effect.mapError(() => notFound(`Background job not found: ${ctx.params.jobID}`)))
     })
 
     const children = Effect.fn("SessionHttpApi.children")(function* (ctx: { params: { sessionID: SessionID } }) {
@@ -532,6 +576,10 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     })
 
     return handlers
+      .handle("jobs", jobs)
+      .handle("job", job)
+      .handle("jobOutput", jobOutput)
+      .handle("jobStop", jobStop)
       .handle("list", list)
       .handle("status", status)
       .handle("get", get)

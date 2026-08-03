@@ -1,4 +1,4 @@
-import { Effect, Stream } from "effect"
+import { Effect, Option, Stream } from "effect"
 import os from "os"
 import { createWriteStream } from "node:fs"
 import * as Tool from "./tool"
@@ -21,6 +21,7 @@ import { ChildProcess } from "effect/unstable/process"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { ShellPrompt, type Parameters } from "./shell/prompt"
 import { BashArity } from "@/permission/arity"
+import { SessionJobRuntime } from "@/session/job-runtime"
 
 export { Parameters } from "./shell/prompt"
 
@@ -344,6 +345,7 @@ export const ShellTool = Tool.define(
     const trunc = yield* Truncate.Service
     const plugin = yield* Plugin.Service
     const flags = yield* RuntimeFlags.Service
+    const jobs = yield* Effect.serviceOption(SessionJobRuntime.Service)
     const defaultTimeoutMs = flags.bashDefaultTimeoutMs ?? 2 * 60 * 1000
 
     const cygpath = Effect.fn("ShellTool.cygpath")(function* (shell: string, text: string) {
@@ -628,12 +630,63 @@ export const ShellTool = Tool.define(
                 }),
               )
 
+              const env = yield* shellEnv(ctx, cwd)
+              if (params.background) {
+                if (timeout > 3_600_000) {
+                  throw new Error("Background timeout must not exceed 3600000 milliseconds")
+                }
+                if (!ctx.callID) throw new Error("Background shell submission requires a tool-call ID")
+                if (Option.isNone(jobs)) throw new Error("Background shell jobs are unavailable in this runtime")
+                const submitted = yield* jobs.value
+                  .submit({
+                    sessionID: ctx.sessionID,
+                    assistantMessageID: ctx.messageID,
+                    toolCallID: ctx.callID,
+                    command: params.command,
+                    cwd,
+                    shell,
+                    timeout,
+                    env,
+                  })
+                  .pipe(
+                    Effect.catchTags({
+                      SessionJobActiveLimitExceeded: (error) =>
+                        Effect.die(
+                          new Error(`Background job limit reached: at most ${error.limit} jobs may run concurrently`),
+                        ),
+                      SessionJobOutputQuotaExceeded: (error) =>
+                        Effect.die(
+                          new Error(
+                            `Background job output quota reached: ${error.limit} bytes are retained and protected`,
+                          ),
+                        ),
+                      SessionJobSubmissionConflict: (error) =>
+                        Effect.die(new Error(`Background job submission conflicts with existing job ${error.jobID}`)),
+                    }),
+                  )
+                return {
+                  title: params.command,
+                  metadata: {
+                    output: "",
+                    exit: null,
+                    truncated: false,
+                    jobID: submitted.job.id,
+                    background: true,
+                  },
+                  output: JSON.stringify({
+                    jobID: submitted.job.id,
+                    status: submitted.job.status,
+                    exactRetry: !submitted.created,
+                  }),
+                }
+              }
+
               return yield* run(
                 {
                   shell,
                   command: params.command,
                   cwd,
-                  env: yield* shellEnv(ctx, cwd),
+                  env,
                   timeout,
                 },
                 ctx,

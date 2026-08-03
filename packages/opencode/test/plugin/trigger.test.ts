@@ -1,5 +1,5 @@
 import { describe, expect } from "bun:test"
-import { Effect } from "effect"
+import { Cause, Effect, Exit } from "effect"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { Npm } from "@opencode-ai/core/npm"
 import path from "path"
@@ -18,6 +18,8 @@ import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
+import { SessionTurnContext } from "@/session/turn-context"
+import { SessionID } from "@/session/schema"
 
 const it = testEffect(
   AppNodeBuilder.build(LayerNode.group([Plugin.node, CrossSpawnSpawner.node]), [
@@ -104,5 +106,40 @@ describe("plugin.trigger", () => {
         expect(yield* triggerSystemTransform()).toEqual(["async"])
       }),
     ),
+  )
+
+  it.instance("structurally skips unrelated hooks during an unattended notification turn", () =>
+    withProject(
+      [
+        "export default async () => ({",
+        '  "shell.env": (_input, output) => {',
+        '    output.env.STRUCTURAL_GUARD_FAILED = "true"',
+        "  },",
+        "})",
+        "",
+      ].join("\n"),
+      Effect.gen(function* () {
+        const plugin = yield* Plugin.Service
+        const output = yield* SessionTurnContext.provide(
+          plugin.trigger("shell.env", { cwd: "/tmp" }, { env: {} as Record<string, string> }),
+          { sessionID: SessionID.make("ses_notification_guard"), notificationOrigin: true },
+        )
+        expect(output.env).toEqual({})
+      }),
+    ),
+  )
+
+  it.instance("bounds a directly invoked plugin promise during an unattended notification turn", () =>
+    Effect.gen(function* () {
+      const exit = yield* SessionTurnContext.provide(
+        Plugin.guardPromise(() => new Promise<never>(() => {})),
+        {
+          sessionID: SessionID.make("ses_notification_promise_guard"),
+          notificationOrigin: true,
+        },
+      ).pipe(Effect.timeout("3 seconds"), Effect.exit)
+      expect(Exit.isFailure(exit)).toBe(true)
+      if (Exit.isFailure(exit)) expect(Cause.pretty(exit.cause)).toContain("Plugin hook timed out")
+    }),
   )
 })

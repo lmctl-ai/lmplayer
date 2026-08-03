@@ -195,6 +195,14 @@ import type {
   SessionGetResponses,
   SessionInitErrors,
   SessionInitResponses,
+  SessionJobErrors,
+  SessionJobOutputErrors,
+  SessionJobOutputResponses,
+  SessionJobResponses,
+  SessionJobsErrors,
+  SessionJobsResponses,
+  SessionJobStopErrors,
+  SessionJobStopResponses,
   SessionListErrors,
   SessionListResponses,
   SessionMessageErrors,
@@ -3359,7 +3367,139 @@ export class Provider extends HeyApiClient {
   }
 }
 
+export class Job extends HeyApiClient {
+  /**
+   * Read background job output
+   */
+  public output<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      jobID: string
+      directory?: string
+      workspace?: string
+      offset?: string
+      limit?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "path", key: "jobID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "offset" },
+            { in: "query", key: "limit" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<SessionJobOutputResponses, SessionJobOutputErrors, ThrowOnError>({
+      url: "/session/{sessionID}/job/{jobID}/output",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Stop background job
+   */
+  public stop<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      jobID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "path", key: "jobID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<SessionJobStopResponses, SessionJobStopErrors, ThrowOnError>({
+      url: "/session/{sessionID}/job/{jobID}/stop",
+      ...options,
+      ...params,
+    })
+  }
+}
+
 export class Session2 extends HeyApiClient {
+  /**
+   * List background jobs
+   */
+  public jobs<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<SessionJobsResponses, SessionJobsErrors, ThrowOnError>({
+      url: "/session/{sessionID}/job",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get background job
+   */
+  public job<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      jobID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "path", key: "jobID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<SessionJobResponses, SessionJobErrors, ThrowOnError>({
+      url: "/session/{sessionID}/job/{jobID}",
+      ...options,
+      ...params,
+    })
+  }
+
   /**
    * List sessions
    *
@@ -4324,6 +4464,11 @@ export class Session2 extends HeyApiClient {
       ...options,
       ...params,
     })
+  }
+
+  private _job?: Job
+  get job2(): Job {
+    return (this._job ??= new Job({ client: this.client }))
   }
 }
 

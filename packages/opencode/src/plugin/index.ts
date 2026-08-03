@@ -32,6 +32,7 @@ import type { WorkspaceAdapter } from "@/control-plane/types"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { InstallationChannel } from "@opencode-ai/core/installation/version"
+import { SessionTurnContext } from "@/session/turn-context"
 
 type State = {
   hooks: Hooks[]
@@ -57,6 +58,23 @@ export interface Interface {
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/Plugin") {}
+
+export function guard<A, E, R>(effect: Effect.Effect<A, E, R>, fallback?: () => A): Effect.Effect<A, E, R> {
+  return Effect.gen(function* () {
+    if (!(yield* SessionTurnContext.Current).notificationOrigin) return yield* effect
+    if (fallback) return fallback()
+    return yield* effect.pipe(
+      Effect.timeoutOrElse({
+        duration: "1 second",
+        orElse: () => Effect.die(new Error("Plugin hook timed out during a notification-origin turn")),
+      }),
+    )
+  })
+}
+
+export function guardPromise<A>(evaluate: () => PromiseLike<A>): Effect.Effect<A> {
+  return guard(Effect.promise(() => Promise.resolve(evaluate())))
+}
 
 export function experimentalWebSocketsEnabled(input: { enabled: boolean; channel?: string }) {
   return input.enabled || ["local", "dev", "beta"].includes(input.channel ?? InstallationChannel)
@@ -285,17 +303,22 @@ const layer = Layer.effect(
       Output = Parameters<Required<Hooks>[Name]>[1],
     >(name: Name, input: Input, output: Output) {
       if (!name) return output
-      const s = yield* InstanceState.get(state)
-      for (const hook of s.hooks) {
-        const fn = hook[name] as any
-        if (!fn) continue
-        yield* Effect.promise(async () => fn(input, output))
-      }
-      return output
+      return yield* guard(
+        Effect.gen(function* () {
+          const s = yield* InstanceState.get(state)
+          for (const hook of s.hooks) {
+            const fn = hook[name] as any
+            if (!fn) continue
+            yield* guardPromise(() => fn(input, output))
+          }
+          return output
+        }),
+        () => output,
+      )
     })
 
     const list = Effect.fn("Plugin.list")(function* () {
-      const s = yield* InstanceState.get(state)
+      const s = yield* guard(InstanceState.get(state))
       return s.hooks
     })
 

@@ -13,7 +13,7 @@ import { Truncate } from "@/tool/truncate"
 import { Plugin } from "@/plugin"
 import type { TaskPromptOps } from "@/tool/task"
 import { type Tool as AITool, tool, jsonSchema, type ToolExecutionOptions, asSchema } from "ai"
-import { Effect } from "effect"
+import { Effect, Schema } from "effect"
 import { MessageV2 } from "./message-v2"
 import { Session } from "./session"
 import { SessionProcessor } from "./processor"
@@ -23,6 +23,8 @@ import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { isRecord } from "@/util/record"
 import { RuntimeFlags } from "@/effect/runtime-flags"
+import { SessionJobStore } from "./job-store"
+import { SafeParameters, safeDefinition } from "@/tool/job"
 
 const MCP_RESOURCE_TOOLS = {
   list: "list_mcp_resources",
@@ -47,8 +49,56 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
   messages: SessionV1.WithParts[]
   promptOps: TaskPromptOps
 }) {
-  const tools: Record<string, AITool> = {}
   const run = yield* EffectBridge.make()
+  const jobs = yield* SessionJobStore.Service
+  const newestUser = input.messages.findLast((message) => message.info.role === "user")
+  const notificationOrigin = newestUser?.parts.some((part) => part.type === "session-job-notification") ?? false
+  if (notificationOrigin) {
+    const safe = safeDefinition(jobs)
+    const schema = ProviderTransform.schema(input.model, ToolJsonSchema.fromTool(safe))
+    const decode = Schema.decodeUnknownEffect(SafeParameters)
+    return notificationTools(
+      tool({
+        description: safe.description,
+        inputSchema: jsonSchema(schema),
+        execute(args, options) {
+          return run.promise(
+            Effect.gen(function* () {
+              const params = yield* decode(args).pipe(
+                Effect.mapError((error) => new Tool.InvalidArgumentsError({ tool: "job", detail: String(error) })),
+              )
+              return yield* safe.execute(params, {
+                sessionID: input.session.id,
+                abort: options.abortSignal!,
+                messageID: input.processor.message.id,
+                callID: options.toolCallId,
+                extra: { model: input.model, bypassAgentCheck: input.bypassAgentCheck, promptOps: input.promptOps },
+                agent: input.agent.name,
+                messages: input.messages,
+                metadata: (value) =>
+                  input.processor.updateToolCall(options.toolCallId, (match) => {
+                    if (!["running", "pending"].includes(match.state.status)) return match
+                    return {
+                      ...match,
+                      state: {
+                        title: value.title,
+                        metadata: value.metadata,
+                        status: "running",
+                        input: toRecord(args),
+                        time: { start: Date.now() },
+                      },
+                    }
+                  }),
+                ask: () => Effect.die("Notification-origin job inspection must never request permission"),
+              })
+            }).pipe(Effect.orDie),
+          )
+        },
+      }),
+    )
+  }
+
+  const tools: Record<string, AITool> = {}
   const plugin = yield* Plugin.Service
   const permission = yield* Permission.Service
   const registry = yield* ToolRegistry.Service
@@ -385,7 +435,7 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
     })
   }
 
-  if (flags.experimentalCodeMode) return tools
+  if (flags.experimentalCodeMode && !notificationOrigin) return tools
 
   for (const [key, entry] of Object.entries(yield* mcp.tools())) {
     const item = McpCatalog.convertTool(entry.def, entry.client, entry.timeout)
@@ -491,6 +541,10 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
 
   return tools
 })
+
+export function notificationTools(job: AITool): Record<string, AITool> {
+  return { job }
+}
 
 function toRecord(value: unknown) {
   if (isRecord(value)) return value

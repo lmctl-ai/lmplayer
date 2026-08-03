@@ -5,6 +5,7 @@ import { PlanExitTool } from "./plan"
 import { Session } from "@/session/session"
 import { QuestionTool } from "./question"
 import { ShellTool } from "./shell"
+import { JobTool } from "./job"
 import { EditTool } from "./edit"
 import { GlobTool } from "./glob"
 import { GrepTool } from "./grep"
@@ -70,6 +71,8 @@ import { ModelV2 } from "@opencode-ai/core/model"
 import { MCP } from "@/mcp"
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import { McpCatalog } from "@/mcp/catalog"
+import { SessionJobRuntime } from "@/session/job-runtime"
+import { SessionJobStore } from "@/session/job-store"
 
 export function webSearchEnabled(providerID: ProviderV2.ID, flags = { exa: false, parallel: false }) {
   return (
@@ -124,6 +127,7 @@ const layer = Layer.effect(
     const webfetch = yield* WebFetchTool
     const websearch = yield* WebSearchTool
     const shell = yield* ShellTool
+    const job = yield* JobTool
     const globtool = yield* GlobTool
     const writetool = yield* WriteTool
     const edit = yield* EditTool
@@ -241,6 +245,7 @@ const layer = Layer.effect(
         const tool = yield* Effect.all({
           invalid: Tool.init(invalid),
           shell: Tool.init(shell),
+          job: Tool.init(job),
           read: Tool.init(read),
           glob: Tool.init(globtool),
           grep: Tool.init(greptool),
@@ -280,6 +285,7 @@ const layer = Layer.effect(
             tool.invalid,
             ...(questionEnabled ? [tool.question] : []),
             tool.shell,
+            tool.job,
             tool.read,
             tool.glob,
             tool.grep,
@@ -524,6 +530,8 @@ export const node = LayerNode.make({
     EventV2Bridge.node,
     httpClient,
     CrossSpawnSpawner.node,
+    SessionJobRuntime.node,
+    SessionJobStore.node,
     Format.node,
     Truncate.node,
     RuntimeFlags.node,

@@ -27,6 +27,7 @@ export {
   ResourceSource,
   RetryPart,
   SessionInfo,
+  SessionJobNotificationPart,
   SnapshotPart,
   StepFinishPart,
   StepStartPart,

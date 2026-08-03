@@ -43,7 +43,7 @@ import { Truncate } from "@/tool/truncate"
 import { Image } from "@/image/image"
 import { decodeDataUrl } from "@/util/data-url"
 import { Process } from "@/util/process"
-import { Cause, Effect, Exit, Latch, Layer, Option, Scope, Context, Schema, Types } from "effect"
+import { Cause, Deferred, Effect, Exit, Latch, Layer, Option, Scope, Context, Schema, Types } from "effect"
 import { InstanceState } from "@/effect/instance-state"
 import { TaskTool, type TaskPromptOps } from "@/tool/task"
 import { SessionRunState } from "./run-state"
@@ -57,6 +57,13 @@ import { SessionTable } from "@opencode-ai/core/session/sql"
 import { SessionReminders } from "./reminders"
 import { SessionTools } from "./tools"
 import { LLMEvent } from "@opencode-ai/llm"
+import { SessionJobStore } from "./job-store"
+import { SessionJobRuntime } from "./job-runtime"
+import { Project } from "@/project/project"
+import { ProjectTable } from "@opencode-ai/core/project/sql"
+import { InstanceRef, WorkspaceRef } from "@/effect/instance-ref"
+import { SessionTurnContext } from "./turn-context"
+import { SessionJobNotificationRetry, type Owner as NotificationRetryOwner } from "./notification-retry"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -107,6 +114,10 @@ export interface Interface {
   readonly shell: (input: ShellInput) => Effect.Effect<SessionV1.WithParts, Session.BusyError>
   readonly command: (input: CommandInput) => Effect.Effect<SessionV1.WithParts, Image.Error>
   readonly resolvePromptParts: (template: string) => Effect.Effect<PromptInput["parts"]>
+  readonly notifyJobs: (sessionID: SessionID) => Effect.Effect<SessionV1.WithParts>
+  readonly scheduleJobNotifications: (sessionID: SessionID) => Effect.Effect<void>
+  readonly waitJobNotifications: (sessionID: SessionID) => Effect.Effect<void>
+  readonly jobNotificationsDegraded: (sessionID: SessionID) => boolean
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/SessionPrompt") {}
@@ -141,7 +152,11 @@ const layer = Layer.effect(
     const events = yield* EventV2Bridge.Service
     const flags = yield* RuntimeFlags.Service
     const database = yield* Database.Service
+    const jobStore = yield* SessionJobStore.Service
+    const jobs = yield* SessionJobRuntime.Service
     const { db } = database
+    let notificationOwner: NotificationRetryOwner<SessionID> | undefined
+    let scheduleNotification = (_sessionID: SessionID): Effect.Effect<void> => Effect.void
     const ops = Effect.fn("SessionPrompt.ops")(function* () {
       return {
         cancel: (sessionID: SessionID) => cancel(sessionID),
@@ -1068,6 +1083,8 @@ const layer = Layer.effect(
       }
 
       if (input.noReply === true) return message
+      yield* state.admit(input.sessionID, lastAssistant(input.sessionID), runLoop(input.sessionID))
+      if (notificationOwner?.isDegraded(input.sessionID)) yield* notificationOwner.recover(input.sessionID)
       return yield* loop({ sessionID: input.sessionID })
     })
 
@@ -1087,7 +1104,6 @@ const layer = Layer.effect(
         const session = yield* sessions.get(sessionID).pipe(Effect.orDie)
 
         while (true) {
-          yield* status.set(sessionID, { type: "busy" })
           yield* Effect.logInfo("loop", { "session.id": sessionID, step })
 
           let msgs = yield* MessageV2.filterCompactedEffect(sessionID).pipe(
@@ -1097,6 +1113,7 @@ const layer = Layer.effect(
           const { user: lastUser, assistant: lastAssistant, finished: lastFinished, tasks } = MessageV2.latest(msgs)
 
           if (!lastUser) throw new Error("No user message found in stream. This should never happen.")
+          const notificationOrigin = isNotificationOrigin(msgs, lastUser.id)
 
           const lastAssistantMsg = msgs.findLast(
             (msg) => msg.info.role === "assistant" && msg.info.id === lastAssistant?.id,
@@ -1132,29 +1149,41 @@ const layer = Layer.effect(
 
           step++
           if (step === 1)
-            yield* title({
-              session,
-              modelID: lastUser.model.modelID,
-              providerID: lastUser.model.providerID,
-              history: msgs,
-            }).pipe(Effect.ignore, Effect.forkIn(scope))
+            yield* SessionTurnContext.provide(
+              title({
+                session,
+                modelID: lastUser.model.modelID,
+                providerID: lastUser.model.providerID,
+                history: msgs,
+              }),
+              { sessionID, notificationOrigin },
+            ).pipe(Effect.ignore, Effect.forkIn(scope))
 
-          const model = yield* getModel(lastUser.model.providerID, lastUser.model.modelID, sessionID)
+          const model = yield* SessionTurnContext.provide(
+            getModel(lastUser.model.providerID, lastUser.model.modelID, sessionID),
+            { sessionID, notificationOrigin },
+          )
           const task = tasks.pop()
 
           if (task?.type === "subtask") {
-            yield* handleSubtask({ task, model, lastUser, sessionID, session, msgs })
+            yield* SessionTurnContext.provide(handleSubtask({ task, model, lastUser, sessionID, session, msgs }), {
+              sessionID,
+              notificationOrigin,
+            })
             continue
           }
 
           if (task?.type === "compaction") {
-            const result = yield* compaction.process({
-              messages: msgs,
-              parentID: lastUser.id,
-              sessionID,
-              auto: task.auto,
-              overflow: task.overflow,
-            })
+            const result = yield* SessionTurnContext.provide(
+              compaction.process({
+                messages: msgs,
+                parentID: lastUser.id,
+                sessionID,
+                auto: task.auto,
+                overflow: task.overflow,
+              }),
+              { sessionID, notificationOrigin },
+            )
             if (result === "stop") break
             continue
           }
@@ -1224,7 +1253,7 @@ const layer = Layer.effect(
             const bypassAgentCheck = lastUserMsg?.parts.some((p) => p.type === "agent") ?? false
             const promptOps = yield* ops()
 
-            const tools = yield* SessionTools.resolve({
+            const tools: Record<string, AITool> = yield* SessionTools.resolve({
               agent,
               session,
               model,
@@ -1239,6 +1268,7 @@ const layer = Layer.effect(
               Effect.provideService(MCP.Service, mcp),
               Effect.provideService(Truncate.Service, truncate),
               Effect.provideService(RuntimeFlags.Service, flags),
+              Effect.provideService(SessionJobStore.Service, jobStore),
             )
 
             if (lastUser.format?.type === "json_schema") {
@@ -1253,7 +1283,9 @@ const layer = Layer.effect(
             if (step === 1)
               yield* summary.summarize({ sessionID, messageID: lastUser.id }).pipe(Effect.ignore, Effect.forkIn(scope))
 
-            yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
+            if (!notificationOrigin) {
+              yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
+            }
 
             const [skills, env, instructions, mcpInstructions, modelMsgs] = yield* Effect.all([
               sys.skills(agent),
@@ -1270,6 +1302,13 @@ const layer = Layer.effect(
                   cause,
                 }).pipe(Effect.as(undefined)),
               ),
+            )
+            yield* jobStore.markObserved(
+              sessionID,
+              msgs
+                .filter((message) => message.parts.some((part) => part.type === "session-job-notification"))
+                .map((message) => message.info.id),
+              msg.id,
             )
             const system = [
               ...env,
@@ -1298,6 +1337,7 @@ const layer = Layer.effect(
               tools,
               model,
               toolChoice: format.type === "json_schema" ? "required" : undefined,
+              notificationOrigin,
             })
 
             if (structured !== undefined) {
@@ -1345,6 +1385,7 @@ const layer = Layer.effect(
           }).pipe(
             Effect.ensuring(instruction.clear(handle.message.id)),
             Effect.onInterrupt(() => finalizeInterruptedAssistant),
+            (effect) => SessionTurnContext.provide(effect, { sessionID, notificationOrigin }),
           )
           if (outcome === "break") break
           continue
@@ -1495,6 +1536,156 @@ const layer = Layer.effect(
       return result
     })
 
+    const notify: (sessionID: SessionID) => Effect.Effect<SessionV1.WithParts> = Effect.fn("SessionPrompt.notifyJobs")(
+      function* (sessionID: SessionID) {
+        const token = crypto.randomUUID()
+        const existing = (yield* jobStore.list(sessionID)).filter((row) => row.notification_state === "admitted")
+        const admitted = existing[0]?.notification_batch_id
+          ? existing.filter((row) => row.notification_batch_id === existing[0]?.notification_batch_id)
+          : []
+        const claimed = admitted.length === 0 ? yield* jobStore.claimNotifications(sessionID, token, Date.now()) : []
+        if (claimed.length === 0 && admitted.length === 0) return yield* lastAssistant(sessionID)
+
+        const selected = claimed.length ? claimed : admitted
+        const digest = new Bun.CryptoHasher("sha256")
+          .update(
+            selected
+              .map((row) => `${row.id}:${row.status}:${row.time_completed}`)
+              .sort()
+              .join("\0"),
+          )
+          .digest("hex")
+        const batchID = selected[0]?.notification_batch_id ?? `job_batch_${digest}`
+        const messageID = selected[0]?.notification_message_id
+          ? MessageID.make(selected[0].notification_message_id)
+          : MessageID.ascending()
+
+        if (claimed.length > 0) {
+          yield* jobStore.reserveAdmission(sessionID, token, batchID, messageID)
+          const messages = yield* MessageV2.filterCompactedEffect(sessionID).pipe(
+            Effect.provideService(Database.Service, database),
+          )
+          const previous = messages.findLast((message) => message.info.role === "user")
+          if (!previous || previous.info.role !== "user") {
+            yield* jobStore.releaseClaim(sessionID, token)
+            return yield* lastAssistant(sessionID)
+          }
+          const previousUser = previous.info
+          const notification = {
+            batchID,
+            jobs: claimed.map((row) => ({
+              id: row.id,
+              status: row.status,
+              ...(row.exit_code === null ? {} : { exitCode: row.exit_code }),
+              outputBytes: row.output_bytes,
+              outputTruncated: row.output_truncated,
+            })),
+          }
+          yield* Effect.gen(function* () {
+            yield* sessions.updateMessage({
+              id: messageID,
+              sessionID,
+              role: "user",
+              time: { created: Date.now() },
+              agent: previousUser.agent,
+              model: previousUser.model,
+            })
+            const part = {
+              id: PartID.make(`prt_job_${digest}`),
+              sessionID,
+              messageID,
+              type: "session-job-notification",
+              ...notification,
+            } satisfies SessionV1.SessionJobNotificationPart
+            yield* events.publish(
+              SessionV1.Event.PartUpdated,
+              { sessionID, part: structuredClone(part), time: Date.now() },
+              { commit: () => jobStore.markAdmitted(sessionID, token, batchID, messageID).pipe(Effect.asVoid) },
+            )
+          }).pipe(Effect.ensuring(jobStore.releaseClaim(sessionID, token)))
+        }
+
+        const delivered = yield* deliveredNotification(sessionID, messageID)
+        const result = delivered ?? (yield* runLoop(sessionID))
+        if (!(yield* deliveredNotification(sessionID, messageID))) {
+          return yield* Effect.die("Session job notification turn did not record a terminal assistant outcome")
+        }
+        yield* jobStore.markDelivered(sessionID, batchID)
+        if (
+          (yield* jobStore.list(sessionID)).some(
+            (row) => row.notification_state === "admitted" && row.notification_batch_id === batchID,
+          )
+        ) {
+          return yield* Effect.die("Session job notification delivery did not update its admitted batch")
+        }
+        return result
+      },
+    )
+
+    const deliveredNotification = Effect.fn("SessionPrompt.deliveredJobNotification")(function* (
+      sessionID: SessionID,
+      messageID: MessageID,
+    ) {
+      const rows = (yield* jobStore.list(sessionID)).filter(
+        (row) => row.notification_state === "admitted" && row.notification_message_id === messageID,
+      )
+      const observed = rows[0]?.notification_observed_message_id
+      if (!observed || rows.some((row) => row.notification_observed_message_id !== observed)) return
+      return (yield* sessions.messages({ sessionID }).pipe(Effect.orDie)).find((message) => {
+        if (message.info.role !== "assistant" || message.info.id !== observed) return false
+        if (message.info.time.completed === undefined) return false
+        return message.info.finish !== undefined || message.info.error !== undefined
+      })
+    })
+
+    const runNotificationAttempt = Effect.fn("SessionPrompt.runJobNotificationAttempt")(function* (
+      sessionID: SessionID,
+    ) {
+      const owner = yield* db
+        .select({
+          directory: SessionTable.directory,
+          workspaceID: SessionTable.workspace_id,
+          project: ProjectTable,
+        })
+        .from(SessionTable)
+        .innerJoin(ProjectTable, eq(ProjectTable.id, SessionTable.project_id))
+        .where(eq(SessionTable.id, sessionID))
+        .get()
+        .pipe(Effect.orDie)
+      if (!owner) return false
+      return yield* Effect.gen(function* () {
+        const notifications = yield* jobStore.list(sessionID)
+        if (!notifications.some((row) => row.notification_state === "pending" || row.notification_state === "admitted"))
+          return false
+        const request = yield* state.wake(sessionID, lastAssistant(sessionID), notify(sessionID))
+        if (!request.accepted) return false
+        yield* request.settled
+        return (yield* jobStore.list(sessionID)).some(
+          (row) => row.notification_state === "pending" || row.notification_state === "admitted",
+        )
+      }).pipe(
+        Effect.provideService(InstanceRef, {
+          directory: owner.directory,
+          worktree: owner.project.worktree,
+          project: Project.fromRow(owner.project),
+        }),
+        Effect.provideService(WorkspaceRef, owner.workspaceID ?? undefined),
+      )
+    })
+
+    notificationOwner = yield* SessionJobNotificationRetry.make({
+      attempt: runNotificationAttempt,
+      onDegraded: (sessionID, attempts, cause) =>
+        Effect.logError("session job notification retries degraded until the next user prompt", {
+          sessionID,
+          attempts,
+          cause: Cause.pretty(cause),
+        }),
+    })
+    scheduleNotification = notificationOwner.schedule
+
+    yield* jobs.setWake((sessionID) => scheduleNotification(sessionID))
+
     return Service.of({
       cancel,
       prompt,
@@ -1502,6 +1693,10 @@ const layer = Layer.effect(
       shell,
       command,
       resolvePromptParts,
+      notifyJobs: notify,
+      scheduleJobNotifications: scheduleNotification,
+      waitJobNotifications: (sessionID) => notificationOwner?.wait(sessionID) ?? Effect.void,
+      jobNotificationsDegraded: (sessionID) => notificationOwner?.isDegraded(sessionID) ?? false,
     })
   }),
 )
@@ -1510,6 +1705,19 @@ const ModelRef = Schema.Struct({
   providerID: ProviderV2.ID,
   modelID: ModelV2.ID,
 })
+
+export function isNotificationOrigin(messages: SessionV1.WithParts[], lastUserID: MessageID) {
+  const lastUserIndex = messages.findIndex((message) => message.info.id === lastUserID)
+  const origin = messages[lastUserIndex]
+  const originUser = origin?.parts.some((part) => part.type === "compaction")
+    ? messages
+        .slice(0, lastUserIndex)
+        .findLast(
+          (message) => message.info.role === "user" && !message.parts.some((part) => part.type === "compaction"),
+        )
+    : origin
+  return originUser?.parts.some((part) => part.type === "session-job-notification") ?? false
+}
 
 export const PromptInput = Schema.Struct({
   sessionID: SessionID,
@@ -1640,6 +1848,8 @@ export const node = LayerNode.make({
     EventV2Bridge.node,
     RuntimeFlags.node,
     Database.node,
+    SessionJobStore.node,
+    SessionJobRuntime.node,
   ],
 })
 

@@ -12,6 +12,166 @@ describe("Runner", () => {
   // --- ensureRunning semantics ---
 
   it.live(
+    "coalesces a wake that races the running-to-idle boundary",
+    Effect.gen(function* () {
+      const s = yield* Scope.Scope
+      const statuses = yield* Ref.make<string[]>([])
+      const firstStarted = yield* Deferred.make<void>()
+      const releaseFirst = yield* Deferred.make<void>()
+      const secondStarted = yield* Deferred.make<void>()
+      const releaseSecond = yield* Deferred.make<void>()
+      const runner = Runner.make<string>(s, {
+        onBusy: Ref.update(statuses, (values) => [...values, "busy"]),
+        onIdle: Ref.update(statuses, (values) => [...values, "idle"]),
+      })
+
+      const first = yield* runner
+        .ensureRunning(
+          Effect.gen(function* () {
+            yield* Deferred.succeed(firstStarted, undefined)
+            yield* Deferred.await(releaseFirst)
+            return "first"
+          }),
+        )
+        .pipe(Effect.forkChild)
+      yield* Deferred.await(firstStarted)
+      const wake = yield* runner
+        .requestRun(
+          Effect.gen(function* () {
+            yield* Deferred.succeed(secondStarted, undefined)
+            yield* Deferred.await(releaseSecond)
+            return "second"
+          }),
+          false,
+        )
+        .pipe(Effect.forkChild)
+      while (runner.state._tag !== "Running" || !runner.state.pending) yield* Effect.yieldNow
+
+      yield* Deferred.succeed(releaseFirst, undefined)
+      yield* Deferred.await(secondStarted)
+      expect(runner.state._tag).toBe("Running")
+      expect(yield* Ref.get(statuses)).toEqual(["busy"])
+      yield* Deferred.succeed(releaseSecond, undefined)
+      yield* Fiber.join(first)
+      yield* Fiber.join(wake)
+      yield* waitForState(runner, "Idle")
+      while ((yield* Ref.get(statuses)).length < 2) yield* Effect.yieldNow
+      expect(yield* Ref.get(statuses)).toEqual(["busy", "idle"])
+    }),
+  )
+
+  it.live(
+    "starts a wake that arrives after idle commits without stale status publication",
+    Effect.gen(function* () {
+      const s = yield* Scope.Scope
+      const statuses = yield* Ref.make<string[]>([])
+      const idlePublishing = yield* Deferred.make<void>()
+      const releaseIdle = yield* Deferred.make<void>()
+      const secondStarted = yield* Deferred.make<void>()
+      const releaseSecond = yield* Deferred.make<void>()
+      const runner = Runner.make<string>(s, {
+        onBusy: Ref.update(statuses, (values) => [...values, "busy"]),
+        onIdle: Deferred.succeed(idlePublishing, undefined).pipe(
+          Effect.andThen(Deferred.await(releaseIdle)),
+          Effect.andThen(Ref.update(statuses, (values) => [...values, "idle"])),
+        ),
+      })
+
+      const first = yield* runner.ensureRunning(Effect.succeed("first")).pipe(Effect.forkChild)
+      yield* Deferred.await(idlePublishing)
+      expect(runner.state._tag).toBe("Idle")
+      yield* runner.requestRun(
+        Deferred.succeed(secondStarted, undefined).pipe(
+          Effect.andThen(Deferred.await(releaseSecond)),
+          Effect.as("second"),
+        ),
+        false,
+      )
+      yield* Deferred.await(secondStarted)
+      expect(runner.state._tag).toBe("Running")
+      yield* Deferred.succeed(releaseIdle, undefined)
+      yield* Deferred.succeed(releaseSecond, undefined)
+      yield* Fiber.join(first)
+      yield* waitForState(runner, "Idle")
+      while ((yield* Ref.get(statuses)).length < 4) yield* Effect.yieldNow
+      expect(yield* Ref.get(statuses)).toEqual(["busy", "idle", "busy", "idle"])
+    }),
+  )
+
+  it.live(
+    "schedules a persisted prompt boundary recheck when admission races settle",
+    Effect.gen(function* () {
+      const s = yield* Scope.Scope
+      const release = yield* Deferred.make<void>()
+      const rechecked = yield* Deferred.make<void>()
+      const runner = Runner.make<string>(s)
+      const first = yield* runner.ensureRunning(Deferred.await(release).pipe(Effect.as("first"))).pipe(Effect.forkChild)
+      yield* waitForState(runner, "Running")
+      const admitted = yield* runner
+        .requestRun(Deferred.succeed(rechecked, undefined).pipe(Effect.as("second")), false, true)
+        .pipe(Effect.forkChild)
+      while (runner.state._tag !== "Running" || !runner.state.pending) yield* Effect.yieldNow
+
+      yield* Deferred.succeed(release, undefined)
+      yield* Fiber.join(admitted)
+      yield* Deferred.await(rechecked).pipe(Effect.timeout("250 millis"))
+      yield* Fiber.join(first)
+      yield* waitForState(runner, "Idle")
+    }),
+  )
+
+  it.live(
+    "prioritizes admitted user work ahead of an already pending autonomous wake",
+    Effect.gen(function* () {
+      const s = yield* Scope.Scope
+      const release = yield* Deferred.make<void>()
+      const order = yield* Ref.make<string[]>([])
+      const runner = Runner.make<string>(s)
+      const first = yield* runner.ensureRunning(Deferred.await(release).pipe(Effect.as("first"))).pipe(Effect.forkChild)
+      yield* waitForState(runner, "Running")
+      yield* runner.requestRun(Ref.update(order, (items) => [...items, "notification"]).pipe(Effect.as("wake")), false)
+      if (runner.state._tag !== "Running" || !runner.state.pending) return yield* Effect.die("wake was not queued")
+      const notificationID = runner.state.pending.id
+      const admitted = yield* runner
+        .requestRun(Ref.update(order, (items) => [...items, "user"]).pipe(Effect.as("user")), false, true)
+        .pipe(Effect.forkChild)
+      while (runner.state._tag !== "Running" || !runner.state.pending || runner.state.pending.id === notificationID) {
+        yield* Effect.yieldNow
+      }
+
+      yield* Deferred.succeed(release, undefined)
+      yield* Fiber.join(admitted)
+      yield* Fiber.join(first)
+      yield* waitForState(runner, "Idle")
+      expect(yield* Ref.get(order)).toEqual(["user", "notification"])
+    }),
+  )
+
+  it.live(
+    "reports rejection when a stale runner reference submits after disposal commits",
+    Effect.gen(function* () {
+      const s = yield* Scope.Scope
+      const release = yield* Deferred.make<void>()
+      const idlePublishing = yield* Deferred.make<void>()
+      const releaseIdle = yield* Deferred.make<void>()
+      const ran = yield* Ref.make(false)
+      const runner = Runner.make<string>(s, {
+        onIdle: Deferred.succeed(idlePublishing, undefined).pipe(Effect.andThen(Deferred.await(releaseIdle))),
+      })
+      yield* runner.ensureRunning(Deferred.await(release).pipe(Effect.as("first"))).pipe(Effect.forkChild)
+      yield* waitForState(runner, "Running")
+      const disposal = yield* runner.dispose.pipe(Effect.forkChild)
+      yield* Deferred.await(idlePublishing)
+      const request = yield* runner.requestRun(Ref.set(ran, true).pipe(Effect.as("unexpected")), false)
+      yield* Deferred.succeed(releaseIdle, undefined)
+      yield* Fiber.join(disposal)
+      expect(request.accepted).toBe(false)
+      expect(yield* Ref.get(ran)).toBe(false)
+      expect(runner.state._tag).toBe("Disposed")
+    }),
+  )
+
+  it.live(
     "ensureRunning starts work and returns result",
     Effect.gen(function* () {
       const s = yield* Scope.Scope
@@ -443,6 +603,7 @@ describe("Runner", () => {
         onIdle: Ref.update(count, (n) => n + 1),
       })
       yield* runner.ensureRunning(Effect.succeed("ok"))
+      while ((yield* Ref.get(count)) < 1) yield* Effect.yieldNow
       expect(yield* Ref.get(count)).toBe(1)
     }),
   )
@@ -459,6 +620,7 @@ describe("Runner", () => {
       yield* waitForState(runner, "Running")
       yield* runner.cancel
       yield* Fiber.await(fiber)
+      while ((yield* Ref.get(count)) < 1) yield* Effect.yieldNow
       expect(yield* Ref.get(count)).toBeGreaterThanOrEqual(1)
     }),
   )
@@ -472,6 +634,7 @@ describe("Runner", () => {
         onBusy: Ref.update(count, (n) => n + 1),
       })
       yield* runner.startShell(Effect.succeed("done"))
+      while ((yield* Ref.get(count)) < 1) yield* Effect.yieldNow
       expect(yield* Ref.get(count)).toBe(1)
     }),
   )
