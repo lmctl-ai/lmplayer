@@ -162,9 +162,19 @@ try {
   }
   process.exitCode = 1
 } finally {
+  // Give the app runtime a bounded window to dispose gracefully first — this is what
+  // actually runs SessionJobRuntime's shutdown finalizer, which terminates any
+  // still-running background session jobs the process owns. Without this, jobs left
+  // running when a one-shot command (e.g. `opencode run`) exits become untracked
+  // orphans: nothing ever signals them to stop, and their eventual completion is
+  // never observed or reported.
+  //
   // Some subprocesses don't react properly to SIGTERM and similar signals.
   // Most notably, some docker-container-based MCP servers don't handle such signals unless
   // run using `docker run --init`.
-  // Explicitly exit to avoid any hanging subprocesses.
+  // Explicitly exit to avoid any hanging subprocesses — the timeout below caps how long
+  // graceful disposal can take before we fall back to the original hard-exit behavior.
+  const { AppRuntime } = await import("./effect/app-runtime")
+  await Promise.race([AppRuntime.dispose().catch(() => {}), new Promise((resolve) => setTimeout(resolve, 5000))])
   process.exit()
 }
