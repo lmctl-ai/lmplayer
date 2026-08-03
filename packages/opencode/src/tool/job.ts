@@ -5,28 +5,32 @@ import { SessionJobRuntime } from "@/session/job-runtime"
 import type { SessionID } from "@/session/schema"
 import * as Tool from "./tool"
 
-const Parameters = Schema.Union([
-  Schema.Struct({ action: Schema.Literal("list") }),
-  Schema.Struct({ action: Schema.Literal("get"), jobID: Schema.String }),
-  Schema.Struct({
-    action: Schema.Literal("output"),
-    jobID: Schema.String,
-    offset: Schema.optional(Schema.Number),
-    limit: Schema.optional(Schema.Number),
-  }),
-  Schema.Struct({ action: Schema.Literal("stop"), jobID: Schema.String }),
-])
+// Anthropic-format tool schemas reject `anyOf`/`oneOf`/`allOf` at the top level of
+// `input_schema`, so these must stay flat structs (not a discriminated Schema.Union) even
+// though only a subset of fields is meaningful per action. Per-action requirements are
+// enforced at runtime by requireJobID below, not by the schema shape itself.
+const Parameters = Schema.Struct({
+  action: Schema.Literals(["list", "get", "output", "stop"]),
+  jobID: Schema.optional(Schema.String),
+  offset: Schema.optional(Schema.Number),
+  limit: Schema.optional(Schema.Number),
+})
 
-export const SafeParameters = Schema.Union([
-  Schema.Struct({ action: Schema.Literal("list") }),
-  Schema.Struct({ action: Schema.Literal("get"), jobID: Schema.String }),
-  Schema.Struct({
-    action: Schema.Literal("output"),
-    jobID: Schema.String,
-    offset: Schema.optional(Schema.Number),
-    limit: Schema.optional(Schema.Number),
-  }),
-])
+export const SafeParameters = Schema.Struct({
+  action: Schema.Literals(["list", "get", "output"]),
+  jobID: Schema.optional(Schema.String),
+  offset: Schema.optional(Schema.Number),
+  limit: Schema.optional(Schema.Number),
+})
+
+const requireJobID = Effect.fn("JobTool.requireJobID")(function* (action: string, jobID: string | undefined) {
+  if (!jobID) {
+    return yield* Effect.fail(
+      new Tool.InvalidArgumentsError({ tool: "job", detail: `jobID is required for action "${action}"` }),
+    )
+  }
+  return jobID
+})
 
 export const JobTool = Tool.define(
   "job",
@@ -42,20 +46,22 @@ export const JobTool = Tool.define(
           if (params.action === "list") {
             return result("Background jobs", (yield* store.list(ctx.sessionID)).map(info))
           }
-          if (params.action === "get") return result(params.jobID, info(yield* store.get(ctx.sessionID, params.jobID)))
+          if (params.action === "get") {
+            const jobID = yield* requireJobID(params.action, params.jobID)
+            return result(jobID, info(yield* store.get(ctx.sessionID, jobID)))
+          }
           if (params.action === "stop") {
+            const jobID = yield* requireJobID(params.action, params.jobID)
             yield* ctx.ask({
               permission: "job",
-              patterns: [`stop:${params.jobID}`],
+              patterns: [`stop:${jobID}`],
               always: [],
-              metadata: { jobID: params.jobID },
+              metadata: { jobID },
             })
-            return result(params.jobID, yield* runtime.stop(ctx.sessionID, params.jobID))
+            return result(jobID, yield* runtime.stop(ctx.sessionID, jobID))
           }
-          return result(
-            params.jobID,
-            yield* readOutput(store, ctx.sessionID, params.jobID, params.offset, params.limit),
-          )
+          const jobID = yield* requireJobID(params.action, params.jobID)
+          return result(jobID, yield* readOutput(store, ctx.sessionID, jobID, params.offset, params.limit))
         }).pipe(Effect.orDie),
     }
   }),
@@ -72,16 +78,12 @@ export function safeDefinition(store: SessionJobStore.Interface): Tool.Def<typeo
           Effect.mapError((error) => new Tool.InvalidArgumentsError({ tool: "job", detail: String(error) })),
         )
         if (decoded.action === "list") return result("Background jobs", (yield* store.list(ctx.sessionID)).map(info))
-        if (decoded.action === "get") return result(decoded.jobID, info(yield* store.get(ctx.sessionID, decoded.jobID)))
-        if (decoded.action === "output") {
-          return result(
-            decoded.jobID,
-            yield* readOutput(store, ctx.sessionID, decoded.jobID, decoded.offset, decoded.limit),
-          )
+        if (decoded.action === "get") {
+          const jobID = yield* requireJobID(decoded.action, decoded.jobID)
+          return result(jobID, info(yield* store.get(ctx.sessionID, jobID)))
         }
-        return yield* Effect.fail(
-          new Tool.InvalidArgumentsError({ tool: "job", detail: "Only list, get, and output are allowed" }),
-        )
+        const jobID = yield* requireJobID(decoded.action, decoded.jobID)
+        return result(jobID, yield* readOutput(store, ctx.sessionID, jobID, decoded.offset, decoded.limit))
       }).pipe(Effect.orDie),
   }
 }
