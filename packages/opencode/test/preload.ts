@@ -10,8 +10,8 @@ import { afterAll } from "bun:test"
 const dir = path.join(os.tmpdir(), "opencode-test-data-" + process.pid)
 await fs.mkdir(dir, { recursive: true })
 afterAll(async () => {
-  const { AppRuntime } = await import("../src/effect/app-runtime")
-  await AppRuntime.dispose()
+  const { disposeAppRuntimeForTest } = await import("../src/effect/app-runtime")
+  await disposeAppRuntimeForTest()
 
   const busy = (error: unknown) =>
     typeof error === "object" && error !== null && "code" in error && error.code === "EBUSY"

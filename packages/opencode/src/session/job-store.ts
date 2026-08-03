@@ -82,6 +82,7 @@ export interface Interface {
   }) => Effect.Effect<boolean>
   readonly abandon: (sessionID: SessionID, jobID: string) => Effect.Effect<boolean>
   readonly reconcile: (sessionID: SessionID, runtimeID: string) => Effect.Effect<Row[]>
+  readonly reconcileOwned: (sessionID: SessionID, runtimeID: string, jobIDs: string[]) => Effect.Effect<Row[]>
   readonly claimNotifications: (sessionID: SessionID, token: string, now: number) => Effect.Effect<Row[]>
   readonly releaseClaim: (sessionID: SessionID, token: string) => Effect.Effect<void>
   readonly reserveAdmission: (
@@ -361,6 +362,33 @@ const layer = Layer.effect(
         (row) => row.notification_state === "pending" || row.notification_state === "admitted",
       )
     })
+
+    const reconcileOwned: Interface["reconcileOwned"] = Effect.fn("SessionJobStore.reconcileOwned")(
+      function* (sessionID, runtimeID, jobIDs) {
+        if (jobIDs.length === 0) return []
+        const now = Date.now()
+        return yield* db
+          .update(SessionJobTable)
+          .set({
+            status: "interrupted",
+            error_code: "runtime_shutdown",
+            notification_state: "pending",
+            time_completed: now,
+            time_updated: now,
+          })
+          .where(
+            and(
+              eq(SessionJobTable.session_id, sessionID),
+              inArray(SessionJobTable.id, jobIDs),
+              eq(SessionJobTable.runtime_id, runtimeID),
+              inArray(SessionJobTable.status, ACTIVE),
+            ),
+          )
+          .returning()
+          .all()
+          .pipe(Effect.orDie)
+      },
+    )
 
     const claimNotifications: Interface["claimNotifications"] = Effect.fn("SessionJobStore.claimNotifications")(
       function* (sessionID, token, now) {
@@ -677,6 +705,7 @@ const layer = Layer.effect(
       finish,
       abandon,
       reconcile,
+      reconcileOwned,
       claimNotifications,
       releaseClaim,
       reserveAdmission,

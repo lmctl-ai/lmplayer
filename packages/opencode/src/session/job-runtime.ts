@@ -4,7 +4,7 @@ import { Global } from "@opencode-ai/core/global"
 import { SessionJob } from "@opencode-ai/schema/session-job"
 import { ChildProcess } from "effect/unstable/process"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
-import { Context, Deferred, Effect, Fiber, Layer, Scope, Stream } from "effect"
+import { Context, Deferred, Effect, Fiber, Layer, Scope, Semaphore, Stream } from "effect"
 import { mkdir, open, rm } from "node:fs/promises"
 import path from "path"
 import type { SessionID } from "./schema"
@@ -14,6 +14,7 @@ import { Database } from "@opencode-ai/core/database/database"
 import { SessionTable } from "@opencode-ai/core/session/sql"
 
 type Handle = {
+  readonly sessionID: SessionID
   readonly stop: Deferred.Deferred<"explicit_stop" | "runtime_shutdown">
   readonly fiber: Fiber.Fiber<void>
 }
@@ -313,7 +314,7 @@ const layer = Layer.effect(
         ),
       )
       const fiber = yield* actor.pipe(Effect.forkIn(scope))
-      handles.set(row.id, { stop, fiber })
+      handles.set(row.id, { sessionID: row.session_id, stop, fiber })
       if (fiber.pollUnsafe()) handles.delete(row.id)
     })
 
@@ -390,23 +391,42 @@ const layer = Layer.effect(
       },
     )
 
-    let shutdownStarted = false
+    const shutdownLock = Semaphore.makeUnsafe(1)
+    let shutdownComplete = false
+    let shutdownTargets: { sessionID: SessionID; jobID: string }[] | undefined
     const shutdown: Interface["shutdown"] = Effect.fnUntraced(function* () {
-      if (shutdownStarted) return
-      shutdownStarted = true
-      closing = true
-      yield* Effect.forEach(handles.values(), (handle) => Deferred.succeed(handle.stop, "runtime_shutdown"), {
-        discard: true,
-      })
-      yield* Effect.forEach(handles.values(), (handle) => Fiber.await(handle.fiber), {
-        concurrency: "unbounded",
-        discard: true,
-      })
-      const sessions = yield* db.select({ id: SessionTable.id }).from(SessionTable).all().pipe(Effect.orDie)
-      yield* Effect.forEach(
-        sessions,
-        (session) => store.reconcile(session.id, "session-job-shutdown").pipe(Effect.asVoid),
-        { discard: true },
+      yield* shutdownLock.withPermit(
+        Effect.gen(function* () {
+          if (shutdownComplete) return
+          closing = true
+          shutdownTargets ??= [...handles].map(([jobID, handle]) => ({ sessionID: handle.sessionID, jobID }))
+          yield* Effect.forEach(
+            shutdownTargets,
+            (target) => {
+              const handle = handles.get(target.jobID)
+              return handle ? Deferred.succeed(handle.stop, "runtime_shutdown") : Effect.void
+            },
+            { discard: true },
+          )
+          yield* Effect.forEach(
+            shutdownTargets,
+            (target) => {
+              const handle = handles.get(target.jobID)
+              return handle ? Fiber.await(handle.fiber).pipe(Effect.asVoid) : Effect.void
+            },
+            { concurrency: "unbounded", discard: true },
+          )
+          const sessions = shutdownTargets.reduce((result, target) => {
+            result.set(target.sessionID, [...(result.get(target.sessionID) ?? []), target.jobID])
+            return result
+          }, new Map<SessionID, string[]>())
+          yield* Effect.forEach(
+            sessions,
+            ([sessionID, jobIDs]) => store.reconcileOwned(sessionID, runtimeID, jobIDs).pipe(Effect.asVoid),
+            { discard: true },
+          )
+          shutdownComplete = true
+        }),
       )
     })
 
