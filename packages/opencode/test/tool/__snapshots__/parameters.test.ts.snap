@@ -20,6 +20,10 @@ exports[`tool parameters JSON Schema (wire shape) bash 1`] = `
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "background": {
+      "description": "Submit the command as a session-scoped background job and return immediately",
+      "type": "boolean",
+    },
     "command": {
       "description": "The command to execute",
       "type": "string",

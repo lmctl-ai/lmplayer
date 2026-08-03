@@ -114,6 +114,9 @@ describe("tool parameters", () => {
       expect(parsed.timeout).toBe(5000)
       expect(parsed.workdir).toBe("/tmp")
     })
+    test("accepts optional background flag", () => {
+      expect(parse(Shell, { command: "sleep 1", background: true }).background).toBe(true)
+    })
     test("rejects missing command", () => {
       expect(accepts(Shell, {})).toBe(false)
     })

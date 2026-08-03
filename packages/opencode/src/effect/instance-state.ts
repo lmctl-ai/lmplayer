@@ -61,6 +61,11 @@ export const has = <A, E, R>(self: InstanceState<A, E, R>) =>
     return yield* ScopedCache.has(self.cache, yield* directory)
   })
 
+export const getSuccess = <A, E, R>(self: InstanceState<A, E, R>) =>
+  Effect.gen(function* () {
+    return yield* ScopedCache.getSuccess(self.cache, yield* directory)
+  })
+
 export const invalidate = <A, E, R>(self: InstanceState<A, E, R>) =>
   Effect.gen(function* () {
     return yield* ScopedCache.invalidate(self.cache, yield* directory)

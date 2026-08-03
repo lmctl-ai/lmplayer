@@ -12,6 +12,7 @@ import { testEffect } from "../lib/effect"
 import { SessionID } from "../../src/session/schema"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
+import { SessionTurnContext } from "@/session/turn-context"
 
 const noopBootstrap = Layer.succeed(InstanceBootstrap.Service, InstanceBootstrap.Service.of({ run: Effect.void }))
 const env = AppNodeBuilder.build(
@@ -44,6 +45,25 @@ const list = () =>
     const permission = yield* Permission.Service
     return yield* permission.list()
   })
+
+it.instance("fails closed without publishing a prompt during an unattended notification turn", () =>
+  Effect.gen(function* () {
+    const sessionID = SessionID.make("ses_notification_permission")
+    const error = yield* SessionTurnContext.provide(
+      ask({
+        sessionID,
+        permission: "question",
+        patterns: ["outside-explicit-call-sites"],
+        always: [],
+        metadata: {},
+        ruleset: [],
+      }),
+      { sessionID, notificationOrigin: true },
+    ).pipe(Effect.flip)
+    expect(error).toBeInstanceOf(PermissionV1.DeniedError)
+    expect(yield* list()).toEqual([])
+  }),
+)
 
 // fromConfig tests
 

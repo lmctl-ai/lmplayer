@@ -25,6 +25,7 @@ import { described } from "./metadata"
 import { QueryBoolean } from "./query"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
+import { SessionJob } from "@opencode-ai/schema/session-job"
 
 const root = "/session"
 export const ListQuery = Schema.Struct({
@@ -99,6 +100,11 @@ export const RevertPayload = Schema.Struct(Struct.omit(SessionRevert.RevertInput
 export const PermissionResponsePayload = Schema.Struct({
   response: PermissionV1.Reply,
 })
+export const JobOutputQuery = Schema.Struct({
+  ...WorkspaceRoutingQueryFields,
+  offset: Schema.optional(Schema.NumberFromString),
+  limit: Schema.optional(Schema.NumberFromString),
+})
 
 export const SessionPaths = {
   list: root,
@@ -129,12 +135,42 @@ export const SessionPaths = {
   deleteMessage: `${root}/:sessionID/message/:messageID`,
   deletePart: `${root}/:sessionID/message/:messageID/part/:partID`,
   updatePart: `${root}/:sessionID/message/:messageID/part/:partID`,
+  jobs: `${root}/:sessionID/job`,
+  job: `${root}/:sessionID/job/:jobID`,
+  jobOutput: `${root}/:sessionID/job/:jobID/output`,
+  jobStop: `${root}/:sessionID/job/:jobID/stop`,
 } as const
 
 export const SessionApi = HttpApi.make("session")
   .add(
     HttpApiGroup.make("session")
       .add(
+        HttpApiEndpoint.get("jobs", SessionPaths.jobs, {
+          params: { sessionID: SessionID },
+          query: WorkspaceRoutingQuery,
+          success: described(Schema.Array(SessionJob.Info), "Background jobs"),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(OpenApi.annotations({ identifier: "session.jobs", summary: "List background jobs" })),
+        HttpApiEndpoint.get("job", SessionPaths.job, {
+          params: { sessionID: SessionID, jobID: Schema.String },
+          query: WorkspaceRoutingQuery,
+          success: described(SessionJob.Info, "Background job"),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(OpenApi.annotations({ identifier: "session.job", summary: "Get background job" })),
+        HttpApiEndpoint.get("jobOutput", SessionPaths.jobOutput, {
+          params: { sessionID: SessionID, jobID: Schema.String },
+          query: JobOutputQuery,
+          success: described(SessionJob.Output, "Background job output"),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({ identifier: "session.job.output", summary: "Read background job output" }),
+        ),
+        HttpApiEndpoint.post("jobStop", SessionPaths.jobStop, {
+          params: { sessionID: SessionID, jobID: Schema.String },
+          query: WorkspaceRoutingQuery,
+          success: described(SessionJob.Info, "Stopped background job"),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(OpenApi.annotations({ identifier: "session.job.stop", summary: "Stop background job" })),
         HttpApiEndpoint.get("list", SessionPaths.list, {
           query: ListQuery,
           success: described(Schema.Array(Session.Info), "List of sessions"),

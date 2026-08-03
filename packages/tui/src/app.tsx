@@ -1034,6 +1034,29 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
     })
   })
 
+  event.on("session.job.started", (evt, { workspace }) => {
+    if (workspace !== project.workspace.current()) return
+    if (route.data.type !== "session" || route.data.sessionID !== evt.properties.sessionID) return
+    toast.show({
+      variant: "info",
+      title: "Background job started",
+      message: evt.properties.jobID,
+      duration: 3000,
+    })
+  })
+
+  event.on("session.job.completed", (evt, { workspace }) => {
+    if (workspace !== project.workspace.current()) return
+    if (route.data.type !== "session" || route.data.sessionID !== evt.properties.sessionID) return
+    const successful = evt.properties.status === "completed"
+    toast.show({
+      variant: successful ? "success" : "warning",
+      title: successful ? "Background job completed" : "Background job stopped",
+      message: `${evt.properties.jobID} · ${evt.properties.status}`,
+      duration: 5000,
+    })
+  })
+
   event.on("installation.update-available", async (evt) => {
     console.log("installation.update-available", evt)
     const version = evt.properties.version

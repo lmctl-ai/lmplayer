@@ -24,6 +24,7 @@ import * as HttpSessionError from "../../src/server/routes/instance/httpapi/hand
 import { ExperimentalPaths } from "../../src/server/routes/instance/httpapi/groups/experimental"
 import { SessionPaths } from "../../src/server/routes/instance/httpapi/groups/session"
 import { Session } from "@/session/session"
+import { SessionJobRuntime } from "@/session/job-runtime"
 import { MessageID, PartID, SessionID, type SessionID as SessionIDType } from "../../src/session/schema"
 import { Database } from "@opencode-ai/core/database/database"
 import { SessionInputTable, SessionMessageTable, SessionTable } from "@opencode-ai/core/session/sql"
@@ -44,7 +45,15 @@ const noopBootstrapLayer = Layer.succeed(
   InstanceBootstrapService.Service.of({ run: Effect.void }),
 )
 const appLayer = AppNodeBuilder.build(
-  LayerNode.group([InstanceStore.node, Project.node, Session.node, Workspace.node, Database.node, Ripgrep.node]),
+  LayerNode.group([
+    InstanceStore.node,
+    Project.node,
+    Session.node,
+    SessionJobRuntime.node,
+    Workspace.node,
+    Database.node,
+    Ripgrep.node,
+  ]),
   [[InstanceStore.bootstrapNode, noopBootstrapLayer]],
 )
 const servedRoutes: Layer.Layer<never, Config.ConfigError, HttpServer.HttpServer> = HttpRouter.serve(
@@ -384,6 +393,57 @@ describe("session HttpApi", () => {
             headers,
           })).data,
         ).toMatchObject([{ type: "assistant" }])
+      }),
+    { git: true, config: { formatter: false, lsp: false } },
+  )
+
+  it.instance(
+    "serves session-scoped background job routes",
+    () =>
+      Effect.gen(function* () {
+        const test = yield* TestInstance
+        const runtime = yield* SessionJobRuntime.Service
+        const headers = { "x-opencode-directory": test.directory }
+        const session = yield* createSession({ title: "job routes" })
+        const submitted = yield* runtime.submit({
+          sessionID: session.id,
+          assistantMessageID: "msg_job_routes",
+          toolCallID: "call-job-routes",
+          command: "printf api-output",
+          cwd: test.directory,
+          shell: "/bin/sh",
+          timeout: 10_000,
+          env: process.env,
+        })
+        yield* pollWithTimeout(
+          requestJson<Array<{ id: string; status: string }>>(pathFor(SessionPaths.jobs, { sessionID: session.id }), {
+            headers,
+          }).pipe(
+            Effect.map((jobs) =>
+              jobs.some((job) => job.id === submitted.job.id && job.status === "completed") ? jobs : undefined,
+            ),
+          ),
+          "background job was not visible through the HTTP API",
+        )
+
+        expect(
+          yield* requestJson<{ id: string }>(
+            pathFor(SessionPaths.job, { sessionID: session.id, jobID: submitted.job.id }),
+            { headers },
+          ),
+        ).toMatchObject({ id: submitted.job.id })
+        expect(
+          yield* requestJson<{ untrustedOutput: string }>(
+            pathFor(SessionPaths.jobOutput, { sessionID: session.id, jobID: submitted.job.id }),
+            { headers },
+          ),
+        ).toMatchObject({ untrustedOutput: "api-output" })
+        expect(
+          yield* requestJson<{ status: string }>(
+            pathFor(SessionPaths.jobStop, { sessionID: session.id, jobID: submitted.job.id }),
+            { headers, method: "POST" },
+          ),
+        ).toMatchObject({ status: "completed" })
       }),
     { git: true, config: { formatter: false, lsp: false } },
   )

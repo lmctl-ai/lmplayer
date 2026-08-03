@@ -7,6 +7,7 @@ import os from "os"
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { Config } from "@/config/config"
+import { SessionTurnContext } from "@/session/turn-context"
 
 export const Event = PermissionV1.Event
 
@@ -98,6 +99,12 @@ const layer = Layer.effect(
       // Asked/Deferred machinery below is retained as a harmless safety net for
       // any future explicitly-interactive caller but is unreachable here.
       if (!needsAsk) return
+
+      if ((yield* SessionTurnContext.Current).notificationOrigin) {
+        return yield* new PermissionV1.DeniedError({
+          ruleset: ruleset.filter((rule) => Wildcard.match(request.permission, rule.permission)),
+        })
+      }
 
       const id = request.id ?? PermissionV1.ID.ascending()
       const info: PermissionV1.Request = {

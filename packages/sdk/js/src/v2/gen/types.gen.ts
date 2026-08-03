@@ -68,6 +68,9 @@ export type Event =
   | EventQuestionV2Replied
   | EventQuestionV2Rejected
   | EventTodoUpdated
+  | EventSessionJobStarted
+  | EventSessionJobProgress
+  | EventSessionJobCompleted
   | EventLspUpdated
   | EventPermissionAsked
   | EventPermissionReplied
@@ -544,6 +547,21 @@ export type ToolPart = {
   }
 }
 
+export type SessionJobNotificationPart = {
+  id: string
+  sessionID: string
+  messageID: string
+  type: "session-job-notification"
+  batchID: string
+  jobs: Array<{
+    id: string
+    status: "queued" | "starting" | "running" | "completed" | "failed" | "timed_out" | "cancelled" | "interrupted"
+    exitCode?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    outputBytes: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    outputTruncated: boolean
+  }>
+}
+
 export type StepStartPart = {
   id: string
   sessionID: string
@@ -630,6 +648,7 @@ export type Part =
   | ReasoningPart
   | FilePart
   | ToolPart
+  | SessionJobNotificationPart
   | StepStartPart
   | StepFinishPart
   | SnapshotPart
@@ -1364,6 +1383,44 @@ export type GlobalEvent = {
         properties: {
           sessionID: string
           todos: Array<Todo>
+        }
+      }
+    | {
+        id: string
+        type: "session.job.started"
+        properties: {
+          sessionID: string
+          jobID: string
+        }
+      }
+    | {
+        id: string
+        type: "session.job.progress"
+        properties: {
+          sessionID: string
+          jobID: string
+          outputBytes: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+          outputTruncated: boolean
+        }
+      }
+    | {
+        id: string
+        type: "session.job.completed"
+        properties: {
+          sessionID: string
+          jobID: string
+          status: "queued" | "starting" | "running" | "completed" | "failed" | "timed_out" | "cancelled" | "interrupted"
+          outputBytes: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+          outputTruncated: boolean
+          exitCode?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+          errorCode?:
+            | "spawn_failed"
+            | "nonzero_exit"
+            | "timed_out"
+            | "explicit_stop"
+            | "runtime_shutdown"
+            | "launch_abandoned"
+            | "output_capture_failed"
         }
       }
     | {
@@ -2797,6 +2854,21 @@ export type OutputFormat1 =
       retryCount?: number
     }
 
+export type SessionJobNotificationPart1 = {
+  id: string
+  sessionID: string
+  messageID: string
+  type: "session-job-notification"
+  batchID: string
+  jobs: Array<{
+    id: string
+    status: "queued" | "starting" | "running" | "completed" | "failed" | "timed_out" | "cancelled" | "interrupted"
+    exitCode?: number | "NaN" | "Infinity" | "-Infinity"
+    outputBytes: number | "NaN" | "Infinity" | "-Infinity"
+    outputTruncated: boolean
+  }>
+}
+
 export type SessionStatus2 = {
   id: string
   metadata?: {
@@ -2916,6 +2988,9 @@ export type V2Event =
   | QuestionV2Replied
   | QuestionV2Rejected
   | TodoUpdated
+  | SessionJobStarted
+  | SessionJobProgress
+  | SessionJobCompleted
   | LspUpdated
   | PermissionAsked
   | PermissionReplied
@@ -3852,6 +3927,42 @@ export type ProjectDirectories = Array<{
 export type PtyTicketConnectToken = {
   ticket: string
   expires_in: number
+}
+
+export type SessionJobInfo = {
+  id: string
+  sessionID: string
+  status: "queued" | "starting" | "running" | "completed" | "failed" | "timed_out" | "cancelled" | "interrupted"
+  timeout: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  outputBytes: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  outputTruncated: boolean
+  outputExpired: boolean
+  exitCode?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  signal?: string
+  errorCode?:
+    | "spawn_failed"
+    | "nonzero_exit"
+    | "timed_out"
+    | "explicit_stop"
+    | "runtime_shutdown"
+    | "launch_abandoned"
+    | "output_capture_failed"
+  time: {
+    created: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    updated: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    started?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    completed?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type SessionJobOutput = {
+  jobID: string
+  startOffset: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  nextOffset: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  totalBytes: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  eof: boolean
+  outputExpired: boolean
+  untrustedOutput: string
 }
 
 export type WorkspaceEventConnectionStatus = {
@@ -5676,6 +5787,74 @@ export type TodoUpdated = {
   }
 }
 
+export type SessionJobStarted = {
+  id: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  type: "session.job.started"
+  durable?: {
+    aggregateID: string
+    seq: number
+    version: number
+  }
+  location?: LocationRef
+  data: {
+    sessionID: string
+    jobID: string
+  }
+}
+
+export type SessionJobProgress = {
+  id: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  type: "session.job.progress"
+  durable?: {
+    aggregateID: string
+    seq: number
+    version: number
+  }
+  location?: LocationRef
+  data: {
+    sessionID: string
+    jobID: string
+    outputBytes: number | "NaN" | "Infinity" | "-Infinity"
+    outputTruncated: boolean
+  }
+}
+
+export type SessionJobCompleted = {
+  id: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  type: "session.job.completed"
+  durable?: {
+    aggregateID: string
+    seq: number
+    version: number
+  }
+  location?: LocationRef
+  data: {
+    sessionID: string
+    jobID: string
+    status: "queued" | "starting" | "running" | "completed" | "failed" | "timed_out" | "cancelled" | "interrupted"
+    outputBytes: number | "NaN" | "Infinity" | "-Infinity"
+    outputTruncated: boolean
+    exitCode?: number | "NaN" | "Infinity" | "-Infinity"
+    errorCode?:
+      | "spawn_failed"
+      | "nonzero_exit"
+      | "timed_out"
+      | "explicit_stop"
+      | "runtime_shutdown"
+      | "launch_abandoned"
+      | "output_capture_failed"
+  }
+}
+
 export type LspUpdated = {
   id: string
   metadata?: {
@@ -6845,6 +7024,47 @@ export type EventTodoUpdated = {
   properties: {
     sessionID: string
     todos: Array<Todo>
+  }
+}
+
+export type EventSessionJobStarted = {
+  id: string
+  type: "session.job.started"
+  properties: {
+    sessionID: string
+    jobID: string
+  }
+}
+
+export type EventSessionJobProgress = {
+  id: string
+  type: "session.job.progress"
+  properties: {
+    sessionID: string
+    jobID: string
+    outputBytes: number | "NaN" | "Infinity" | "-Infinity"
+    outputTruncated: boolean
+  }
+}
+
+export type EventSessionJobCompleted = {
+  id: string
+  type: "session.job.completed"
+  properties: {
+    sessionID: string
+    jobID: string
+    status: "queued" | "starting" | "running" | "completed" | "failed" | "timed_out" | "cancelled" | "interrupted"
+    outputBytes: number | "NaN" | "Infinity" | "-Infinity"
+    outputTruncated: boolean
+    exitCode?: number | "NaN" | "Infinity" | "-Infinity"
+    errorCode?:
+      | "spawn_failed"
+      | "nonzero_exit"
+      | "timed_out"
+      | "explicit_stop"
+      | "runtime_shutdown"
+      | "launch_abandoned"
+      | "output_capture_failed"
   }
 }
 
@@ -9435,6 +9655,147 @@ export type ProviderOauthCallbackResponses = {
 }
 
 export type ProviderOauthCallbackResponse = ProviderOauthCallbackResponses[keyof ProviderOauthCallbackResponses]
+
+export type SessionJobsData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/job"
+}
+
+export type SessionJobsErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type SessionJobsError = SessionJobsErrors[keyof SessionJobsErrors]
+
+export type SessionJobsResponses = {
+  /**
+   * Background jobs
+   */
+  200: Array<SessionJobInfo>
+}
+
+export type SessionJobsResponse = SessionJobsResponses[keyof SessionJobsResponses]
+
+export type SessionJobData = {
+  body?: never
+  path: {
+    sessionID: string
+    jobID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/job/{jobID}"
+}
+
+export type SessionJobErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type SessionJobError = SessionJobErrors[keyof SessionJobErrors]
+
+export type SessionJobResponses = {
+  /**
+   * Background job
+   */
+  200: SessionJobInfo
+}
+
+export type SessionJobResponse = SessionJobResponses[keyof SessionJobResponses]
+
+export type SessionJobOutputData = {
+  body?: never
+  path: {
+    sessionID: string
+    jobID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+    offset?: string
+    limit?: string
+  }
+  url: "/session/{sessionID}/job/{jobID}/output"
+}
+
+export type SessionJobOutputErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type SessionJobOutputError = SessionJobOutputErrors[keyof SessionJobOutputErrors]
+
+export type SessionJobOutputResponses = {
+  /**
+   * Background job output
+   */
+  200: SessionJobOutput
+}
+
+export type SessionJobOutputResponse = SessionJobOutputResponses[keyof SessionJobOutputResponses]
+
+export type SessionJobStopData = {
+  body?: never
+  path: {
+    sessionID: string
+    jobID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/job/{jobID}/stop"
+}
+
+export type SessionJobStopErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type SessionJobStopError = SessionJobStopErrors[keyof SessionJobStopErrors]
+
+export type SessionJobStopResponses = {
+  /**
+   * Stopped background job
+   */
+  200: SessionJobInfo
+}
+
+export type SessionJobStopResponse = SessionJobStopResponses[keyof SessionJobStopResponses]
 
 export type SessionListData = {
   body?: never

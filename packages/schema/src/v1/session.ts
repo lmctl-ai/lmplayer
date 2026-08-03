@@ -11,6 +11,7 @@ import { ascending } from "../identifier"
 import { SessionID } from "../session-id"
 import { WorkspaceID } from "../workspace-id"
 import { PermissionV1 } from "./permission"
+import { SessionJob } from "../session-job"
 
 const Timestamp = Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0))
 
@@ -324,6 +325,22 @@ export type ToolPart = Omit<Types.DeepMutable<Schema.Schema.Type<typeof ToolPart
   state: ToolState
 }
 
+export const SessionJobNotificationPart = Schema.Struct({
+  ...partBase,
+  type: Schema.Literal("session-job-notification"),
+  batchID: Schema.String,
+  jobs: Schema.Array(
+    Schema.Struct({
+      id: Schema.String,
+      status: SessionJob.Status,
+      exitCode: Schema.optional(Schema.Number),
+      outputBytes: Schema.Number,
+      outputTruncated: Schema.Boolean,
+    }),
+  ),
+}).annotate({ identifier: "SessionJobNotificationPart" })
+export type SessionJobNotificationPart = Types.DeepMutable<Schema.Schema.Type<typeof SessionJobNotificationPart>>
+
 const messageBase = {
   id: MessageID,
   sessionID: partBase.sessionID,
@@ -360,6 +377,7 @@ export const Part = Schema.Union([
   ReasoningPart,
   FilePart,
   ToolPart,
+  SessionJobNotificationPart,
   StepStartPart,
   StepFinishPart,
   SnapshotPart,
@@ -374,6 +392,7 @@ export type Part =
   | ReasoningPart
   | FilePart
   | ToolPart
+  | SessionJobNotificationPart
   | StepStartPart
   | StepFinishPart
   | SnapshotPart

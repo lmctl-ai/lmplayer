@@ -30,6 +30,7 @@ import { LLMAISDK } from "./llm/ai-sdk"
 import { LLMNativeRuntime } from "./llm/native-runtime"
 import { LLMRequestPrep } from "./llm/request"
 import { LLMVerbose } from "./llm/verbose"
+import { assertNotificationToolCall } from "@/tool/job"
 
 export const OUTPUT_TOKEN_MAX = ProviderTransform.OUTPUT_TOKEN_MAX
 
@@ -44,6 +45,7 @@ export type StreamInput = {
   messages: ModelMessage[]
   small?: boolean
   tools: Record<string, Tool>
+  notificationOrigin?: boolean
   retries?: number
   toolChoice?: "auto" | "required" | "none"
 }
@@ -104,7 +106,7 @@ const live: Layer.Layer<
       )
 
       const isWorkflow = language instanceof GitLabWorkflowLanguageModel
-      const prepared = yield* LLMRequestPrep.prepare({
+      const request = yield* LLMRequestPrep.prepare({
         ...input,
         provider: item,
         auth: info,
@@ -112,6 +114,10 @@ const live: Layer.Layer<
         flags,
         isWorkflow,
       })
+      const prepared = {
+        ...request,
+        tools: input.notificationOrigin ? notificationDispatchTools(request.tools) : request.tools,
+      }
 
       // Wire up toolExecutor for DWS workflow models so that tool calls
       // from the workflow service are executed via opencode's tool system
@@ -147,63 +153,69 @@ const live: Layer.Layer<
           }
         }
 
-        const ruleset = Permission.merge(input.agent.permission ?? [], input.permission ?? [])
-        workflowModel.sessionPreapprovedTools = Object.keys(prepared.tools).filter((name) => {
-          const match = ruleset.findLast((rule) => Wildcard.match(name, rule.permission))
-          return !match || match.action !== "ask"
-        })
+        if (input.notificationOrigin) configureNotificationWorkflowApproval(workflowModel)
+        if (!input.notificationOrigin) {
+          const ruleset = Permission.merge(input.agent.permission ?? [], input.permission ?? [])
+          workflowModel.sessionPreapprovedTools = Object.keys(prepared.tools).filter((name) => {
+            const match = ruleset.findLast((rule) => Wildcard.match(name, rule.permission))
+            return !match || match.action !== "ask"
+          })
 
-        const approvedToolsForSession = new Set<string>()
-        workflowModel.approvalHandler = bridge.bind(async (approvalTools) => {
-          const uniqueNames = [...new Set(approvalTools.map((t: { name: string }) => t.name))] as string[]
-          // Auto-approve tools that were already approved in this session
-          // (prevents infinite approval loops for server-side MCP tools)
-          if (uniqueNames.every((name) => approvedToolsForSession.has(name))) {
-            return { approved: true }
-          }
+          const approvedToolsForSession = new Set<string>()
+          workflowModel.approvalHandler = bridge.bind(async (approvalTools) => {
+            const uniqueNames = [...new Set(approvalTools.map((t: { name: string }) => t.name))] as string[]
+            // Auto-approve tools that were already approved in this session
+            // (prevents infinite approval loops for server-side MCP tools)
+            if (uniqueNames.every((name) => approvedToolsForSession.has(name))) {
+              return { approved: true }
+            }
 
-          const id = PermissionV1.ID.ascending()
-          let unsub: EventV2.Unsubscribe | undefined
-          try {
-            unsub = await bridge.promise(
-              events.listen((event) => {
-                if (event.type !== Permission.Event.Replied.type) return Effect.void
-                const data = event.data as EventV2.Data<typeof Permission.Event.Replied>
-                if (data.requestID !== id) return Effect.void
-                void data.reply
-                return Effect.void
-              }),
-            )
-            const toolPatterns = approvalTools.map((t: { name: string; args: string }) => {
-              try {
-                const parsed = JSON.parse(t.args) as Record<string, unknown>
-                const title = (parsed?.title ?? parsed?.name ?? "") as string
-                return title ? `${t.name}: ${title}` : t.name
-              } catch {
-                return t.name
-              }
-            })
-            const uniquePatterns = [...new Set(toolPatterns)] as string[]
-            await bridge.promise(
-              perm.ask({
-                id,
-                sessionID: SessionID.make(input.sessionID),
-                permission: "workflow_tool_approval",
-                patterns: uniquePatterns,
-                metadata: { tools: approvalTools },
-                always: uniquePatterns,
-                ruleset: [],
-              }),
-            )
-            for (const name of uniqueNames) approvedToolsForSession.add(name)
-            workflowModel.sessionPreapprovedTools = [...(workflowModel.sessionPreapprovedTools ?? []), ...uniqueNames]
-            return { approved: true }
-          } catch {
-            return { approved: false }
-          } finally {
-            if (unsub) await bridge.promise(unsub)
-          }
-        })
+            const id = PermissionV1.ID.ascending()
+            let unsub: EventV2.Unsubscribe | undefined
+            try {
+              unsub = await bridge.promise(
+                events.listen((event) => {
+                  if (event.type !== Permission.Event.Replied.type) return Effect.void
+                  const data = event.data as EventV2.Data<typeof Permission.Event.Replied>
+                  if (data.requestID !== id) return Effect.void
+                  void data.reply
+                  return Effect.void
+                }),
+              )
+              const toolPatterns = approvalTools.map((t: { name: string; args: string }) => {
+                try {
+                  const parsed = JSON.parse(t.args) as Record<string, unknown>
+                  const title = (parsed?.title ?? parsed?.name ?? "") as string
+                  return title ? `${t.name}: ${title}` : t.name
+                } catch {
+                  return t.name
+                }
+              })
+              const uniquePatterns = [...new Set(toolPatterns)] as string[]
+              await bridge.promise(
+                perm.ask({
+                  id,
+                  sessionID: SessionID.make(input.sessionID),
+                  permission: "workflow_tool_approval",
+                  patterns: uniquePatterns,
+                  metadata: { tools: approvalTools },
+                  always: uniquePatterns,
+                  ruleset: [],
+                }),
+              )
+              for (const name of uniqueNames) approvedToolsForSession.add(name)
+              workflowModel.sessionPreapprovedTools = [
+                ...(workflowModel.sessionPreapprovedTools ?? []),
+                ...uniqueNames,
+              ]
+              return { approved: true }
+            } catch {
+              return { approved: false }
+            } finally {
+              if (unsub) await bridge.promise(unsub)
+            }
+          })
+        }
       }
 
       const tracer = cfg.experimental?.openTelemetry
@@ -410,6 +422,39 @@ const live: Layer.Layer<
     return Service.of({ stream })
   }),
 )
+
+export function notificationDispatchTools(tools: Record<string, Tool>): Record<string, Tool> {
+  const job = tools.job
+  if (!job) return {}
+  return {
+    job: {
+      ...job,
+      ...(job.execute
+        ? {
+            execute(args, options) {
+              const decoded = assertNotificationToolCall("job", args)
+              return job.execute!(decoded, options)
+            },
+          }
+        : {}),
+    },
+  } satisfies Record<string, Tool>
+}
+
+export function configureNotificationWorkflowApproval(workflowModel: {
+  sessionPreapprovedTools?: string[]
+  approvalHandler?: (approvalTools: { name: string; args: string }[]) => Promise<{ approved: boolean }>
+}) {
+  workflowModel.sessionPreapprovedTools = ["job"]
+  workflowModel.approvalHandler = async (approvalTools) => {
+    try {
+      for (const approval of approvalTools) assertNotificationToolCall(approval.name, JSON.parse(approval.args))
+      return { approved: true }
+    } catch {
+      return { approved: false }
+    }
+  }
+}
 
 export const hasToolCalls = LLMRequestPrep.hasToolCalls
 

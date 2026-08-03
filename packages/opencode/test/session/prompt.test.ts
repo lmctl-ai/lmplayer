@@ -57,6 +57,9 @@ import { RuntimeFlags } from "@/effect/runtime-flags"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { LocationServiceMap, locationServiceMapLayer } from "@opencode-ai/core/location-services"
+import { SessionJobRuntime } from "@/session/job-runtime"
+import { SessionJobStore } from "@/session/job-store"
+import { SessionJobNotificationRetry } from "@/session/notification-retry"
 
 const summary = Layer.succeed(
   SessionSummary.Service,
@@ -166,6 +169,52 @@ const blockingProcessor = Layer.succeed(
 
 const runtimeFlags = RuntimeFlags.layer({ experimentalEventSystem: true })
 
+const notificationGuardPlugin = Layer.succeed(
+  Plugin.Service,
+  Plugin.Service.of({
+    init: () => Effect.void,
+    list: () => Effect.succeed([]),
+    trigger: ((name: string, _input: unknown, output: unknown) =>
+      new Set([
+        "tool.definition",
+        "experimental.chat.messages.transform",
+        "experimental.chat.system.transform",
+        "chat.params",
+        "chat.headers",
+      ]).has(name)
+        ? Effect.die(`notification-origin turn reached plugin hook ${name}`)
+        : Effect.succeed(output)) as Plugin.Interface["trigger"],
+  }),
+)
+
+const providerModelHookState = { calls: [] as string[], hang: true }
+const notificationProviderPlugin = Layer.succeed(
+  Plugin.Service,
+  Plugin.Service.of({
+    init: () => Effect.void,
+    list: () =>
+      Effect.succeed([
+        {
+          provider: {
+            id: "anthropic",
+            models: async (provider) => {
+              providerModelHookState.calls.push("called")
+              if (providerModelHookState.hang) return await new Promise<never>(() => {})
+              return provider.models
+            },
+          },
+        },
+      ]),
+    trigger: ((_name: string, _input: unknown, output: unknown) =>
+      Effect.succeed(output)) as Plugin.Interface["trigger"],
+  }),
+)
+
+const notificationGuardMcp = Layer.mock(MCP.Service, {
+  tools: () => Effect.die("notification-origin resolution reached the MCP catalog"),
+  instructions: () => Effect.succeed([]),
+})
+
 const testLLMServerNode = LayerNode.make({ service: TestLLMServer, layer: TestLLMServer.layer, deps: [] })
 
 const promptRoot = LayerNode.group([
@@ -252,6 +301,38 @@ const withMcpInstructions = testEffect(
       },
     ],
   }),
+)
+const guardedNotifications = testEffect(
+  LayerNode.compile(
+    LayerNode.group([promptRoot, testLLMServerNode, SessionJobRuntime.node, SessionJobStore.node, EventV2Bridge.node]),
+    [
+      [SessionSummary.node, summary],
+      [LSP.node, lsp],
+      [MCP.node, notificationGuardMcp],
+      [Plugin.node, notificationGuardPlugin],
+      [RuntimeFlags.node, runtimeFlags],
+    ],
+  ),
+)
+const providerGuardNotifications = testEffect(
+  LayerNode.compile(LayerNode.group([promptRoot, testLLMServerNode]), [
+    [SessionSummary.node, summary],
+    [LSP.node, lsp],
+    [MCP.node, makeMcp()],
+    [Plugin.node, notificationProviderPlugin],
+    [RuntimeFlags.node, runtimeFlags],
+  ]),
+)
+const jobNotifications = testEffect(
+  LayerNode.compile(
+    LayerNode.group([promptRoot, testLLMServerNode, SessionJobRuntime.node, SessionJobStore.node, EventV2Bridge.node]),
+    [
+      [SessionSummary.node, summary],
+      [LSP.node, lsp],
+      [MCP.node, makeMcp()],
+      [RuntimeFlags.node, runtimeFlags],
+    ],
+  ).pipe(Layer.provide(Layer.succeed(SessionJobNotificationRetry.Policy, { delay: () => Effect.void }))),
 )
 const unix = process.platform !== "win32" ? it.instance : it.instance.skip
 const unixNoLLMServer = process.platform !== "win32" ? noLLMServer.instance : noLLMServer.instance.skip
@@ -551,6 +632,268 @@ it.instance("loop calls LLM and returns assistant message", () =>
     const parts = result.parts.filter((p) => p.type === "text")
     expect(parts.some((p) => p.type === "text" && p.text === "world")).toBe(true)
     expect(yield* llm.hits).toHaveLength(1)
+  }),
+)
+
+guardedNotifications.instance("delivers one completed-job notification turn and stops", () =>
+  Effect.gen(function* () {
+    const { dir, llm } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const runtime = yield* SessionJobRuntime.Service
+    const store = yield* SessionJobStore.Service
+    const chat = yield* sessions.create({ title: "Pinned" })
+    const initial = yield* prompt.prompt({
+      sessionID: chat.id,
+      agent: "build",
+      noReply: true,
+      parts: [{ type: "text", text: "run the background check" }],
+    })
+    yield* llm.push(reply().text("The background job completed.").stop())
+
+    const submitted = yield* runtime.submit({
+      sessionID: chat.id,
+      assistantMessageID: initial.info.id,
+      toolCallID: "notification-e2e",
+      command: "printf done",
+      cwd: dir,
+      shell: "/bin/sh",
+      timeout: 10_000,
+      env: process.env,
+    })
+    const delivered = yield* pollWithTimeout(
+      store
+        .get(chat.id, submitted.job.id)
+        .pipe(Effect.map((row) => (row.notification_state === "delivered" ? row : undefined))),
+      "job completion notification was not delivered",
+    )
+    expect(delivered.notification_message_id).toStartWith("msg_")
+    expect(delivered.notification_message_id).not.toStartWith("msg_job_")
+    expect(yield* llm.hits).toHaveLength(1)
+
+    const messages = yield* sessions.messages({ sessionID: chat.id })
+    const notification = messages.find((message) =>
+      message.parts.some((part) => part.type === "session-job-notification"),
+    )
+    expect(notification?.info.role).toBe("user")
+    const replies = messages.filter(
+      (message) =>
+        message.info.role === "assistant" &&
+        message.info.parentID === notification?.info.id &&
+        message.info.finish === "stop",
+    )
+    expect(replies).toHaveLength(1)
+  }),
+)
+
+providerGuardNotifications.instance("bounds provider model hooks during a notification-origin model lookup", () =>
+  Effect.gen(function* () {
+    yield* Effect.sync(() => {
+      providerModelHookState.calls.splice(0)
+      providerModelHookState.hang = true
+    })
+    yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({ title: "Pinned" })
+    const notification = yield* prompt.prompt({
+      sessionID: chat.id,
+      agent: "build",
+      model: ref,
+      noReply: true,
+      parts: [{ type: "text", text: "background job completed" }],
+    })
+    yield* sessions.updatePart({
+      id: PartID.ascending(),
+      messageID: notification.info.id,
+      sessionID: chat.id,
+      type: "session-job-notification",
+      batchID: "job_batch_provider_guard",
+      jobs: [],
+    })
+    expect(
+      SessionPrompt.isNotificationOrigin(yield* sessions.messages({ sessionID: chat.id }), notification.info.id),
+    ).toBe(true)
+
+    const exit = yield* prompt.loop({ sessionID: chat.id }).pipe(Effect.timeout("3 seconds"), Effect.exit)
+    expect(Exit.isFailure(exit)).toBe(true)
+    if (Exit.isFailure(exit)) expect(Cause.pretty(exit.cause)).toContain("Plugin hook timed out")
+    expect(providerModelHookState.calls.length).toBeGreaterThan(0)
+
+    yield* Effect.sync(() => (providerModelHookState.hang = false))
+    const providers = yield* ProviderSvc.Service
+    expect((yield* providers.getModel(ref.providerID, ref.modelID)).id).toBe(ref.modelID)
+  }),
+)
+
+jobNotifications.instance("causally delivers a notification observed by a newer user provider turn", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig(providerCfg)
+    const events = yield* EventV2Bridge.Service
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const store = yield* SessionJobStore.Service
+    const chat = yield* sessions.create({ title: "Pinned" })
+    const initial = yield* prompt.prompt({
+      sessionID: chat.id,
+      agent: "build",
+      noReply: true,
+      parts: [{ type: "text", text: "start the job" }],
+    })
+    const submitted = yield* store.submit({
+      sessionID: chat.id,
+      assistantMessageID: initial.info.id,
+      toolCallID: "causal-notification-race",
+      command: "printf done",
+      cwd: "/tmp",
+      shell: "/bin/sh",
+      timeout: 10_000,
+      outputPath: `/tmp/${crypto.randomUUID()}.log`,
+    })
+    const launch = yield* store.claimLaunch(chat.id, submitted.row.id, "causal-runtime")
+    if (!launch) return yield* Effect.die("causal test launch claim failed")
+    yield* store.markRunning(chat.id, launch.id, "causal-runtime", launch.launch_fence)
+    yield* store.finish({
+      sessionID: chat.id,
+      jobID: launch.id,
+      runtimeID: "causal-runtime",
+      fence: launch.launch_fence,
+      status: "completed",
+      exitCode: 0,
+      outputBytes: 0,
+      outputTruncated: false,
+      droppedBytes: 0,
+    })
+    const token = crypto.randomUUID()
+    yield* store.claimNotifications(chat.id, token, Date.now())
+    const batchID = "job_batch_causal"
+    const notificationID = MessageID.ascending()
+    yield* store.reserveAdmission(chat.id, token, batchID, notificationID)
+    yield* sessions.updateMessage({
+      id: notificationID,
+      sessionID: chat.id,
+      role: "user",
+      time: { created: Date.now() },
+      agent: "build",
+      model: ref,
+    })
+    const part = {
+      id: PartID.ascending(),
+      messageID: notificationID,
+      sessionID: chat.id,
+      type: "session-job-notification" as const,
+      batchID,
+      jobs: [{ id: launch.id, status: "completed" as const, exitCode: 0, outputBytes: 0, outputTruncated: false }],
+    }
+    yield* events.publish(
+      SessionV1.Event.PartUpdated,
+      { sessionID: chat.id, part, time: Date.now() },
+      { commit: () => store.markAdmitted(chat.id, token, batchID, notificationID).pipe(Effect.asVoid) },
+    )
+
+    const newer = yield* prompt.prompt({
+      sessionID: chat.id,
+      agent: "build",
+      noReply: true,
+      parts: [{ type: "text", text: "newer user input" }],
+    })
+    yield* llm.push(reply().text("I observed both inputs.").stop())
+    const assistant = yield* prompt.loop({ sessionID: chat.id })
+    expect(assistant.info.role === "assistant" ? assistant.info.parentID : undefined).toBe(newer.info.id)
+    expect((yield* store.get(chat.id, launch.id)).notification_observed_message_id).toBe(assistant.info.id)
+
+    yield* prompt.notifyJobs(chat.id)
+
+    expect((yield* store.get(chat.id, launch.id)).notification_state).toBe("delivered")
+    expect(yield* llm.hits).toHaveLength(1)
+  }),
+)
+
+it.instance("preserves notification origin across a synthetic compaction input", () =>
+  Effect.gen(function* () {
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({ title: "Pinned" })
+    const notification = yield* user(chat.id, "job completed")
+    yield* sessions.updatePart({
+      id: PartID.ascending(),
+      messageID: notification.id,
+      sessionID: chat.id,
+      type: "session-job-notification",
+      batchID: "job_batch_compaction",
+      jobs: [],
+    })
+    const compact = yield* sessions.updateMessage({
+      id: MessageID.ascending(),
+      role: "user",
+      model: ref,
+      sessionID: chat.id,
+      agent: "build",
+      time: { created: Date.now() },
+    })
+    yield* sessions.updatePart({
+      id: PartID.ascending(),
+      messageID: compact.id,
+      sessionID: chat.id,
+      type: "compaction",
+      auto: true,
+    })
+
+    expect(SessionPrompt.isNotificationOrigin(yield* sessions.messages({ sessionID: chat.id }), compact.id)).toBe(true)
+  }),
+)
+
+jobNotifications.instance(
+  "degrades repeated early lookup failures and recovers when the next user prompt arrives",
+  () =>
+    Effect.gen(function* () {
+      const { llm } = yield* useServerConfig(providerCfg)
+      const { db } = yield* Database.Service
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({ title: "Pinned" })
+      yield* prompt.prompt({
+        sessionID: chat.id,
+        agent: "build",
+        noReply: true,
+        parts: [{ type: "text", text: "initial prompt" }],
+      })
+
+      yield* db.run("ALTER TABLE session_job RENAME TO session_job_unavailable").pipe(Effect.orDie)
+      yield* prompt.scheduleJobNotifications(chat.id)
+      yield* prompt.waitJobNotifications(chat.id)
+      expect(prompt.jobNotificationsDegraded(chat.id)).toBe(true)
+      yield* db.run("ALTER TABLE session_job_unavailable RENAME TO session_job").pipe(Effect.orDie)
+
+      yield* llm.push(reply().text("Recovered after the user returned.").stop())
+      yield* prompt.prompt({
+        sessionID: chat.id,
+        agent: "build",
+        parts: [{ type: "text", text: "retry now" }],
+      })
+      yield* prompt.waitJobNotifications(chat.id)
+      expect(prompt.jobNotificationsDegraded(chat.id)).toBe(false)
+      expect(yield* llm.hits).toHaveLength(1)
+    }),
+  20_000,
+)
+
+jobNotifications.instance("settles a notification retry cleanly after its session runner is tombstoned", () =>
+  Effect.gen(function* () {
+    const prompt = yield* SessionPrompt.Service
+    const run = yield* SessionRunState.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({ title: "Pinned" })
+    yield* prompt.prompt({
+      sessionID: chat.id,
+      agent: "build",
+      noReply: true,
+      parts: [{ type: "text", text: "initial prompt" }],
+    })
+    yield* run.dispose(chat.id)
+
+    yield* prompt.scheduleJobNotifications(chat.id)
+    yield* prompt.waitJobNotifications(chat.id).pipe(Effect.timeout("2 seconds"))
+    expect(prompt.jobNotificationsDegraded(chat.id)).toBe(false)
   }),
 )
 

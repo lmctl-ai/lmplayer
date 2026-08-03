@@ -12,6 +12,7 @@ import type { MessageID, PartID, SessionV1 } from "../v1/session"
 import { WorkspaceV2 } from "../workspace"
 import { Timestamps } from "../database/schema.sql"
 import type { SystemContext } from "../system-context/index"
+import type { SessionJob } from "@opencode-ai/schema/session-job"
 import { AgentV2 } from "../agent"
 import type { Revert } from "@opencode-ai/schema/revert"
 
@@ -174,3 +175,66 @@ export const SessionContextEpochTable = sqliteTable("session_context_epoch", {
   snapshot: text({ mode: "json" }).notNull().$type<SystemContext.Snapshot>(),
   baseline_seq: integer().notNull(),
 })
+
+export const SessionJobTable = sqliteTable(
+  "session_job",
+  {
+    id: text().primaryKey(),
+    session_id: text()
+      .$type<SessionSchema.ID>()
+      .notNull()
+      .references(() => SessionTable.id, { onDelete: "cascade" }),
+    assistant_message_id: text().notNull(),
+    tool_call_id: text().notNull(),
+    submission_hash: text().notNull(),
+    kind: text().notNull().default("shell"),
+    command: text().notNull(),
+    cwd: text().notNull(),
+    shell: text().notNull(),
+    timeout_ms: integer().notNull(),
+    deadline_at: integer(),
+    status: text().$type<SessionJob.Status>().notNull(),
+    runtime_id: text(),
+    launch_fence: integer().notNull().default(0),
+    pid: integer(),
+    time_created: integer().notNull(),
+    time_updated: integer().notNull(),
+    time_started: integer(),
+    time_completed: integer(),
+    exit_code: integer(),
+    signal: text(),
+    error_code: text().$type<SessionJob.ErrorCode>(),
+    diagnostic_error: text(),
+    output_path: text().notNull(),
+    output_bytes: integer().notNull().default(0),
+    output_truncated: integer({ mode: "boolean" }).notNull().default(false),
+    output_dropped_bytes: integer().notNull().default(0),
+    output_expired: integer({ mode: "boolean" }).notNull().default(false),
+    output_deleting: integer({ mode: "boolean" }).notNull().default(false),
+    notification_state: text().$type<SessionJob.NotificationState>().notNull().default("none"),
+    notification_claim_token: text(),
+    notification_claim_until: integer(),
+    notification_batch_id: text(),
+    notification_message_id: text(),
+    notification_observed_message_id: text(),
+    notification_delivered_at: integer(),
+  },
+  (table) => [
+    uniqueIndex("session_job_submission_idx").on(table.session_id, table.assistant_message_id, table.tool_call_id),
+    index("session_job_session_status_idx").on(table.session_id, table.status),
+    index("session_job_session_notification_idx").on(table.session_id, table.notification_state),
+  ],
+)
+
+export const SessionJobOutputReadTable = sqliteTable(
+  "session_job_output_read",
+  {
+    token: text().primaryKey(),
+    session_id: text().$type<SessionSchema.ID>().notNull(),
+    job_id: text()
+      .notNull()
+      .references(() => SessionJobTable.id, { onDelete: "cascade" }),
+    expires_at: integer().notNull(),
+  },
+  (table) => [index("session_job_output_read_job_idx").on(table.session_id, table.job_id, table.expires_at)],
+)

@@ -5,6 +5,8 @@ import { SessionV1 } from "@opencode-ai/core/v1/session"
 import { serviceUse } from "@opencode-ai/core/effect/service-use"
 import path from "path"
 import { BackgroundJob } from "@/background/job"
+import { SessionJobRuntime } from "./job-runtime"
+import { SessionRunState } from "./run-state"
 import { Decimal } from "decimal.js"
 import type { ProviderMetadata, Usage } from "@opencode-ai/llm"
 import { InstallationVersion } from "@opencode-ai/core/installation/version"
@@ -496,7 +498,12 @@ export type Patch = Omit<Partial<Info>, "time" | "share" | "summary" | "revert" 
 const layer: Layer.Layer<
   Service,
   never,
-  BackgroundJob.Service | RuntimeFlags.Service | Database.Service | EventV2Bridge.Service
+  | BackgroundJob.Service
+  | RuntimeFlags.Service
+  | Database.Service
+  | EventV2Bridge.Service
+  | SessionJobRuntime.Service
+  | SessionRunState.Service
 > = Layer.effect(
   Service,
   Effect.gen(function* () {
@@ -505,6 +512,8 @@ const layer: Layer.Layer<
     const background = yield* BackgroundJob.Service
     const events = yield* EventV2Bridge.Service
     const flags = yield* RuntimeFlags.Service
+    const jobRuntime = yield* SessionJobRuntime.Service
+    const runState = yield* SessionRunState.Service
 
     const createNext = Effect.fn("Session.createNext")(function* (input: {
       id?: SessionID
@@ -628,6 +637,9 @@ const layer: Layer.Layer<
         for (const child of kids) {
           yield* remove(child.id)
         }
+
+        if (hasInstance) yield* runState.dispose(sessionID)
+        yield* jobRuntime.removeSessionOutput(sessionID)
 
         yield* events.publish(SessionV1.Event.Deleted, { sessionID, info: session })
         yield* events.remove(sessionID)
@@ -1051,7 +1063,14 @@ function listByProject(
 export const node = LayerNode.make({
   service: Service,
   layer: layer,
-  deps: [BackgroundJob.node, RuntimeFlags.node, Database.node, EventV2Bridge.node],
+  deps: [
+    BackgroundJob.node,
+    RuntimeFlags.node,
+    Database.node,
+    EventV2Bridge.node,
+    SessionJobRuntime.node,
+    SessionRunState.node,
+  ],
 })
 
 export * as Session from "./session"
