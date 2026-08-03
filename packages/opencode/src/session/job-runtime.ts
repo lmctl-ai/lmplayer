@@ -36,6 +36,16 @@ export interface Interface {
   readonly cancelSession: (sessionID: SessionID) => Effect.Effect<void>
   readonly removeSessionOutput: (sessionID: SessionID) => Effect.Effect<void>
   readonly setWake: (callback: (sessionID: SessionID) => Effect.Effect<void>) => Effect.Effect<void>
+  /**
+   * Explicitly terminates every job this runtime instance owns and reconciles their
+   * durable status. Called directly (not relied on as a Scope finalizer) from the CLI's
+   * exit path, since this service is built through a shared, process-lifetime memoMap —
+   * disposing any single ManagedRuntime built atop that memoMap does not reliably close
+   * this service's own Layer.effect construction scope, so its `Effect.addFinalizer`
+   * registration cannot be trusted to run on process exit. Idempotent: safe to call more
+   * than once (e.g. once explicitly, and again if a Scope finalizer also happens to run).
+   */
+  readonly shutdown: () => Effect.Effect<void>
   readonly runtimeID: string
 }
 
@@ -380,24 +390,27 @@ const layer = Layer.effect(
       },
     )
 
-    yield* Effect.addFinalizer(
-      Effect.fnUntraced(function* () {
-        closing = true
-        yield* Effect.forEach(handles.values(), (handle) => Deferred.succeed(handle.stop, "runtime_shutdown"), {
-          discard: true,
-        })
-        yield* Effect.forEach(handles.values(), (handle) => Fiber.await(handle.fiber), {
-          concurrency: "unbounded",
-          discard: true,
-        })
-        const sessions = yield* db.select({ id: SessionTable.id }).from(SessionTable).all().pipe(Effect.orDie)
-        yield* Effect.forEach(
-          sessions,
-          (session) => store.reconcile(session.id, "session-job-shutdown").pipe(Effect.asVoid),
-          { discard: true },
-        )
-      }),
-    )
+    let shutdownStarted = false
+    const shutdown: Interface["shutdown"] = Effect.fnUntraced(function* () {
+      if (shutdownStarted) return
+      shutdownStarted = true
+      closing = true
+      yield* Effect.forEach(handles.values(), (handle) => Deferred.succeed(handle.stop, "runtime_shutdown"), {
+        discard: true,
+      })
+      yield* Effect.forEach(handles.values(), (handle) => Fiber.await(handle.fiber), {
+        concurrency: "unbounded",
+        discard: true,
+      })
+      const sessions = yield* db.select({ id: SessionTable.id }).from(SessionTable).all().pipe(Effect.orDie)
+      yield* Effect.forEach(
+        sessions,
+        (session) => store.reconcile(session.id, "session-job-shutdown").pipe(Effect.asVoid),
+        { discard: true },
+      )
+    })
+
+    yield* Effect.addFinalizer(() => shutdown())
 
     const setWake: Interface["setWake"] = (callback) =>
       Effect.gen(function* () {
@@ -407,7 +420,7 @@ const layer = Layer.effect(
         })
       })
 
-    return Service.of({ submit, stop, cancelSession, removeSessionOutput, setWake, runtimeID })
+    return Service.of({ submit, stop, cancelSession, removeSessionOutput, setWake, shutdown, runtimeID })
   }),
 )
 
