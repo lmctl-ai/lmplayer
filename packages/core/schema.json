@@ -1,9 +1,9 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "id": "d249a669-f4f4-4c5c-abac-b14efaa43f0a",
+  "id": "2e3c532f-e484-4cfb-83c1-2d00bebb3382",
   "prevIds": [
-    "36d97355-1ae2-4698-ab6b-7c05fbe7bc6d"
+    "d249a669-f4f4-4c5c-abac-b14efaa43f0a"
   ],
   "ddl": [
     {
@@ -1172,6 +1172,16 @@
     },
     {
       "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "runtime_pid",
+      "entityType": "columns",
+      "table": "session_job"
+    },
+    {
+      "type": "integer",
       "notNull": true,
       "autoincrement": false,
       "default": "0",
@@ -1327,6 +1337,16 @@
       "default": "false",
       "generated": null,
       "name": "output_deleting",
+      "entityType": "columns",
+      "table": "session_job"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "output_delete_token",
       "entityType": "columns",
       "table": "session_job"
     },

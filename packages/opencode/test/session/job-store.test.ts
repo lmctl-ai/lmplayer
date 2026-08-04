@@ -113,7 +113,7 @@ describe("SessionJobStore", () => {
       const store = yield* SessionJobStore.Service
       const sessionID = yield* setup()
       const submitted = yield* store.submit(submission(sessionID, "call-1"))
-      const claimed = yield* store.claimLaunch(sessionID, submitted.row.id, "runtime-current")
+      const claimed = yield* store.claimLaunch(sessionID, submitted.row.id, "runtime-current", process.pid)
       expect(claimed).toBeDefined()
       if (!claimed) return yield* Effect.die("launch claim unexpectedly failed")
       expect(yield* store.markRunning(sessionID, submitted.row.id, "runtime-stale", claimed.launch_fence)).toBe(false)
@@ -132,8 +132,8 @@ describe("SessionJobStore", () => {
       const submitted = yield* store.submit(submission(sessionID, "call-launch-race"))
       const claims = yield* Effect.all(
         [
-          store.claimLaunch(sessionID, submitted.row.id, "runtime"),
-          store.claimLaunch(sessionID, submitted.row.id, "runtime"),
+          store.claimLaunch(sessionID, submitted.row.id, "runtime", process.pid),
+          store.claimLaunch(sessionID, submitted.row.id, "runtime", process.pid),
         ],
         { concurrency: "unbounded" },
       )
@@ -148,7 +148,9 @@ describe("SessionJobStore", () => {
       const store = yield* SessionJobStore.Service
       const sessionID = yield* setup()
       const submitted = yield* store.submit(submission(sessionID, "call-reconcile"))
-      const reconciled = yield* store.reconcile(sessionID, "runtime-new")
+      expect(yield* store.reconcileStale(sessionID, submitted.row.time_updated + 29_999)).toEqual([])
+      expect((yield* store.get(sessionID, submitted.row.id)).status).toBe("queued")
+      const reconciled = yield* store.reconcileStale(sessionID, submitted.row.time_updated + 30_000)
       expect(reconciled).toHaveLength(1)
       expect(reconciled[0]?.status).toBe("interrupted")
       expect(reconciled[0]?.error_code).toBe("runtime_shutdown")
@@ -162,10 +164,60 @@ describe("SessionJobStore", () => {
       expect(recovered[0]?.notification_claim_token).toBe("claim-recovered")
       expect(recovered[0]?.notification_batch_id).toBe("reserved-batch")
       expect(recovered[0]?.notification_message_id).toBe("msg_reserved")
-      yield* store.reconcile(sessionID, "runtime-after-restart")
+      yield* store.reconcileStale(sessionID, 61_999)
+      expect((yield* store.get(sessionID, submitted.row.id)).notification_claim_token).toBe("claim-recovered")
+      yield* store.reconcileStale(sessionID, 62_001)
       const restarted = yield* store.claimNotifications(sessionID, "claim-after-restart", 32_001)
       expect(restarted).toHaveLength(1)
       expect(restarted[0]?.notification_claim_token).toBe("claim-after-restart")
+    }),
+  )
+
+  it.live(
+    "preserves a terminal job owned by an exited runtime during reconciliation",
+    Effect.gen(function* () {
+      const store = yield* SessionJobStore.Service
+      const sessionID = yield* setup()
+      const deadPID = 2_147_483_647
+      const deadPIDAvailable = yield* Effect.sync(() => {
+        try {
+          process.kill(deadPID, 0)
+          return false
+        } catch (error) {
+          if (typeof error === "object" && error !== null && "code" in error && error.code === "ESRCH") return true
+          throw error
+        }
+      })
+      expect(deadPIDAvailable).toBe(true)
+      const submitted = yield* store.submit(submission(sessionID, "call-terminal-dead-owner"))
+      const claimed = yield* store.claimLaunch(sessionID, submitted.row.id, "dead-runtime", deadPID)
+      if (!claimed) return yield* Effect.die("terminal job launch claim unexpectedly failed")
+      yield* store.markRunning(sessionID, claimed.id, "dead-runtime", claimed.launch_fence, deadPID)
+      yield* store.finish({
+        sessionID,
+        jobID: claimed.id,
+        runtimeID: "dead-runtime",
+        fence: claimed.launch_fence,
+        status: "completed",
+        exitCode: 0,
+        outputBytes: 0,
+        outputTruncated: false,
+        droppedBytes: 0,
+      })
+      yield* store.claimNotifications(sessionID, "terminal-claim", Date.now())
+      yield* store.markAdmitted(sessionID, "terminal-claim", "terminal-batch", "msg_terminal")
+      yield* store.markDelivered(sessionID, "terminal-batch")
+
+      const before = yield* store.get(sessionID, claimed.id)
+      yield* store.reconcileStale(sessionID)
+      const after = yield* store.get(sessionID, claimed.id)
+
+      expect(after.status).toBe(before.status)
+      expect(after.error_code).toBe(before.error_code)
+      expect(after.notification_state).toBe(before.notification_state)
+      expect(after.status).toBe("completed")
+      expect(after.error_code).toBeNull()
+      expect(after.notification_state).toBe("delivered")
     }),
   )
 
@@ -175,7 +227,7 @@ describe("SessionJobStore", () => {
       const store = yield* SessionJobStore.Service
       const sessionID = yield* setup()
       const submitted = yield* store.submit(submission(sessionID, "call-retention"))
-      const claimed = yield* store.claimLaunch(sessionID, submitted.row.id, "runtime")
+      const claimed = yield* store.claimLaunch(sessionID, submitted.row.id, "runtime", process.pid)
       if (!claimed) return yield* Effect.die("launch claim unexpectedly failed")
       yield* store.markRunning(sessionID, claimed.id, "runtime", claimed.launch_fence)
       yield* store.finish({
@@ -198,17 +250,32 @@ describe("SessionJobStore", () => {
       expect(yield* store.acquireOutputRead(sessionID, claimed.id, "reader", Date.now() + 60_000)).toBe(true)
       expect(yield* store.retention(sessionID, MAX_SESSION_OUTPUT)).toEqual([])
       yield* store.releaseOutputRead(sessionID, claimed.id, "reader")
-      expect((yield* store.retention(sessionID, MAX_SESSION_OUTPUT)).map((row) => row.output_path)).toEqual([
-        claimed.output_path,
-      ])
+      const firstDeletion = yield* store.retention(sessionID, MAX_SESSION_OUTPUT)
+      expect(firstDeletion.map((row) => row.output_path)).toEqual([claimed.output_path])
+      const firstToken = firstDeletion[0]?.output_delete_token
+      if (!firstToken) return yield* Effect.die("first output deletion token was not assigned")
       expect((yield* store.get(sessionID, claimed.id)).output_deleting).toBe(true)
-      yield* store.reconcile(sessionID, "runtime-after-delete-crash")
+      yield* store.reconcileStale(sessionID)
+      expect((yield* store.get(sessionID, claimed.id)).output_deleting).toBe(true)
+      yield* store.reconcileStale(sessionID, Date.now() + 30_001)
       expect((yield* store.get(sessionID, claimed.id)).output_deleting).toBe(false)
-      expect(yield* store.retention(sessionID, MAX_SESSION_OUTPUT)).toHaveLength(1)
-      yield* store.completeRetention(sessionID, claimed.id, false)
+      const secondDeletion = yield* store.retention(sessionID, MAX_SESSION_OUTPUT)
+      expect(secondDeletion).toHaveLength(1)
+      const secondToken = secondDeletion[0]?.output_delete_token
+      if (!secondToken) return yield* Effect.die("second output deletion token was not assigned")
+      expect(secondToken).not.toBe(firstToken)
+      yield* store.completeRetention(sessionID, claimed.id, firstToken, true)
+      const stillDeleting = yield* store.get(sessionID, claimed.id)
+      expect(stillDeleting.output_deleting).toBe(true)
+      expect(stillDeleting.output_expired).toBe(false)
+      expect(stillDeleting.output_delete_token).toBe(secondToken)
+      yield* store.completeRetention(sessionID, claimed.id, secondToken, false)
       expect((yield* store.get(sessionID, claimed.id)).output_expired).toBe(false)
-      expect(yield* store.retention(sessionID, MAX_SESSION_OUTPUT)).toHaveLength(1)
-      yield* store.completeRetention(sessionID, claimed.id, true)
+      const thirdDeletion = yield* store.retention(sessionID, MAX_SESSION_OUTPUT)
+      expect(thirdDeletion).toHaveLength(1)
+      const thirdToken = thirdDeletion[0]?.output_delete_token
+      if (!thirdToken) return yield* Effect.die("third output deletion token was not assigned")
+      yield* store.completeRetention(sessionID, claimed.id, thirdToken, true)
       expect((yield* store.get(sessionID, claimed.id)).output_expired).toBe(true)
     }),
   )
@@ -221,7 +288,7 @@ describe("SessionJobStore", () => {
       const { db } = yield* Database.Service
       const sessionID = yield* setup()
       const submitted = yield* store.submit(submission(sessionID, "call-notification"))
-      const launch = yield* store.claimLaunch(sessionID, submitted.row.id, "runtime")
+      const launch = yield* store.claimLaunch(sessionID, submitted.row.id, "runtime", process.pid)
       if (!launch) return yield* Effect.die("launch claim unexpectedly failed")
       yield* store.markRunning(sessionID, launch.id, "runtime", launch.launch_fence)
       yield* store.finish({
