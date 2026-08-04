@@ -4,12 +4,12 @@ import { Global } from "@opencode-ai/core/global"
 import { SessionJob } from "@opencode-ai/schema/session-job"
 import { ChildProcess } from "effect/unstable/process"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
-import { Context, Deferred, Effect, Fiber, Layer, Scope, Semaphore, Stream } from "effect"
+import { Clock, Context, Deferred, Duration, Effect, Fiber, Layer, Scope, Semaphore, Stream } from "effect"
 import { mkdir, open, rm } from "node:fs/promises"
 import path from "path"
 import type { SessionID } from "./schema"
 import { EventV2Bridge } from "@/event-v2-bridge"
-import { MAX_JOB_OUTPUT, SessionJobStore, info, type Row } from "./job-store"
+import { MAX_JOB_OUTPUT, RECOVERY_LEASE, SessionJobStore, info, type Row } from "./job-store"
 import { Database } from "@opencode-ai/core/database/database"
 import { SessionTable } from "@opencode-ai/core/session/sql"
 
@@ -60,34 +60,40 @@ const layer = Layer.effect(
     const events = yield* EventV2Bridge.Service
     const { db } = yield* Database.Service
     const scope = yield* Scope.Scope
+    const clock = yield* Clock.Clock
     const runtimeID = crypto.randomUUID()
     const handles = new Map<string, Handle>()
     let closing = false
     let wake = (_sessionID: SessionID): Effect.Effect<void> => Effect.void
-    const startupPending = yield* Effect.gen(function* () {
+    const reconcileStale = Effect.fn("SessionJobRuntime.reconcileStale")(function* () {
+      const now = yield* clock.currentTimeMillis
       const sessions = yield* db.select({ id: SessionTable.id }).from(SessionTable).all().pipe(Effect.orDie)
       return yield* Effect.filter(sessions, (session) =>
-        store.reconcile(session.id, runtimeID).pipe(Effect.map((rows) => rows.length > 0)),
+        store.reconcileStale(session.id, now).pipe(Effect.map((rows) => rows.length > 0)),
       )
     })
+    const startupPending = yield* reconcileStale()
 
     const deleteRetained = Effect.fn("SessionJobRuntime.deleteRetained")(function* (rows: Row[]) {
       yield* Effect.forEach(
         rows,
-        (row) =>
-          Effect.promise(() => rm(row.output_path, { force: true })).pipe(
+        (row) => {
+          const token = row.output_delete_token
+          if (!token) return Effect.die(`Missing output deletion token for job ${row.id}`)
+          return Effect.promise(() => rm(row.output_path, { force: true })).pipe(
             Effect.matchCauseEffect({
               onFailure: (cause) =>
                 store
-                  .completeRetention(row.session_id, row.id, false)
+                  .completeRetention(row.session_id, row.id, token, false)
                   .pipe(
                     Effect.andThen(
                       Effect.logError("background session job output deletion failed", { jobID: row.id, cause }),
                     ),
                   ),
-              onSuccess: () => store.completeRetention(row.session_id, row.id, true),
+              onSuccess: () => store.completeRetention(row.session_id, row.id, token, true),
             }),
-          ),
+          )
+        },
         { concurrency: 8, discard: true },
       )
     })
@@ -122,7 +128,7 @@ const layer = Layer.effect(
     })
 
     const launch = Effect.fn("SessionJobRuntime.launch")(function* (row: Row, env: NodeJS.ProcessEnv) {
-      const claimed = yield* store.claimLaunch(row.session_id, row.id, runtimeID)
+      const claimed = yield* store.claimLaunch(row.session_id, row.id, runtimeID, process.pid)
       if (!claimed) return
       const stop = yield* Deferred.make<"explicit_stop" | "runtime_shutdown">()
       const actor = Effect.scoped(
@@ -378,7 +384,10 @@ const layer = Layer.effect(
           },
           { concurrency: "unbounded", discard: true },
         )
-        yield* store.reconcile(sessionID, "session-job-cleanup").pipe(Effect.asVoid)
+        // Explicit session deletion invalidates every durable job in that session. This is
+        // intentionally session-wide, unlike startup recovery, which must preserve live
+        // jobs owned by other runtimes.
+        yield* store.interruptSession(sessionID)
       },
     )
 
@@ -432,12 +441,33 @@ const layer = Layer.effect(
 
     yield* Effect.addFinalizer(() => shutdown())
 
+    let recoveryScheduled = false
+    const notify = (sessions: { id: SessionID }[]) =>
+      Effect.forEach(sessions, (session) => wake(session.id), { concurrency: 8, discard: true })
+    const recoverAfterLease = (attempt: number): Effect.Effect<void> =>
+      reconcileStale().pipe(
+        Effect.flatMap(notify),
+        Effect.catchCause((cause) =>
+          Effect.logError("background session job delayed recovery failed", { attempt, cause }).pipe(
+            Effect.andThen(
+              attempt < 3
+                ? clock
+                    .sleep(Duration.seconds(1))
+                    .pipe(Effect.andThen(Effect.suspend(() => recoverAfterLease(attempt + 1))))
+                : Effect.void,
+            ),
+          ),
+        ),
+      )
     const setWake: Interface["setWake"] = (callback) =>
       Effect.gen(function* () {
         wake = callback
-        yield* Effect.forEach(startupPending, (session) => callback(session.id).pipe(Effect.forkIn(scope)), {
-          discard: true,
-        })
+        yield* notify(startupPending).pipe(Effect.forkIn(scope))
+        if (recoveryScheduled) return
+        recoveryScheduled = true
+        yield* clock
+          .sleep(Duration.millis(RECOVERY_LEASE + 100))
+          .pipe(Effect.andThen(recoverAfterLease(1)), Effect.forkIn(scope))
       })
 
     return Service.of({ submit, stop, cancelSession, removeSessionOutput, setWake, shutdown, runtimeID })

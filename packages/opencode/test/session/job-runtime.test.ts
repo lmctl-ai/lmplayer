@@ -5,15 +5,20 @@ import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { ProjectV2 } from "@opencode-ai/core/project"
 import { ProjectTable } from "@opencode-ai/core/project/sql"
 import { AbsolutePath } from "@opencode-ai/core/schema"
-import { SessionTable } from "@opencode-ai/core/session/sql"
+import { SessionJobTable, SessionTable } from "@opencode-ai/core/session/sql"
 import { Runner } from "@/effect/runner"
-import { Effect, Latch, Scope } from "effect"
+import { Context, Effect, Latch, Layer, Scope } from "effect"
 import { SessionJobRuntime } from "@/session/job-runtime"
-import { MAX_JOB_OUTPUT, SessionJobStore } from "@/session/job-store"
+import { MAX_JOB_OUTPUT, RECOVERY_LEASE, SessionJobStore } from "@/session/job-store"
 import { SessionID } from "@/session/schema"
 import { readOutput } from "@/tool/job"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { pollWithTimeout, testEffect } from "../lib/effect"
+import { mkdtemp, rm } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
+import { TestClock } from "effect/testing"
+import { eq } from "drizzle-orm"
 
 const it = testEffect(
   AppNodeBuilder.build(
@@ -51,6 +56,51 @@ const setup = Effect.fn("SessionJobRuntimeTest.setup")(function* () {
 })
 
 describe("SessionJobRuntime", () => {
+  it.effect(
+    "revisits a fresh queued launch after its recovery lease and wakes the session",
+    Effect.gen(function* () {
+      const context = yield* Layer.build(
+        Layer.fresh(
+          AppNodeBuilder.build(
+            LayerNode.group([SessionJobRuntime.node, SessionJobStore.node, Database.node, EventV2Bridge.node]),
+            [[Database.node, Database.layerFromPath(":memory:")]],
+          ),
+        ),
+      )
+      const runtime = Context.get(context, SessionJobRuntime.Service)
+      const store = Context.get(context, SessionJobStore.Service)
+      const { db } = Context.get(context, Database.Service)
+      const sessionID = yield* setup().pipe(Effect.provide(context))
+      const submitted = yield* store.submit({
+        sessionID,
+        assistantMessageID: "msg_delayed_recovery",
+        toolCallID: "call-delayed-recovery",
+        command: "sleep 30",
+        cwd: "/tmp",
+        shell: "/bin/sh",
+        timeout: 60_000,
+        outputPath: `/tmp/${crypto.randomUUID()}.log`,
+      })
+      yield* db
+        .update(SessionJobTable)
+        .set({ time_updated: 0 })
+        .where(eq(SessionJobTable.id, submitted.row.id))
+        .run()
+        .pipe(Effect.orDie)
+      const woken = yield* Latch.make()
+      yield* runtime.setWake((owner) => (owner === sessionID ? woken.open : Effect.void))
+      expect((yield* store.get(sessionID, submitted.row.id)).status).toBe("queued")
+
+      yield* Effect.yieldNow
+      yield* TestClock.adjust(`${RECOVERY_LEASE + 100} millis`)
+      yield* woken.await
+
+      const recovered = yield* store.get(sessionID, submitted.row.id)
+      expect(recovered.status).toBe("interrupted")
+      expect(recovered.error_code).toBe("runtime_shutdown")
+    }),
+  )
+
   it.live(
     "flushes valid UTF-8 before recording terminal state and uses code-point-safe offsets",
     Effect.gen(function* () {
@@ -280,7 +330,7 @@ describe("SessionJobRuntime", () => {
             timeout: 60_000,
             outputPath: `/tmp/${crypto.randomUUID()}.log`,
           })
-          const claimed = yield* store.claimLaunch(sessionID, submitted.row.id, "quota-runtime")
+          const claimed = yield* store.claimLaunch(sessionID, submitted.row.id, "quota-runtime", process.pid)
           if (!claimed) return yield* Effect.die("quota test launch claim failed")
           yield* store.markRunning(sessionID, claimed.id, "quota-runtime", claimed.launch_fence)
           yield* store.finish({
@@ -486,7 +536,7 @@ describe("SessionJobRuntime", () => {
         outputPath: `/tmp/${crypto.randomUUID()}.log`,
       })
       const foreignRuntimeID = crypto.randomUUID()
-      const claimed = yield* store.claimLaunch(foreignSessionID, foreign.row.id, foreignRuntimeID)
+      const claimed = yield* store.claimLaunch(foreignSessionID, foreign.row.id, foreignRuntimeID, process.pid)
       if (!claimed) return yield* Effect.die("foreign runtime launch claim failed")
       yield* store.markRunning(foreignSessionID, claimed.id, foreignRuntimeID, claimed.launch_fence)
       const sameSessionForeign = yield* store.submit({
@@ -504,6 +554,7 @@ describe("SessionJobRuntime", () => {
         ownedSessionID,
         sameSessionForeign.row.id,
         sameSessionForeignRuntimeID,
+        process.pid,
       )
       if (!sameSessionClaimed) return yield* Effect.die("same-session foreign runtime launch claim failed")
       yield* store.markRunning(
@@ -525,6 +576,118 @@ describe("SessionJobRuntime", () => {
       const sameSessionUntouched = yield* store.get(ownedSessionID, sameSessionForeign.row.id)
       expect(sameSessionUntouched.status).toBe("running")
       expect(sameSessionUntouched.runtime_id).toBe(sameSessionForeignRuntimeID)
+    }),
+  )
+
+  it.live(
+    "startup preserves a live owner through child-exit finalization and reconciles a dead owner",
+    Effect.gen(function* () {
+      const directory = yield* Effect.promise(() => mkdtemp(path.join(os.tmpdir(), "opencode-job-runtime-")))
+      yield* Effect.addFinalizer(() => Effect.promise(() => rm(directory, { recursive: true, force: true })))
+      const runtimeLayer = AppNodeBuilder.build(
+        LayerNode.group([SessionJobRuntime.node, SessionJobStore.node, Database.node, EventV2Bridge.node]),
+        [[Database.node, Database.layerFromPath(path.join(directory, "opencode.db"))]],
+      )
+      const firstContext = yield* Layer.build(Layer.fresh(runtimeLayer))
+      const firstRuntime = Context.get(firstContext, SessionJobRuntime.Service)
+      const firstStore = Context.get(firstContext, SessionJobStore.Service)
+      const sessionID = yield* setup().pipe(Effect.provide(firstContext))
+      const live = yield* firstRuntime.submit({
+        sessionID,
+        assistantMessageID: "msg_live_owner",
+        toolCallID: "call-live-owner",
+        command: "sleep 30",
+        cwd: "/tmp",
+        shell: "/bin/sh",
+        timeout: 60_000,
+        env: process.env,
+      })
+      yield* pollWithTimeout(
+        firstStore.get(sessionID, live.job.id).pipe(Effect.map((row) => (row.status === "running" ? row : undefined))),
+        "live foreign job did not start",
+      )
+
+      const deadPID = 2_147_483_647
+      const deadPIDAvailable = yield* Effect.sync(() => {
+        try {
+          process.kill(deadPID, 0)
+          return false
+        } catch (error) {
+          if (typeof error === "object" && error !== null && "code" in error && error.code === "ESRCH") return true
+          throw error
+        }
+      })
+      expect(deadPIDAvailable).toBe(true)
+
+      const dead = yield* firstStore.submit({
+        sessionID,
+        assistantMessageID: "msg_dead_owner",
+        toolCallID: "call-dead-owner",
+        command: "sleep 30",
+        cwd: "/tmp",
+        shell: "/bin/sh",
+        timeout: 60_000,
+        outputPath: path.join(directory, "dead-owner.log"),
+      })
+      const deadRuntimeID = crypto.randomUUID()
+      const deadClaim = yield* firstStore.claimLaunch(sessionID, dead.row.id, deadRuntimeID, deadPID)
+      if (!deadClaim) return yield* Effect.die("dead owner launch claim failed")
+      yield* firstStore.markRunning(sessionID, dead.row.id, deadRuntimeID, deadClaim.launch_fence, deadPID)
+
+      const finalizing = yield* firstStore.submit({
+        sessionID,
+        assistantMessageID: "msg_finalizing_owner",
+        toolCallID: "call-finalizing-owner",
+        command: "printf done",
+        cwd: "/tmp",
+        shell: "/bin/sh",
+        timeout: 60_000,
+        outputPath: path.join(directory, "finalizing-owner.log"),
+      })
+      const finalizingRuntimeID = crypto.randomUUID()
+      const finalizingClaim = yield* firstStore.claimLaunch(
+        sessionID,
+        finalizing.row.id,
+        finalizingRuntimeID,
+        process.pid,
+      )
+      if (!finalizingClaim) return yield* Effect.die("finalizing owner launch claim failed")
+      yield* firstStore.markRunning(
+        sessionID,
+        finalizing.row.id,
+        finalizingRuntimeID,
+        finalizingClaim.launch_fence,
+        deadPID,
+      )
+
+      const secondContext = yield* Layer.build(Layer.fresh(runtimeLayer))
+      const secondRuntime = Context.get(secondContext, SessionJobRuntime.Service)
+      expect(secondRuntime.runtimeID).not.toBe(firstRuntime.runtimeID)
+      const liveAfterStartup = yield* firstStore.get(sessionID, live.job.id)
+      expect(liveAfterStartup.status).toBe("running")
+      expect(liveAfterStartup.runtime_id).toBe(firstRuntime.runtimeID)
+      expect(liveAfterStartup.runtime_pid).toBe(process.pid)
+      expect((yield* firstStore.get(sessionID, finalizing.row.id)).status).toBe("running")
+      expect(
+        yield* firstStore.finish({
+          sessionID,
+          jobID: finalizing.row.id,
+          runtimeID: finalizingRuntimeID,
+          fence: finalizingClaim.launch_fence,
+          status: "completed",
+          exitCode: 0,
+          outputBytes: 4,
+          outputTruncated: false,
+          droppedBytes: 0,
+        }),
+      ).toBe(true)
+      expect((yield* firstStore.get(sessionID, finalizing.row.id)).status).toBe("completed")
+      const recovered = yield* firstStore.get(sessionID, dead.row.id)
+      expect(recovered.status).toBe("interrupted")
+      expect(recovered.error_code).toBe("runtime_shutdown")
+
+      yield* firstRuntime.stop(sessionID, live.job.id)
+      yield* secondRuntime.shutdown()
     }),
   )
 

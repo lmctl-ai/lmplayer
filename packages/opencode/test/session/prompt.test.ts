@@ -750,7 +750,7 @@ jobNotifications.instance("causally delivers a notification observed by a newer 
       timeout: 10_000,
       outputPath: `/tmp/${crypto.randomUUID()}.log`,
     })
-    const launch = yield* store.claimLaunch(chat.id, submitted.row.id, "causal-runtime")
+    const launch = yield* store.claimLaunch(chat.id, submitted.row.id, "causal-runtime", process.pid)
     if (!launch) return yield* Effect.die("causal test launch claim failed")
     yield* store.markRunning(chat.id, launch.id, "causal-runtime", launch.launch_fence)
     yield* store.finish({

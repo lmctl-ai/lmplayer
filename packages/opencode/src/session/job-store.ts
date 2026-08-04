@@ -2,7 +2,7 @@ import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Database } from "@opencode-ai/core/database/database"
 import { SessionJobOutputReadTable, SessionJobTable } from "@opencode-ai/core/session/sql"
 import { SessionJob } from "@opencode-ai/schema/session-job"
-import { and, asc, count, eq, gt, inArray, isNull, lt, ne, or, sql, sum } from "drizzle-orm"
+import { and, asc, count, eq, gt, inArray, isNull, lt, or, sql, sum } from "drizzle-orm"
 import { Context, Effect, Layer, Schema } from "effect"
 import type { SessionID } from "./schema"
 
@@ -11,6 +11,7 @@ const TERMINAL = ["completed", "failed", "timed_out", "cancelled", "interrupted"
 export const MAX_ACTIVE = 4
 export const MAX_JOB_OUTPUT = 10 * 1024 * 1024
 export const MAX_SESSION_OUTPUT = 50 * 1024 * 1024
+export const RECOVERY_LEASE = 30_000
 
 export type Row = typeof SessionJobTable.$inferSelect
 
@@ -49,7 +50,12 @@ export interface Interface {
   }) => Effect.Effect<{ row: Row; created: boolean }, SubmissionConflict | ActiveLimitExceeded | OutputQuotaExceeded>
   readonly list: (sessionID: SessionID) => Effect.Effect<Row[]>
   readonly get: (sessionID: SessionID, jobID: string) => Effect.Effect<Row, NotFound>
-  readonly claimLaunch: (sessionID: SessionID, jobID: string, runtimeID: string) => Effect.Effect<Row | undefined>
+  readonly claimLaunch: (
+    sessionID: SessionID,
+    jobID: string,
+    runtimeID: string,
+    runtimePID: number,
+  ) => Effect.Effect<Row | undefined>
   readonly markRunning: (
     sessionID: SessionID,
     jobID: string,
@@ -81,7 +87,8 @@ export interface Interface {
     droppedBytes: number
   }) => Effect.Effect<boolean>
   readonly abandon: (sessionID: SessionID, jobID: string) => Effect.Effect<boolean>
-  readonly reconcile: (sessionID: SessionID, runtimeID: string) => Effect.Effect<Row[]>
+  readonly reconcileStale: (sessionID: SessionID, now?: number) => Effect.Effect<Row[]>
+  readonly interruptSession: (sessionID: SessionID) => Effect.Effect<void>
   readonly reconcileOwned: (sessionID: SessionID, runtimeID: string, jobIDs: string[]) => Effect.Effect<Row[]>
   readonly claimNotifications: (sessionID: SessionID, token: string, now: number) => Effect.Effect<Row[]>
   readonly releaseClaim: (sessionID: SessionID, token: string) => Effect.Effect<void>
@@ -111,7 +118,12 @@ export interface Interface {
   ) => Effect.Effect<boolean>
   readonly releaseOutputRead: (sessionID: SessionID, jobID: string, token: string) => Effect.Effect<void>
   readonly retention: (sessionID: SessionID, requiredBytes?: number) => Effect.Effect<Row[]>
-  readonly completeRetention: (sessionID: SessionID, jobID: string, deleted: boolean) => Effect.Effect<void>
+  readonly completeRetention: (
+    sessionID: SessionID,
+    jobID: string,
+    token: string,
+    deleted: boolean,
+  ) => Effect.Effect<void>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/SessionJobStore") {}
@@ -223,13 +235,14 @@ const layer = Layer.effect(
     })
 
     const claimLaunch: Interface["claimLaunch"] = Effect.fn("SessionJobStore.claimLaunch")(
-      function* (sessionID, jobID, runtimeID) {
+      function* (sessionID, jobID, runtimeID, runtimePID) {
         const now = Date.now()
         const rows = yield* db
           .update(SessionJobTable)
           .set({
             status: "starting",
             runtime_id: runtimeID,
+            runtime_pid: runtimePID,
             launch_fence: sql`${SessionJobTable.launch_fence} + 1`,
             deadline_at: sql`${now} + ${SessionJobTable.timeout_ms}`,
             time_updated: now,
@@ -326,42 +339,99 @@ const layer = Layer.effect(
       return changed.length > 0
     })
 
-    const reconcile: Interface["reconcile"] = Effect.fn("SessionJobStore.reconcile")(function* (sessionID, runtimeID) {
-      const now = Date.now()
+    const reconcileStale: Interface["reconcileStale"] = Effect.fn("SessionJobStore.reconcileStale")(function* (
+      sessionID,
+      now = Date.now(),
+    ) {
+      const candidates = (yield* list(sessionID)).filter((row) => {
+        if (row.status === "queued") return row.time_updated <= now - RECOVERY_LEASE
+        if (row.status !== "starting" && row.status !== "running") return false
+        if (row.runtime_pid !== null) return !processAlive(row.runtime_pid)
+        if (row.status === "starting") return row.time_updated <= now - RECOVERY_LEASE
+        return false
+      })
+      yield* db
+        .transaction(
+          (tx) =>
+            Effect.forEach(
+              candidates,
+              (row) =>
+                tx
+                  .update(SessionJobTable)
+                  .set({
+                    status: "interrupted",
+                    error_code: "runtime_shutdown",
+                    notification_state: "pending",
+                    time_completed: now,
+                    time_updated: now,
+                  })
+                  .where(
+                    and(
+                      eq(SessionJobTable.session_id, sessionID),
+                      eq(SessionJobTable.id, row.id),
+                      eq(SessionJobTable.status, row.status),
+                      eq(SessionJobTable.launch_fence, row.launch_fence),
+                      row.runtime_id === null
+                        ? isNull(SessionJobTable.runtime_id)
+                        : eq(SessionJobTable.runtime_id, row.runtime_id),
+                      row.runtime_pid === null
+                        ? isNull(SessionJobTable.runtime_pid)
+                        : eq(SessionJobTable.runtime_pid, row.runtime_pid),
+                      row.pid === null ? isNull(SessionJobTable.pid) : eq(SessionJobTable.pid, row.pid),
+                    ),
+                  )
+                  .run(),
+              { discard: true },
+            ),
+          { behavior: "immediate" },
+        )
+        .pipe(Effect.orDie)
       yield* db
         .update(SessionJobTable)
-        .set({
-          status: "interrupted",
-          error_code: "runtime_shutdown",
-          notification_state: "pending",
-          time_completed: now,
-          time_updated: now,
-        })
+        .set({ notification_state: "pending", notification_claim_token: null, notification_claim_until: null })
         .where(
           and(
             eq(SessionJobTable.session_id, sessionID),
-            inArray(SessionJobTable.status, ACTIVE),
-            or(isNull(SessionJobTable.runtime_id), ne(SessionJobTable.runtime_id, runtimeID)),
+            eq(SessionJobTable.notification_state, "claimed"),
+            or(isNull(SessionJobTable.notification_claim_until), lt(SessionJobTable.notification_claim_until, now)),
           ),
         )
         .run()
         .pipe(Effect.orDie)
       yield* db
         .update(SessionJobTable)
-        .set({ notification_state: "pending", notification_claim_token: null, notification_claim_until: null })
-        .where(and(eq(SessionJobTable.session_id, sessionID), eq(SessionJobTable.notification_state, "claimed")))
-        .run()
-        .pipe(Effect.orDie)
-      yield* db
-        .update(SessionJobTable)
-        .set({ output_deleting: false, time_updated: now })
-        .where(and(eq(SessionJobTable.session_id, sessionID), eq(SessionJobTable.output_deleting, true)))
+        .set({ output_deleting: false, output_delete_token: null, time_updated: now })
+        .where(
+          and(
+            eq(SessionJobTable.session_id, sessionID),
+            eq(SessionJobTable.output_deleting, true),
+            lt(SessionJobTable.time_updated, now - RECOVERY_LEASE),
+          ),
+        )
         .run()
         .pipe(Effect.orDie)
       return (yield* list(sessionID)).filter(
         (row) => row.notification_state === "pending" || row.notification_state === "admitted",
       )
     })
+
+    const interruptSession: Interface["interruptSession"] = Effect.fn("SessionJobStore.interruptSession")(
+      function* (sessionID) {
+        const now = Date.now()
+        yield* db
+          .update(SessionJobTable)
+          .set({
+            status: "interrupted",
+            error_code: "runtime_shutdown",
+            notification_state: "pending",
+            time_completed: now,
+            time_updated: now,
+          })
+          .where(and(eq(SessionJobTable.session_id, sessionID), inArray(SessionJobTable.status, ACTIVE)))
+          .run()
+          .pipe(Effect.orDie)
+      },
+    )
 
     const reconcileOwned: Interface["reconcileOwned"] = Effect.fn("SessionJobStore.reconcileOwned")(
       function* (sessionID, runtimeID, jobIDs) {
@@ -598,6 +668,7 @@ const layer = Layer.effect(
       sessionID,
       requiredBytes = 0,
     ) {
+      const token = crypto.randomUUID()
       return yield* db
         .transaction(
           (tx) =>
@@ -654,7 +725,7 @@ const layer = Layer.effect(
               if (selected.length === 0) return []
               return yield* tx
                 .update(SessionJobTable)
-                .set({ output_deleting: true, time_updated: now })
+                .set({ output_deleting: true, output_delete_token: token, time_updated: now })
                 .where(
                   and(
                     eq(SessionJobTable.session_id, sessionID),
@@ -675,11 +746,12 @@ const layer = Layer.effect(
     })
 
     const completeRetention: Interface["completeRetention"] = Effect.fn("SessionJobStore.completeRetention")(
-      function* (sessionID, jobID, deleted) {
+      function* (sessionID, jobID, token, deleted) {
         yield* db
           .update(SessionJobTable)
           .set({
             output_deleting: false,
+            output_delete_token: null,
             ...(deleted ? { output_expired: true } : {}),
             time_updated: Date.now(),
           })
@@ -688,6 +760,7 @@ const layer = Layer.effect(
               eq(SessionJobTable.session_id, sessionID),
               eq(SessionJobTable.id, jobID),
               eq(SessionJobTable.output_deleting, true),
+              eq(SessionJobTable.output_delete_token, token),
             ),
           )
           .run()
@@ -704,7 +777,8 @@ const layer = Layer.effect(
       progress,
       finish,
       abandon,
-      reconcile,
+      reconcileStale,
+      interruptSession,
       reconcileOwned,
       claimNotifications,
       releaseClaim,
@@ -754,6 +828,15 @@ export function info(row: Row): SessionJob.Info {
       ...(row.time_started === null ? {} : { started: row.time_started }),
       ...(row.time_completed === null ? {} : { completed: row.time_completed }),
     },
+  }
+}
+
+function processAlive(pid: number) {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    return !(typeof error === "object" && error !== null && "code" in error && error.code === "ESRCH")
   }
 }
 
