@@ -56,6 +56,7 @@ import { AppNodeBuilderV1 } from "./app-node-builder-v1"
 import { SessionProjector } from "@opencode-ai/core/session/projector"
 import { SessionJobStore } from "@/session/job-store"
 import { SessionJobRuntime } from "@/session/job-runtime"
+import { SessionCronRuntime } from "@/session/cron-runtime"
 
 export const AppLayer = AppNodeBuilderV1.build(
   LayerNode.group([
@@ -83,6 +84,7 @@ export const AppLayer = AppNodeBuilderV1.build(
     SessionStatus.node,
     SessionJobStore.node,
     SessionJobRuntime.node,
+    SessionCronRuntime.node,
     BackgroundJob.node,
     RuntimeFlags.node,
     EventV2Bridge.node,

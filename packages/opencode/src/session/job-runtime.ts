@@ -27,7 +27,7 @@ export interface Interface {
     command: string
     cwd: string
     shell: string
-    timeout: number
+    timeout?: number
     env: NodeJS.ProcessEnv
   }) => Effect.Effect<
     { job: SessionJob.Info; created: boolean },
@@ -258,13 +258,15 @@ const layer = Layer.effect(
           const outputFiber = yield* Stream.runForEach(handle.all, (chunk) =>
             flushText(decoder.decode(chunk, { stream: true })),
           ).pipe(Effect.ensuring(flushText(decoder.decode())), Effect.forkScoped)
-          const result = yield* Effect.raceAll([
+          const waits = [
             handle.exitCode.pipe(Effect.map((exitCode) => ({ type: "exit" as const, exitCode }))),
             Deferred.await(stop).pipe(Effect.map((reason) => ({ type: "stop" as const, reason }))),
-            Effect.sleep(`${Math.max(0, (claimed.deadline_at ?? Date.now()) - Date.now())} millis`).pipe(
-              Effect.as({ type: "timeout" as const }),
-            ),
-          ])
+          ]
+          const result = yield* Effect.raceAll(
+            claimed.deadline_at === null
+              ? waits
+              : [...waits, waitForDeadline(clock, claimed.deadline_at).pipe(Effect.as({ type: "timeout" as const }))],
+          )
           if (result.type !== "exit") {
             yield* handle.kill({ forceKillAfter: "3 seconds" }).pipe(Effect.catch(() => Effect.void))
             yield* handle.exitCode.pipe(Effect.catch(() => Effect.succeed(null)))
@@ -485,6 +487,22 @@ function codePointPrefix(bytes: Uint8Array, limit: number) {
   let end = limit
   while (end > 0 && (bytes[end] & 0xc0) === 0x80) end--
   return bytes.subarray(0, end)
+}
+
+const MAX_TIMER_MILLIS = 2 ** 31 - 1
+
+function waitForDeadline(clock: Clock.Clock, deadline: number): Effect.Effect<void> {
+  return Effect.suspend(() =>
+    clock.currentTimeMillis.pipe(
+      Effect.flatMap((now) => {
+        const remaining = deadline - now
+        if (remaining <= 0) return Effect.void
+        return clock
+          .sleep(Duration.millis(Math.min(remaining, MAX_TIMER_MILLIS)))
+          .pipe(Effect.andThen(waitForDeadline(clock, deadline)))
+      }),
+    ),
+  )
 }
 
 export const node = LayerNode.make({

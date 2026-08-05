@@ -365,7 +365,7 @@ describe("SessionJobRuntime", () => {
   )
 
   it.live(
-    "enforces the mandatory runtime timeout",
+    "honors an explicit runtime timeout",
     Effect.gen(function* () {
       const runtime = yield* SessionJobRuntime.Service
       const store = yield* SessionJobStore.Service
@@ -388,6 +388,36 @@ describe("SessionJobRuntime", () => {
       )
       expect(row.status).toBe("timed_out")
       expect(row.error_code).toBe("timed_out")
+    }),
+  )
+
+  it.live(
+    "runs an omitted-timeout job without creating a timeout race",
+    Effect.gen(function* () {
+      const runtime = yield* SessionJobRuntime.Service
+      const store = yield* SessionJobStore.Service
+      const sessionID = yield* setup()
+      const submitted = yield* runtime.submit({
+        sessionID,
+        assistantMessageID: "msg_assistant",
+        toolCallID: "call-unbounded",
+        command: "sleep 0.2; printf finished",
+        cwd: "/tmp",
+        shell: "/bin/sh",
+        env: process.env,
+      })
+      const running = yield* store.get(sessionID, submitted.job.id)
+      expect(running.timeout_ms).toBe(0)
+      expect(running.deadline_at).toBeNull()
+      const row = yield* pollWithTimeout(
+        store
+          .get(sessionID, submitted.job.id)
+          .pipe(Effect.map((value) => (value.time_completed === null ? undefined : value))),
+        "unbounded background job did not complete",
+      )
+      expect(row.status).toBe("completed")
+      expect(row.error_code).toBeNull()
+      expect((yield* readOutput(store, sessionID, row.id)).untrustedOutput).toContain("finished")
     }),
   )
 

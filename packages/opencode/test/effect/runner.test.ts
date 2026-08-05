@@ -121,6 +121,32 @@ describe("Runner", () => {
   )
 
   it.live(
+    "atomically accepts idle-only work and rejects it while another entrant is active",
+    Effect.gen(function* () {
+      const s = yield* Scope.Scope
+      const release = yield* Deferred.make<void>()
+      const ran = yield* Ref.make(false)
+      const runner = Runner.make<string>(s)
+      const active = yield* runner
+        .ensureRunning(Deferred.await(release).pipe(Effect.as("active")))
+        .pipe(Effect.forkChild)
+      yield* waitForState(runner, "Running")
+
+      const rejected = yield* runner.requestRunIfIdle(Ref.set(ran, true).pipe(Effect.as("cron")))
+      expect(rejected.accepted).toBe(false)
+      expect(yield* Ref.get(ran)).toBe(false)
+
+      yield* Deferred.succeed(release, undefined)
+      yield* Fiber.join(active)
+      yield* waitForState(runner, "Idle")
+      const accepted = yield* runner.requestRunIfIdle(Ref.set(ran, true).pipe(Effect.as("cron")))
+      expect(accepted.accepted).toBe(true)
+      yield* accepted.settled
+      expect(yield* Ref.get(ran)).toBe(true)
+    }),
+  )
+
+  it.live(
     "prioritizes admitted user work ahead of an already pending autonomous wake",
     Effect.gen(function* () {
       const s = yield* Scope.Scope

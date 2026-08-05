@@ -17,6 +17,10 @@ import { SystemPrompt } from "./system"
 import { Instruction } from "./instruction"
 import { Plugin } from "../plugin"
 import { MAX_STEPS_PROMPT } from "@opencode-ai/core/session/runner/max-steps"
+import {
+  ensureUserTerminated,
+  SYNTHETIC_RECOVERY_PROMPT,
+} from "@opencode-ai/core/session/runner/ensure-user-terminated"
 import { ToolRegistry } from "@/tool/registry"
 import { MCP } from "../mcp"
 import { LSP } from "@/lsp/lsp"
@@ -59,6 +63,7 @@ import { SessionTools } from "./tools"
 import { LLMEvent } from "@opencode-ai/llm"
 import { SessionJobStore } from "./job-store"
 import { SessionJobRuntime } from "./job-runtime"
+import { SessionCronRuntime } from "./cron-runtime"
 import { Project } from "@/project/project"
 import { ProjectTable } from "@opencode-ai/core/project/sql"
 import { InstanceRef, WorkspaceRef } from "@/effect/instance-ref"
@@ -154,6 +159,7 @@ const layer = Layer.effect(
     const database = yield* Database.Service
     const jobStore = yield* SessionJobStore.Service
     const jobs = yield* SessionJobRuntime.Service
+    const crons = yield* SessionCronRuntime.Service
     const { db } = database
     let notificationOwner: NotificationRetryOwner<SessionID> | undefined
     let scheduleNotification = (_sessionID: SessionID): Effect.Effect<void> => Effect.void
@@ -1330,10 +1336,13 @@ const layer = Layer.effect(
               sessionID,
               parentSessionID: session.parentID,
               system,
-              messages: [
-                ...modelMsgs,
-                ...(isLastStep ? [{ role: "assistant" as const, content: MAX_STEPS_PROMPT }] : []),
-              ],
+              messages: ensureUserTerminated(
+                [...modelMsgs, ...(isLastStep ? [{ role: "user" as const, content: MAX_STEPS_PROMPT }] : [])],
+                {
+                  role: "user" as const,
+                  content: [{ type: "text" as const, text: SYNTHETIC_RECOVERY_PROMPT }],
+                },
+              ),
               tools,
               model,
               toolChoice: format.type === "json_schema" ? "required" : undefined,
@@ -1685,6 +1694,74 @@ const layer = Layer.effect(
     scheduleNotification = notificationOwner.schedule
 
     yield* jobs.setWake((sessionID) => scheduleNotification(sessionID))
+    yield* crons.setWake((sessionID, text) =>
+      Effect.gen(function* () {
+        const owner = yield* db
+          .select({
+            directory: SessionTable.directory,
+            workspaceID: SessionTable.workspace_id,
+            project: ProjectTable,
+          })
+          .from(SessionTable)
+          .innerJoin(ProjectTable, eq(ProjectTable.id, SessionTable.project_id))
+          .where(eq(SessionTable.id, sessionID))
+          .get()
+          .pipe(Effect.orDie)
+        if (!owner) return false
+        return yield* Effect.gen(function* () {
+          const persisted = yield* Deferred.make<boolean>()
+          const request = yield* state.wakeIfIdle(
+            sessionID,
+            lastAssistant(sessionID),
+            Effect.gen(function* () {
+              const messages = yield* MessageV2.filterCompactedEffect(sessionID).pipe(
+                Effect.provideService(Database.Service, database),
+              )
+              const latest = MessageV2.latest(messages)
+              if (
+                !latest.user ||
+                !latest.assistant ||
+                latest.assistant.parentID !== latest.user.id ||
+                latest.assistant.time.completed === undefined ||
+                (latest.assistant.finish === undefined && latest.assistant.error === undefined)
+              ) {
+                yield* Deferred.succeed(persisted, false)
+                return yield* lastAssistant(sessionID)
+              }
+
+              const messageID = MessageID.ascending()
+              yield* sessions.updateMessage({
+                id: messageID,
+                sessionID,
+                role: "user",
+                time: { created: Date.now() },
+                agent: latest.user.agent,
+                model: latest.user.model,
+              })
+              yield* sessions.updatePart({
+                id: PartID.ascending(),
+                sessionID,
+                messageID,
+                type: "text",
+                text,
+              })
+              yield* sessions.touch(sessionID)
+              yield* Deferred.succeed(persisted, true)
+              return yield* runLoop(sessionID)
+            }).pipe(Effect.ensuring(Deferred.succeed(persisted, false).pipe(Effect.asVoid))),
+          )
+          if (!request.accepted) return false
+          return yield* Deferred.await(persisted)
+        }).pipe(
+          Effect.provideService(InstanceRef, {
+            directory: owner.directory,
+            worktree: owner.project.worktree,
+            project: Project.fromRow(owner.project),
+          }),
+          Effect.provideService(WorkspaceRef, owner.workspaceID ?? undefined),
+        )
+      }),
+    )
 
     return Service.of({
       cancel,
@@ -1850,6 +1927,7 @@ export const node = LayerNode.make({
     Database.node,
     SessionJobStore.node,
     SessionJobRuntime.node,
+    SessionCronRuntime.node,
   ],
 })
 

@@ -6,6 +6,7 @@ import { serviceUse } from "@opencode-ai/core/effect/service-use"
 import path from "path"
 import { BackgroundJob } from "@/background/job"
 import { SessionJobRuntime } from "./job-runtime"
+import { SessionCronRuntime } from "./cron-runtime"
 import { SessionRunState } from "./run-state"
 import { Decimal } from "decimal.js"
 import type { ProviderMetadata, Usage } from "@opencode-ai/llm"
@@ -503,6 +504,7 @@ const layer: Layer.Layer<
   | Database.Service
   | EventV2Bridge.Service
   | SessionJobRuntime.Service
+  | SessionCronRuntime.Service
   | SessionRunState.Service
 > = Layer.effect(
   Service,
@@ -513,6 +515,7 @@ const layer: Layer.Layer<
     const events = yield* EventV2Bridge.Service
     const flags = yield* RuntimeFlags.Service
     const jobRuntime = yield* SessionJobRuntime.Service
+    const cronRuntime = yield* SessionCronRuntime.Service
     const runState = yield* SessionRunState.Service
 
     const createNext = Effect.fn("Session.createNext")(function* (input: {
@@ -639,6 +642,7 @@ const layer: Layer.Layer<
         }
 
         if (hasInstance) yield* runState.dispose(sessionID)
+        yield* cronRuntime.removeSession(sessionID)
         yield* jobRuntime.removeSessionOutput(sessionID)
 
         yield* events.publish(SessionV1.Event.Deleted, { sessionID, info: session })
@@ -1069,6 +1073,7 @@ export const node = LayerNode.make({
     Database.node,
     EventV2Bridge.node,
     SessionJobRuntime.node,
+    SessionCronRuntime.node,
     SessionRunState.node,
   ],
 })

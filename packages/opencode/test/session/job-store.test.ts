@@ -14,7 +14,7 @@ import { SessionV1 } from "@opencode-ai/core/v1/session"
 import { eq } from "drizzle-orm"
 import { Effect, Exit } from "effect"
 import { MessageID, PartID, SessionID } from "@/session/schema"
-import { MAX_ACTIVE, MAX_SESSION_OUTPUT, SessionJobStore } from "@/session/job-store"
+import { MAX_ACTIVE, MAX_SESSION_OUTPUT, SessionJobStore, info } from "@/session/job-store"
 import { testEffect } from "../lib/effect"
 
 const it = testEffect(
@@ -139,6 +139,22 @@ describe("SessionJobStore", () => {
       )
       expect(claims.filter((claim) => claim !== undefined)).toHaveLength(1)
       expect((yield* store.get(sessionID, submitted.row.id)).launch_fence).toBe(1)
+    }),
+  )
+
+  it.live(
+    "stores an omitted timeout as an unbounded launch deadline",
+    Effect.gen(function* () {
+      const store = yield* SessionJobStore.Service
+      const sessionID = yield* setup()
+      const submitted = yield* store.submit({
+        ...submission(sessionID, "call-unbounded"),
+        timeout: undefined,
+      })
+      expect(submitted.row.timeout_ms).toBe(0)
+      const claimed = yield* store.claimLaunch(sessionID, submitted.row.id, "runtime", process.pid)
+      expect(claimed?.deadline_at).toBeNull()
+      expect(claimed && "timeout" in info(claimed)).toBe(false)
     }),
   )
 

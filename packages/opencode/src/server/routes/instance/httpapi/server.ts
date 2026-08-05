@@ -40,6 +40,7 @@ import { SessionStatus } from "@/session/status"
 import { SessionSummary } from "@/session/summary"
 import { SessionJobStore } from "@/session/job-store"
 import { SessionJobRuntime } from "@/session/job-runtime"
+import { SessionCronRuntime } from "@/session/cron-runtime"
 import { Todo } from "@/session/todo"
 import { SessionShare } from "@/share/session"
 import { ShareNext } from "@/share/share-next"
@@ -239,6 +240,7 @@ const app = LayerNode.group([
   SessionStatus.node,
   SessionJobStore.node,
   SessionJobRuntime.node,
+  SessionCronRuntime.node,
   BackgroundJob.node,
   RuntimeFlags.node,
   EventV2Bridge.node,

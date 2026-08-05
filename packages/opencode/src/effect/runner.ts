@@ -7,6 +7,7 @@ export interface Runner<A, E = never> {
     (work: Effect.Effect<A, E>, join: true): Effect.Effect<A, E>
     (work: Effect.Effect<A, E>, join: false, priority?: boolean): Effect.Effect<Request<E>>
   }
+  readonly requestRunIfIdle: (work: Effect.Effect<A, E>) => Effect.Effect<Request<E>>
   readonly ensureRunning: (work: Effect.Effect<A, E>) => Effect.Effect<A, E>
   readonly startShell: (work: Effect.Effect<A, E>, ready?: Latch.Latch) => Effect.Effect<A, E | Busy>
   readonly cancel: Effect.Effect<void>
@@ -166,13 +167,19 @@ export const make = <A, E = never>(
       yield* Fiber.interrupt(shell.fiber)
     })
 
-  const requestRun = (work: Effect.Effect<A, E>, join: boolean, priority = false): Effect.Effect<A | Request<E>, E> =>
+  const requestRun = (
+    work: Effect.Effect<A, E>,
+    join: boolean,
+    priority = false,
+    onlyIfIdle = false,
+  ): Effect.Effect<A | Request<E>, E> =>
     SynchronizedRef.modifyEffect(
       ref,
       Effect.fnUntraced(function* (current) {
         if (current._tag === "Disposed") {
           return [join ? Effect.die(new Cancelled()) : Effect.succeed(rejected), current] as const
         }
+        if (onlyIfIdle && current._tag !== "Idle") return [Effect.succeed(rejected), current] as const
         if (current._tag === "Running") {
           if (join) return [awaitDone(current.run.done), current] as const
           if (current.pending) {
@@ -324,6 +331,7 @@ export const make = <A, E = never>(
       return current._tag !== "Idle" && current._tag !== "Disposed"
     },
     requestRun: requestRun as Runner<A, E>["requestRun"],
+    requestRunIfIdle: (work) => requestRun(work, false, false, true) as Effect.Effect<Request<E>>,
     ensureRunning: (work) => requestRun(work, true) as Effect.Effect<A, E>,
     startShell,
     cancel,

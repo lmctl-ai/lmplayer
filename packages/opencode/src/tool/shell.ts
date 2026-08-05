@@ -617,7 +617,6 @@ export const ShellTool = Tool.define(
               if (params.timeout !== undefined && params.timeout < 0) {
                 throw new Error(`Invalid timeout value: ${params.timeout}. Timeout must be a positive number.`)
               }
-              const timeout = params.timeout ?? defaultTimeoutMs
               const ps = Shell.ps(shell)
               yield* Effect.scoped(
                 Effect.gen(function* () {
@@ -632,9 +631,6 @@ export const ShellTool = Tool.define(
 
               const env = yield* shellEnv(ctx, cwd)
               if (params.background) {
-                if (timeout > 3_600_000) {
-                  throw new Error("Background timeout must not exceed 3600000 milliseconds")
-                }
                 if (!ctx.callID) throw new Error("Background shell submission requires a tool-call ID")
                 if (Option.isNone(jobs)) throw new Error("Background shell jobs are unavailable in this runtime")
                 const submitted = yield* jobs.value
@@ -645,7 +641,7 @@ export const ShellTool = Tool.define(
                     command: params.command,
                     cwd,
                     shell,
-                    timeout,
+                    timeout: params.timeout,
                     env,
                   })
                   .pipe(
@@ -687,7 +683,7 @@ export const ShellTool = Tool.define(
                   command: params.command,
                   cwd,
                   env,
-                  timeout,
+                  timeout: params.timeout ?? defaultTimeoutMs,
                 },
                 ctx,
               )
