@@ -45,7 +45,7 @@ export interface Interface {
     command: string
     cwd: string
     shell: string
-    timeout: number
+    timeout?: number
     outputPath: string
   }) => Effect.Effect<{ row: Row; created: boolean }, SubmissionConflict | ActiveLimitExceeded | OutputQuotaExceeded>
   readonly list: (sessionID: SessionID) => Effect.Effect<Row[]>
@@ -167,7 +167,7 @@ const layer = Layer.effect(
         command: input.command,
         cwd: input.cwd,
         shell: input.shell,
-        timeout: input.timeout,
+        timeout: input.timeout ?? null,
       })
       const submissionHash = new Bun.CryptoHasher("sha256").update(submission).digest("hex")
       return yield* db
@@ -217,7 +217,10 @@ const layer = Layer.effect(
                 command: input.command,
                 cwd: input.cwd,
                 shell: input.shell,
-                timeout_ms: input.timeout,
+                // timeout_ms predates optional deadlines and remains non-null in the
+                // shared database. Zero is safe as the durable sentinel because tool
+                // input only accepts positive explicit timeout values.
+                timeout_ms: input.timeout ?? 0,
                 status: "queued" as const,
                 output_path: input.outputPath,
                 time_created: now,
@@ -244,7 +247,7 @@ const layer = Layer.effect(
             runtime_id: runtimeID,
             runtime_pid: runtimePID,
             launch_fence: sql`${SessionJobTable.launch_fence} + 1`,
-            deadline_at: sql`${now} + ${SessionJobTable.timeout_ms}`,
+            deadline_at: sql`case when ${SessionJobTable.timeout_ms} = 0 then null else ${now} + ${SessionJobTable.timeout_ms} end`,
             time_updated: now,
           })
           .where(
@@ -815,7 +818,7 @@ export function info(row: Row): SessionJob.Info {
     id: row.id,
     sessionID: row.session_id,
     status: row.status,
-    timeout: row.timeout_ms,
+    ...(row.timeout_ms === 0 ? {} : { timeout: row.timeout_ms }),
     outputBytes: row.output_bytes,
     outputTruncated: row.output_truncated,
     outputExpired: row.output_expired,

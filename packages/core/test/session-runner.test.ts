@@ -35,6 +35,7 @@ import { SessionRunCoordinator } from "@opencode-ai/core/session/run-coordinator
 import { SessionRunner } from "@opencode-ai/core/session/runner"
 import * as SessionRunnerLLM from "@opencode-ai/core/session/runner/llm"
 import { SessionRunnerModel } from "@opencode-ai/core/session/runner/model"
+import { SYNTHETIC_RECOVERY_PROMPT } from "@opencode-ai/core/session/runner/ensure-user-terminated"
 import { ToolRegistry } from "@opencode-ai/core/tool/registry"
 import { ApplicationTools } from "@opencode-ai/core/tool/application-tools"
 import { AgentV2 } from "@opencode-ai/core/agent"
@@ -2319,6 +2320,49 @@ describe("SessionRunnerLLM", () => {
     }),
   )
 
+  it.effect("appends synthetic user recovery input after a dangling assistant from a prior process", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      const events = yield* EventV2.Service
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Recover partial response" }), resume: false })
+      yield* SessionInput.promoteSteers((yield* Database.Service).db, events, sessionID, Number.MAX_SAFE_INTEGER)
+      const assistantMessageID = SessionMessage.ID.create()
+      const timestamp = yield* DateTime.now
+      yield* events.publish(SessionEvent.Step.Started, {
+        sessionID,
+        assistantMessageID,
+        timestamp,
+        agent: "build",
+        model: { id: ModelV2.ID.make("fake-model"), providerID: ProviderV2.ID.make("fake") },
+      })
+      yield* events.publish(SessionEvent.Text.Started, {
+        sessionID,
+        assistantMessageID,
+        timestamp,
+        textID: "text-crashed",
+      })
+      yield* events.publish(SessionEvent.Text.Ended, {
+        sessionID,
+        assistantMessageID,
+        timestamp,
+        textID: "text-crashed",
+        text: "Partial response before crash",
+      })
+
+      requests.length = 0
+      response = []
+      yield* session.resume(sessionID)
+
+      expect(requests).toHaveLength(1)
+      expect(requests[0]?.messages.map((message) => message.role)).toEqual(["user", "assistant", "user"])
+      expect(requests[0]?.messages.at(-2)?.content).toMatchObject([
+        { type: "text", text: "Partial response before crash" },
+      ])
+      expect(requests[0]?.messages.at(-1)?.content).toMatchObject([{ type: "text", text: SYNTHETIC_RECOVERY_PROMPT }])
+    }),
+  )
+
   it.effect("durably fails hosted tools left running by a prior process before continuing inline", () =>
     Effect.gen(function* () {
       yield* setup
@@ -2366,7 +2410,7 @@ describe("SessionRunnerLLM", () => {
       yield* session.resume(sessionID)
 
       expect(requests).toHaveLength(1)
-      expect(requests[0]?.messages.map((message) => message.role)).toEqual(["user", "assistant"])
+      expect(requests[0]?.messages.map((message) => message.role)).toEqual(["user", "assistant", "user"])
       expect(requests[0]?.messages[1]?.content).toMatchObject([
         {
           type: "tool-call",
@@ -2376,6 +2420,7 @@ describe("SessionRunnerLLM", () => {
         },
         { type: "tool-result", id: "call-hosted-interrupted", providerExecuted: true, result: { type: "error" } },
       ])
+      expect(requests[0]?.messages.at(-1)?.content).toMatchObject([{ type: "text", text: SYNTHETIC_RECOVERY_PROMPT }])
     }),
   )
 
@@ -3088,7 +3133,7 @@ describe("SessionRunnerLLM", () => {
       expect(requests[1]?.toolChoice).toMatchObject({ type: "none" })
       expect(requests[1]?.tools).toEqual([])
       expect(requests[1]?.messages.at(-1)).toMatchObject({
-        role: "assistant",
+        role: "user",
         content: [{ type: "text", text: expect.stringContaining("MAXIMUM STEPS REACHED") }],
       })
       expect(executions).toEqual(["done"])

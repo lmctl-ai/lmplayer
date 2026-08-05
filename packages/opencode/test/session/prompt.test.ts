@@ -60,6 +60,7 @@ import { LocationServiceMap, locationServiceMapLayer } from "@opencode-ai/core/l
 import { SessionJobRuntime } from "@/session/job-runtime"
 import { SessionJobStore } from "@/session/job-store"
 import { SessionJobNotificationRetry } from "@/session/notification-retry"
+import { SessionCronRuntime } from "@/session/cron-runtime"
 
 const summary = Layer.succeed(
   SessionSummary.Service,
@@ -187,6 +188,22 @@ const notificationGuardPlugin = Layer.succeed(
   }),
 )
 
+const chatMessageHookState: {
+  hook?: (output: unknown) => Effect.Effect<void, unknown>
+} = {}
+const chatMessageHookPlugin = Layer.succeed(
+  Plugin.Service,
+  Plugin.Service.of({
+    init: () => Effect.void,
+    list: () => Effect.succeed([]),
+    trigger: ((name: string, _input: unknown, output: unknown) => {
+      const hook = chatMessageHookState.hook
+      if (name !== "chat.message" || !hook) return Effect.succeed(output)
+      return hook(output).pipe(Effect.catch(Effect.die), Effect.as(output))
+    }) as Plugin.Interface["trigger"],
+  }),
+)
+
 const providerModelHookState = { calls: [] as string[], hang: true }
 const notificationProviderPlugin = Layer.succeed(
   Plugin.Service,
@@ -255,6 +272,7 @@ const promptRoot = LayerNode.group([
   SystemPrompt.node,
   CrossSpawnSpawner.node,
   RuntimeFlags.node,
+  SessionCronRuntime.node,
 ])
 
 function makePrompt(input?: { mcpInstructions?: MCP.ServerInstructions[]; processor?: "blocking" }) {
@@ -320,6 +338,15 @@ const providerGuardNotifications = testEffect(
     [LSP.node, lsp],
     [MCP.node, makeMcp()],
     [Plugin.node, notificationProviderPlugin],
+    [RuntimeFlags.node, runtimeFlags],
+  ]),
+)
+const chatMessageHooks = testEffect(
+  LayerNode.compile(LayerNode.group([promptRoot, testLLMServerNode]), [
+    [SessionSummary.node, summary],
+    [LSP.node, lsp],
+    [MCP.node, makeMcp()],
+    [Plugin.node, chatMessageHookPlugin],
     [RuntimeFlags.node, runtimeFlags],
   ]),
 )
@@ -683,6 +710,241 @@ guardedNotifications.instance("delivers one completed-job notification turn and 
         message.info.finish === "stop",
     )
     expect(replies).toHaveLength(1)
+  }),
+)
+
+it.instance("fires a cron prompt as a normal unrestricted turn", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const crons = yield* SessionCronRuntime.Service
+    const chat = yield* sessions.create({ title: "Pinned" })
+    yield* llm.push(reply().text("Scheduled check configured.").stop())
+    yield* prompt.prompt({
+      sessionID: chat.id,
+      agent: "build",
+      parts: [{ type: "text", text: "Set up the scheduled check" }],
+    })
+    yield* llm.push(reply().text("Scheduled check completed.").stop())
+    const cron = yield* crons.create(chat.id, {
+      cron: "* * * * *",
+      prompt: "Run the scheduled check now",
+      recurring: false,
+    })
+
+    yield* crons.tick(cron.createdAt)
+    yield* llm.wait(1)
+    const result = yield* pollWithTimeout(
+      sessions.messages({ sessionID: chat.id }).pipe(
+        Effect.map((messages) => {
+          const scheduled = messages.find(
+            (message) =>
+              message.info.role === "user" &&
+              message.parts.some((part) => part.type === "text" && part.text === "Run the scheduled check now"),
+          )
+          const assistant = messages.find(
+            (message) => message.info.role === "assistant" && message.info.parentID === scheduled?.info.id,
+          )
+          return scheduled && assistant?.info.role === "assistant" && assistant.info.time.completed
+            ? { messages, scheduled }
+            : undefined
+        }),
+      ),
+      "cron prompt turn did not complete",
+    )
+
+    expect(SessionPrompt.isNotificationOrigin(result.messages, result.scheduled.info.id)).toBe(false)
+    const tools = JSON.stringify((yield* llm.hits).at(-1)?.body.tools)
+    expect(tools).toContain('"bash"')
+    expect(tools).toContain('"cron"')
+    expect(yield* crons.list(chat.id)).toEqual([])
+  }),
+)
+
+chatMessageHooks.instance("rejects a cron fire without side effects while the session is busy", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const crons = yield* SessionCronRuntime.Service
+    const chat = yield* sessions.create({ title: "Pinned" })
+    yield* llm.push(reply().text("Cron configured.").stop())
+    yield* prompt.prompt({
+      sessionID: chat.id,
+      agent: "build",
+      parts: [{ type: "text", text: "Initial prompt" }],
+    })
+    const cron = yield* crons.create(chat.id, {
+      cron: "* * * * *",
+      prompt: "Busy cron prompt",
+      recurring: false,
+    })
+    const release = yield* Deferred.make<void>()
+    yield* llm.hold("Real prompt answered.", deferredAsPromise(release))
+    const real = yield* prompt
+      .prompt({
+        sessionID: chat.id,
+        agent: "build",
+        parts: [{ type: "text", text: "Real prompt" }],
+      })
+      .pipe(Effect.forkChild)
+    yield* llm.wait(2)
+    const before = yield* sessions.get(chat.id)
+    const hooks: string[] = []
+
+    yield* Effect.gen(function* () {
+      chatMessageHookState.hook = (output) => {
+        hooks.push(JSON.stringify(output))
+        return Effect.void
+      }
+      yield* crons.tick(cron.createdAt)
+      expect(yield* crons.list(chat.id)).toHaveLength(1)
+      expect(hooks).toEqual([])
+      const after = yield* sessions.get(chat.id)
+      expect(after.agent).toBe(before.agent)
+      expect(after.model).toEqual(before.model)
+      const messages = yield* sessions.messages({ sessionID: chat.id })
+      expect(
+        messages.some(
+          (message) =>
+            message.info.role === "user" &&
+            message.parts.some((part) => part.type === "text" && part.text === "Busy cron prompt"),
+        ),
+      ).toBe(false)
+    }).pipe(
+      Effect.ensuring(
+        Effect.sync(() => {
+          delete chatMessageHookState.hook
+        }),
+      ),
+    )
+    yield* Deferred.succeed(release, undefined)
+    yield* Fiber.join(real)
+  }),
+)
+
+it.instance("settled-history guard defers cron when a real prompt persists before admission", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig(providerCfg)
+    const events = yield* EventV2Bridge.Service
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const crons = yield* SessionCronRuntime.Service
+    const chat = yield* sessions.create({ title: "Pinned" })
+    yield* llm.push(reply().text("Cron configured.").stop())
+    yield* prompt.prompt({
+      sessionID: chat.id,
+      agent: "build",
+      parts: [{ type: "text", text: "Initial prompt" }],
+    })
+    const cron = yield* crons.create(chat.id, {
+      cron: "* * * * *",
+      prompt: "Guarded cron prompt",
+      recurring: false,
+    })
+    yield* llm.push(reply().text("Real prompt answered.").stop())
+
+    const realMessageID = MessageID.ascending()
+    const persisted = yield* Deferred.make<void>()
+    const release = yield* Deferred.make<void>()
+    const off = yield* events.listen((event) => {
+      if (event.type !== SessionV1.Event.MessageUpdated.type) return Effect.void
+      const data = event.data as typeof SessionV1.Event.MessageUpdated.data.Type
+      if (data.info.id !== realMessageID) return Effect.void
+      return Deferred.succeed(persisted, undefined).pipe(Effect.andThen(Deferred.await(release)))
+    })
+    const real = yield* prompt
+      .prompt({
+        sessionID: chat.id,
+        messageID: realMessageID,
+        agent: "build",
+        parts: [{ type: "text", text: "Real prompt" }],
+      })
+      .pipe(Effect.forkChild)
+    yield* Deferred.await(persisted)
+
+    yield* crons.tick(cron.createdAt)
+    expect(yield* crons.list(chat.id)).toHaveLength(1)
+    expect(
+      (yield* sessions.messages({ sessionID: chat.id })).some((message) =>
+        message.parts.some((part) => part.type === "text" && part.text === "Guarded cron prompt"),
+      ),
+    ).toBe(false)
+
+    yield* Deferred.succeed(release, undefined)
+    yield* Fiber.join(real)
+    yield* off
+    yield* llm.wait(2)
+    const response = yield* pollWithTimeout(
+      sessions.messages({ sessionID: chat.id }).pipe(
+        Effect.map((messages) =>
+          messages.find(
+            (message) =>
+              message.info.role === "assistant" &&
+              message.info.parentID === realMessageID &&
+              message.info.time.completed !== undefined,
+          ),
+        ),
+      ),
+      "real prompt was not answered after the cron guard deferred",
+    )
+    expect(response.info.role).toBe("assistant")
+  }),
+)
+
+chatMessageHooks.instance("allows a chat.message hook to await a nested same-session prompt", () =>
+  Effect.gen(function* () {
+    yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({ title: "Pinned" })
+    let nested = false
+
+    yield* Effect.gen(function* () {
+      chatMessageHookState.hook = () => {
+        if (nested) return Effect.void
+        nested = true
+        return prompt
+          .prompt({
+            sessionID: chat.id,
+            agent: "build",
+            noReply: true,
+            parts: [{ type: "text", text: "Nested prompt" }],
+          })
+          .pipe(Effect.asVoid)
+      }
+      yield* prompt
+        .prompt({
+          sessionID: chat.id,
+          agent: "build",
+          noReply: true,
+          parts: [{ type: "text", text: "Outer prompt" }],
+        })
+        .pipe(Effect.timeout("3 seconds"))
+
+      const messages = yield* sessions.messages({ sessionID: chat.id })
+      expect(
+        messages.some(
+          (message) =>
+            message.info.role === "user" &&
+            message.parts.some((part) => part.type === "text" && part.text === "Nested prompt"),
+        ),
+      ).toBe(true)
+      expect(
+        messages.some(
+          (message) =>
+            message.info.role === "user" &&
+            message.parts.some((part) => part.type === "text" && part.text === "Outer prompt"),
+        ),
+      ).toBe(true)
+    }).pipe(
+      Effect.ensuring(
+        Effect.sync(() => {
+          delete chatMessageHookState.hook
+        }),
+      ),
+    )
   }),
 )
 
@@ -1190,6 +1452,39 @@ it.instance("loop continues when finish is tool-calls", () =>
       expect(result.parts.some((part) => part.type === "text" && part.text === "second")).toBe(true)
       expect(result.info.finish).toBe("stop")
     }
+  }),
+)
+
+it.instance("uses a user-role max-step instruction at the final provider boundary", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig((url) => ({
+      ...providerCfg(url),
+      agent: { build: { steps: 1 } },
+    }))
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const session = yield* sessions.create({
+      title: "Pinned",
+      permission: [{ permission: "*", pattern: "*", action: "allow" }],
+    })
+    yield* prompt.prompt({
+      sessionID: session.id,
+      agent: "build",
+      noReply: true,
+      parts: [{ type: "text", text: "finish within the limit" }],
+    })
+    yield* llm.tool("first", { value: "first" })
+    yield* llm.text("final response")
+
+    yield* prompt.loop({ sessionID: session.id })
+
+    const hits = yield* llm.hits
+    expect(hits).toHaveLength(2)
+    const messages = hits[1]?.body.messages as Array<{ role: string; content: unknown }>
+    expect(messages.at(-1)).toMatchObject({
+      role: "user",
+      content: expect.stringContaining("MAXIMUM STEPS REACHED"),
+    })
   }),
 )
 

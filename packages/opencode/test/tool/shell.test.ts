@@ -21,6 +21,7 @@ import { testEffect } from "../lib/effect"
 import { Tool } from "@/tool/tool"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { InstanceStore } from "@/project/instance-store"
+import { SessionJobRuntime } from "@/session/job-runtime"
 
 const shellLayer = Layer.mergeAll(
   LayerNode.compile(
@@ -80,6 +81,35 @@ const ctx = {
   messages: [],
   metadata: () => Effect.void,
   ask: () => Effect.void,
+}
+
+function captureBackgroundTimeout(captured: Array<number | undefined>) {
+  return SessionJobRuntime.Service.of({
+    submit: (input) =>
+      Effect.sync(() => {
+        captured.push(input.timeout)
+        const now = Date.now()
+        return {
+          created: true,
+          job: {
+            id: `job_${captured.length}`,
+            sessionID: input.sessionID,
+            status: "queued" as const,
+            ...(input.timeout === undefined ? {} : { timeout: input.timeout }),
+            outputBytes: 0,
+            outputTruncated: false,
+            outputExpired: false,
+            time: { created: now, updated: now },
+          },
+        }
+      }),
+    stop: () => Effect.die("unexpected background stop"),
+    cancelSession: () => Effect.void,
+    removeSessionOutput: () => Effect.void,
+    setWake: () => Effect.void,
+    shutdown: () => Effect.void,
+    runtimeID: "shell-timeout-test",
+  })
 }
 
 Shell.acceptable.reset()
@@ -1064,7 +1094,8 @@ describe("tool.shell abort", () => {
         projectRoot,
         Effect.gen(function* () {
           const tool = yield* initShell()
-          expect(tool.description).toContain("commands will time out after 500ms")
+          expect(tool.description).toContain("Foreground commands default to 500ms")
+          expect(tool.description).toContain("Background jobs have no default timeout")
           const result = yield* tool.execute(
             {
               command: `sleep 60`,
@@ -1074,6 +1105,47 @@ describe("tool.shell abort", () => {
           expect(result.output).toContain("exceeding timeout 500 ms")
         }),
       ).pipe(Effect.provide(RuntimeFlags.layer({ bashDefaultTimeoutMs: 500 }))),
+    15_000,
+  )
+
+  it.live(
+    "leaves background jobs unbounded when timeout is omitted",
+    () => {
+      const captured: Array<number | undefined> = []
+      return runIn(
+        projectRoot,
+        Effect.gen(function* () {
+          const tool = yield* initShell()
+          yield* tool.execute({ command: "sleep 1", background: true }, { ...ctx, callID: "call-background-default" })
+          expect(captured).toEqual([undefined])
+        }),
+      ).pipe(
+        Effect.provideService(SessionJobRuntime.Service, captureBackgroundTimeout(captured)),
+        Effect.provide(RuntimeFlags.layer({ bashDefaultTimeoutMs: 50 })),
+      )
+    },
+    15_000,
+  )
+
+  it.live(
+    "honors an explicit background timeout without a hard ceiling",
+    () => {
+      const captured: Array<number | undefined> = []
+      return runIn(
+        projectRoot,
+        Effect.gen(function* () {
+          const tool = yield* initShell()
+          yield* tool.execute(
+            { command: "sleep 1", background: true, timeout: 7_200_000 },
+            { ...ctx, callID: "call-background-explicit" },
+          )
+          expect(captured).toEqual([7_200_000])
+        }),
+      ).pipe(
+        Effect.provideService(SessionJobRuntime.Service, captureBackgroundTimeout(captured)),
+        Effect.provide(RuntimeFlags.layer({ bashDefaultTimeoutMs: 50 })),
+      )
+    },
     15_000,
   )
 

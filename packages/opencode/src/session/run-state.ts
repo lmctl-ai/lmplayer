@@ -21,6 +21,11 @@ export interface Interface {
     onInterrupt: Effect.Effect<SessionV1.WithParts>,
     work: Effect.Effect<SessionV1.WithParts>,
   ) => Effect.Effect<Runner.Request<never>>
+  readonly wakeIfIdle: (
+    sessionID: SessionID,
+    onInterrupt: Effect.Effect<SessionV1.WithParts>,
+    work: Effect.Effect<SessionV1.WithParts>,
+  ) => Effect.Effect<Runner.Request<never>>
   readonly admit: (
     sessionID: SessionID,
     onInterrupt: Effect.Effect<SessionV1.WithParts>,
@@ -134,6 +139,16 @@ const layer = Layer.effect(
       return yield* current.requestRun(work, false)
     })
 
+    const wakeIfIdle = Effect.fn("SessionRunState.wakeIfIdle")(function* (
+      sessionID: SessionID,
+      onInterrupt: Effect.Effect<SessionV1.WithParts>,
+      work: Effect.Effect<SessionV1.WithParts>,
+    ) {
+      const current = yield* runner(sessionID, onInterrupt)
+      if (!current) return { accepted: false as const, settled: Effect.void }
+      return yield* current.requestRunIfIdle(work)
+    })
+
     const admit = Effect.fn("SessionRunState.admit")(function* (
       sessionID: SessionID,
       onInterrupt: Effect.Effect<SessionV1.WithParts>,
@@ -170,7 +185,16 @@ const layer = Layer.effect(
         .pipe(Effect.catchTag("RunnerBusy", () => Effect.fail(busyError(sessionID))))
     })
 
-    return Service.of({ assertNotBusy, cancel, ensureRunning, wake, admit, dispose, startShell })
+    return Service.of({
+      assertNotBusy,
+      cancel,
+      ensureRunning,
+      wake,
+      wakeIfIdle,
+      admit,
+      dispose,
+      startShell,
+    })
   }),
 )
 

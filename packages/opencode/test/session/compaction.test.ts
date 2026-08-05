@@ -33,6 +33,7 @@ import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
+import { SYNTHETIC_RECOVERY_PROMPT } from "@opencode-ai/core/session/runner/ensure-user-terminated"
 
 const summary = Layer.succeed(
   SessionSummary.Service,
@@ -999,6 +1000,44 @@ describe("session.compaction.process", () => {
         }
       }
     }),
+  )
+
+  itCompaction.instance(
+    "does not inject crash recovery input before the compaction prompt",
+    () => {
+      const stub = llm()
+      let captured: readonly { role: string; content: unknown }[] = []
+      stub.push(reply("summary", (input) => (captured = input.messages)))
+      return Effect.gen(function* () {
+        const test = yield* TestInstance
+        const ssn = yield* SessionNs.Service
+        const session = yield* ssn.create({})
+        const user = yield* createUserMessage(session.id, "hello")
+        const assistant = yield* createAssistantMessage(session.id, user.id, test.directory)
+        yield* ssn.updatePart({
+          id: PartID.ascending(),
+          messageID: assistant.id,
+          sessionID: session.id,
+          type: "text",
+          text: "Completed answer",
+        })
+        yield* createCompactionMarker(session.id)
+        const messages = yield* ssn.messages({ sessionID: session.id })
+        const parent = messages.at(-1)?.info.id
+        if (!parent) return yield* Effect.die("compaction marker was not persisted")
+
+        yield* SessionCompaction.use.process({
+          parentID: parent,
+          messages,
+          sessionID: session.id,
+          auto: false,
+        })
+
+        expect(captured.map((message) => message.role)).toEqual(["user", "assistant", "user"])
+        expect(JSON.stringify(captured)).not.toContain(SYNTHETIC_RECOVERY_PROMPT)
+      }).pipe(withCompaction({ llm: stub.llmLayer }))
+    },
+    { git: true },
   )
 
   it.instance(

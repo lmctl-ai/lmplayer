@@ -3933,7 +3933,7 @@ export type SessionJobInfo = {
   id: string
   sessionID: string
   status: "queued" | "starting" | "running" | "completed" | "failed" | "timed_out" | "cancelled" | "interrupted"
-  timeout: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  timeout?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
   outputBytes: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
   outputTruncated: boolean
   outputExpired: boolean

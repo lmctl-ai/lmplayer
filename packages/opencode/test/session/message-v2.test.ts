@@ -1041,6 +1041,64 @@ describe("session.message-v2.toModelMessage", () => {
     ])
   })
 
+  test("drops an empty controlled-interrupt assistant without adding recovery input", async () => {
+    const assistantID = "m-assistant-aborted-empty"
+    const aborted = new SessionV1.AbortedError({ message: "aborted" }).toObject() as SessionV1.Assistant["error"]
+    const input: SessionV1.WithParts[] = [
+      {
+        info: assistantInfo(assistantID, "m-parent", aborted),
+        parts: [
+          {
+            ...basePart(assistantID, "a1"),
+            type: "reasoning",
+            text: "unfinished reasoning",
+            time: { start: 0 },
+          },
+        ] as SessionV1.Part[],
+      },
+    ]
+
+    expect(await MessageV2.toModelMessages(input, model)).toEqual([])
+  })
+
+  test("preserves a dangling partial assistant without mutating persisted history", async () => {
+    const userID = "m-user-before-crash"
+    const assistantID = "m-assistant-crashed"
+    const input: SessionV1.WithParts[] = [
+      {
+        info: userInfo(userID),
+        parts: [{ ...basePart(userID, "u1"), type: "text", text: "Start the work" }] as SessionV1.Part[],
+      },
+      {
+        info: assistantInfo(assistantID, userID),
+        parts: [{ ...basePart(assistantID, "a1"), type: "text", text: "Partial work before crash" }],
+      },
+    ]
+    const persisted = structuredClone(input)
+
+    const output = await MessageV2.toModelMessages(input, model)
+
+    expect(output.at(-1)).toEqual({
+      role: "assistant",
+      content: [{ type: "text", text: "Partial work before crash" }],
+    })
+    expect(input).toEqual(persisted)
+  })
+
+  test("does not append recovery input when normalized history already ends with a user", async () => {
+    const userID = "m-user-latest"
+    const input: SessionV1.WithParts[] = [
+      {
+        info: userInfo(userID),
+        parts: [{ ...basePart(userID, "u1"), type: "text", text: "Latest user prompt" }] as SessionV1.Part[],
+      },
+    ]
+
+    expect(await MessageV2.toModelMessages(input, model)).toEqual([
+      { role: "user", content: [{ type: "text", text: "Latest user prompt" }] },
+    ])
+  })
+
   test("preserves OpenRouter reasoning details through provider transform", async () => {
     const assistantID = "m-assistant"
     const openrouterModel: Provider.Model = {

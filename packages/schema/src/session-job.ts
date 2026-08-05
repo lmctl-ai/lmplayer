@@ -35,7 +35,7 @@ export const Info = Schema.Struct({
   id: Schema.String,
   sessionID: SessionID,
   status: Status,
-  timeout: Schema.Number,
+  timeout: optional(Schema.Number),
   outputBytes: Schema.Number,
   outputTruncated: Schema.Boolean,
   outputExpired: Schema.Boolean,

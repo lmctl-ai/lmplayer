@@ -10,6 +10,7 @@ import { ToolJsonSchema } from "../../src/tool/json-schema"
 // provider-compatible while tools use Effect Schema internally.
 
 import { Parameters as ApplyPatch } from "../../src/tool/apply_patch"
+import { Parameters as Cron } from "../../src/tool/cron"
 import { Parameters as Edit } from "../../src/tool/edit"
 import { Parameters as Glob } from "../../src/tool/glob"
 import { Parameters as Grep } from "../../src/tool/grep"
@@ -38,6 +39,7 @@ describe("tool parameters", () => {
   describe("JSON Schema (wire shape)", () => {
     test("apply_patch", () => expect(toJsonSchema(ApplyPatch)).toMatchSnapshot())
     test("bash", () => expect(toJsonSchema(Shell)).toMatchSnapshot())
+    test("cron", () => expect(toJsonSchema(Cron)).toMatchSnapshot())
     test("edit", () => expect(toJsonSchema(Edit)).toMatchSnapshot())
     test("glob", () => expect(toJsonSchema(Glob)).toMatchSnapshot())
     test("grep", () => expect(toJsonSchema(Grep)).toMatchSnapshot())
@@ -119,6 +121,23 @@ describe("tool parameters", () => {
     })
     test("rejects missing command", () => {
       expect(accepts(Shell, {})).toBe(false)
+    })
+  })
+
+  describe("cron", () => {
+    test("accepts flat create, list, and delete actions", () => {
+      expect(parse(Cron, { action: "create", cron: "*/5 * * * *", prompt: "check", recurring: false })).toEqual({
+        action: "create",
+        cron: "*/5 * * * *",
+        prompt: "check",
+        recurring: false,
+      })
+      expect(parse(Cron, { action: "list" })).toEqual({ action: "list" })
+      expect(parse(Cron, { action: "delete", id: "cron_123" })).toEqual({ action: "delete", id: "cron_123" })
+    })
+
+    test("rejects unknown actions", () => {
+      expect(accepts(Cron, { action: "stop" })).toBe(false)
     })
   })
 

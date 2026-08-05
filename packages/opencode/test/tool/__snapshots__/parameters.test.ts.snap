@@ -468,3 +468,41 @@ exports[`tool parameters JSON Schema (wire shape) write 1`] = `
   "type": "object",
 }
 `;
+
+exports[`tool parameters JSON Schema (wire shape) cron 1`] = `
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "action": {
+      "description": "Operation to perform on this session's in-memory cron jobs",
+      "enum": [
+        "create",
+        "list",
+        "delete",
+      ],
+      "type": "string",
+    },
+    "cron": {
+      "description": "Standard five-field cron expression evaluated in local time",
+      "type": "string",
+    },
+    "id": {
+      "description": "Cron job ID returned by create",
+      "type": "string",
+    },
+    "prompt": {
+      "description": "Prompt to run each time the schedule fires",
+      "type": "string",
+    },
+    "recurring": {
+      "default": true,
+      "description": "Whether to recur; defaults to true",
+      "type": "boolean",
+    },
+  },
+  "required": [
+    "action",
+  ],
+  "type": "object",
+}
+`;
