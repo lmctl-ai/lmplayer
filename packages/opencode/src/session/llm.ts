@@ -30,7 +30,6 @@ import { LLMAISDK } from "./llm/ai-sdk"
 import { LLMNativeRuntime } from "./llm/native-runtime"
 import { LLMRequestPrep } from "./llm/request"
 import { LLMVerbose } from "./llm/verbose"
-import { assertNotificationToolCall } from "@/tool/job"
 
 export const OUTPUT_TOKEN_MAX = ProviderTransform.OUTPUT_TOKEN_MAX
 
@@ -114,10 +113,7 @@ const live: Layer.Layer<
         flags,
         isWorkflow,
       })
-      const prepared = {
-        ...request,
-        tools: input.notificationOrigin ? notificationDispatchTools(request.tools) : request.tools,
-      }
+      const prepared = request
 
       // Wire up toolExecutor for DWS workflow models so that tool calls
       // from the workflow service are executed via opencode's tool system
@@ -153,8 +149,7 @@ const live: Layer.Layer<
           }
         }
 
-        if (input.notificationOrigin) configureNotificationWorkflowApproval(workflowModel)
-        if (!input.notificationOrigin) {
+        {
           const ruleset = Permission.merge(input.agent.permission ?? [], input.permission ?? [])
           workflowModel.sessionPreapprovedTools = Object.keys(prepared.tools).filter((name) => {
             const match = ruleset.findLast((rule) => Wildcard.match(name, rule.permission))
@@ -422,39 +417,6 @@ const live: Layer.Layer<
     return Service.of({ stream })
   }),
 )
-
-export function notificationDispatchTools(tools: Record<string, Tool>): Record<string, Tool> {
-  const job = tools.job
-  if (!job) return {}
-  return {
-    job: {
-      ...job,
-      ...(job.execute
-        ? {
-            execute(args, options) {
-              const decoded = assertNotificationToolCall("job", args)
-              return job.execute!(decoded, options)
-            },
-          }
-        : {}),
-    },
-  } satisfies Record<string, Tool>
-}
-
-export function configureNotificationWorkflowApproval(workflowModel: {
-  sessionPreapprovedTools?: string[]
-  approvalHandler?: (approvalTools: { name: string; args: string }[]) => Promise<{ approved: boolean }>
-}) {
-  workflowModel.sessionPreapprovedTools = ["job"]
-  workflowModel.approvalHandler = async (approvalTools) => {
-    try {
-      for (const approval of approvalTools) assertNotificationToolCall(approval.name, JSON.parse(approval.args))
-      return { approved: true }
-    } catch {
-      return { approved: false }
-    }
-  }
-}
 
 export const hasToolCalls = LLMRequestPrep.hasToolCalls
 

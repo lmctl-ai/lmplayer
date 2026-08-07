@@ -170,24 +170,6 @@ const blockingProcessor = Layer.succeed(
 
 const runtimeFlags = RuntimeFlags.layer({ experimentalEventSystem: true })
 
-const notificationGuardPlugin = Layer.succeed(
-  Plugin.Service,
-  Plugin.Service.of({
-    init: () => Effect.void,
-    list: () => Effect.succeed([]),
-    trigger: ((name: string, _input: unknown, output: unknown) =>
-      new Set([
-        "tool.definition",
-        "experimental.chat.messages.transform",
-        "experimental.chat.system.transform",
-        "chat.params",
-        "chat.headers",
-      ]).has(name)
-        ? Effect.die(`notification-origin turn reached plugin hook ${name}`)
-        : Effect.succeed(output)) as Plugin.Interface["trigger"],
-  }),
-)
-
 const chatMessageHookState: {
   hook?: (output: unknown) => Effect.Effect<void, unknown>
 } = {}
@@ -226,11 +208,6 @@ const notificationProviderPlugin = Layer.succeed(
       Effect.succeed(output)) as Plugin.Interface["trigger"],
   }),
 )
-
-const notificationGuardMcp = Layer.mock(MCP.Service, {
-  tools: () => Effect.die("notification-origin resolution reached the MCP catalog"),
-  instructions: () => Effect.succeed([]),
-})
 
 const testLLMServerNode = LayerNode.make({ service: TestLLMServer, layer: TestLLMServer.layer, deps: [] })
 
@@ -319,18 +296,6 @@ const withMcpInstructions = testEffect(
       },
     ],
   }),
-)
-const guardedNotifications = testEffect(
-  LayerNode.compile(
-    LayerNode.group([promptRoot, testLLMServerNode, SessionJobRuntime.node, SessionJobStore.node, EventV2Bridge.node]),
-    [
-      [SessionSummary.node, summary],
-      [LSP.node, lsp],
-      [MCP.node, notificationGuardMcp],
-      [Plugin.node, notificationGuardPlugin],
-      [RuntimeFlags.node, runtimeFlags],
-    ],
-  ),
 )
 const providerGuardNotifications = testEffect(
   LayerNode.compile(LayerNode.group([promptRoot, testLLMServerNode]), [
@@ -662,7 +627,7 @@ it.instance("loop calls LLM and returns assistant message", () =>
   }),
 )
 
-guardedNotifications.instance("delivers one completed-job notification turn and stops", () =>
+jobNotifications.instance("delivers one completed-job notification turn and stops", () =>
   Effect.gen(function* () {
     const { dir, llm } = yield* useServerConfig(providerCfg)
     const prompt = yield* SessionPrompt.Service

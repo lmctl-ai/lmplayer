@@ -221,8 +221,7 @@ export const prepare = Effect.fn("LLMRequestPrep.prepare")(function* (input: Pre
   }
 })
 
-function resolveTools(input: Pick<PrepareInput, "tools" | "agent" | "permission" | "user" | "notificationOrigin">) {
-  if (input.notificationOrigin) return input.tools
+function resolveTools(input: Pick<PrepareInput, "tools" | "agent" | "permission" | "user">) {
   const provision = input.agent.provision ? new Set(input.agent.provision) : undefined
   const disabled = Permission.disabled(
     Object.keys(input.tools),
