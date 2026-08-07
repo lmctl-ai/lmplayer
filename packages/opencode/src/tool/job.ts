@@ -16,13 +16,6 @@ const Parameters = Schema.Struct({
   limit: Schema.optional(Schema.Number),
 })
 
-export const SafeParameters = Schema.Struct({
-  action: Schema.Literals(["list", "get", "output"]),
-  jobID: Schema.optional(Schema.String),
-  offset: Schema.optional(Schema.Number),
-  limit: Schema.optional(Schema.Number),
-})
-
 const requireJobID = Effect.fn("JobTool.requireJobID")(function* (action: string, jobID: string | undefined) {
   if (!jobID) {
     return yield* Effect.fail(
@@ -66,38 +59,6 @@ export const JobTool = Tool.define(
     }
   }),
 )
-
-export function safeDefinition(store: SessionJobStore.Interface): Tool.Def<typeof SafeParameters> {
-  return {
-    id: "job",
-    description: "Inspect the background jobs whose completion triggered this unattended turn.",
-    parameters: SafeParameters,
-    execute: (params: Schema.Schema.Type<typeof SafeParameters>, ctx) =>
-      Effect.gen(function* () {
-        const decoded = yield* Schema.decodeUnknownEffect(SafeParameters)(params).pipe(
-          Effect.mapError((error) => new Tool.InvalidArgumentsError({ tool: "job", detail: String(error) })),
-        )
-        if (decoded.action === "list") return result("Background jobs", (yield* store.list(ctx.sessionID)).map(info))
-        if (decoded.action === "get") {
-          const jobID = yield* requireJobID(decoded.action, decoded.jobID)
-          return result(jobID, info(yield* store.get(ctx.sessionID, jobID)))
-        }
-        const jobID = yield* requireJobID(decoded.action, decoded.jobID)
-        return result(jobID, yield* readOutput(store, ctx.sessionID, jobID, decoded.offset, decoded.limit))
-      }).pipe(Effect.orDie),
-  }
-}
-
-export function assertNotificationToolCall(toolID: string, args: unknown) {
-  if (toolID !== "job") {
-    throw new Tool.InvalidArgumentsError({ tool: toolID, detail: "Notification-origin turns may only call job" })
-  }
-  try {
-    return Schema.decodeUnknownSync(SafeParameters)(args)
-  } catch (error) {
-    throw new Tool.InvalidArgumentsError({ tool: toolID, detail: String(error) })
-  }
-}
 
 function result(title: string, value: unknown) {
   return {
