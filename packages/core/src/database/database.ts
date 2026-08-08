@@ -26,7 +26,11 @@ const layer = Layer.effect(
 
     yield* db.run("PRAGMA journal_mode = WAL")
     yield* db.run("PRAGMA synchronous = NORMAL")
-    yield* db.run("PRAGMA busy_timeout = 5000")
+    // Default raised from 5000: under enough concurrent opencode processes
+    // sharing this one file, 5s wasn't enough headroom before SQLite gave up
+    // and returned SQLITE_BUSY ("database is locked") - see sqlite-retry.ts
+    // for the accompanying application-level retry on that same condition.
+    yield* db.run(`PRAGMA busy_timeout = ${Flag.OPENCODE_DB_BUSY_TIMEOUT_MS ?? 30_000}`)
     yield* db.run("PRAGMA cache_size = -64000")
     yield* db.run("PRAGMA foreign_keys = ON")
     yield* db.run("PRAGMA wal_checkpoint(PASSIVE)")

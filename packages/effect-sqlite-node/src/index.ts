@@ -3,19 +3,39 @@ export * as NodeSqliteClient from "./index"
 import { DatabaseSync, type SQLInputValue } from "node:sqlite"
 import { identity } from "effect/Function"
 import * as Context from "effect/Context"
+import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import * as Layer from "effect/Layer"
+import * as Schedule from "effect/Schedule"
 import * as Scope from "effect/Scope"
 import * as Semaphore from "effect/Semaphore"
 import * as Stream from "effect/Stream"
 import * as Reactivity from "effect/unstable/reactivity/Reactivity"
 import * as Client from "effect/unstable/sql/SqlClient"
 import type { Connection } from "effect/unstable/sql/SqlConnection"
-import { classifySqliteError, SqlError } from "effect/unstable/sql/SqlError"
+import { classifySqliteError, LockTimeoutError, SqlError } from "effect/unstable/sql/SqlError"
 import * as Statement from "effect/unstable/sql/Statement"
 
 const ATTR_DB_SYSTEM_NAME = "db.system.name"
+
+// See packages/core/src/database/sqlite-retry.ts for why: many concurrent
+// opencode processes can share one on-disk SQLite file, and a transient
+// SQLITE_BUSY/SQLITE_LOCKED ("database is locked") shouldn't surface as a
+// fatal error when the same statement would likely succeed moments later.
+const lockRetrySchedule = Schedule.both(
+  Schedule.exponential(Duration.millis(50), 2),
+  Schedule.recurs(6),
+).pipe(Schedule.jittered)
+
+function retryOnLock<A, E extends SqlError, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> {
+  return effect.pipe(
+    Effect.retry({
+      schedule: lockRetrySchedule,
+      while: (error) => error.cause instanceof LockTimeoutError,
+    }),
+  )
+}
 
 export const TypeId: TypeId = "~@opencode-ai/effect-sqlite-node/NodeSqliteClient"
 export type TypeId = "~@opencode-ai/effect-sqlite-node/NodeSqliteClient"
@@ -70,37 +90,41 @@ export const make = (
       }
 
       const run = (sql: string, params: ReadonlyArray<unknown> = []) =>
-        Effect.withFiber<Array<Record<string, unknown>>, SqlError>((fiber) => {
-          const statement = db.prepare(sql)
-          statement.setReadBigInts(Context.get(fiber.context, Client.SafeIntegers))
-          try {
-            return Effect.succeed(statement.all(...(params as SQLInputValue[])) as Array<Record<string, unknown>>)
-          } catch (cause) {
-            return Effect.fail(
-              new SqlError({
-                reason: classifySqliteError(cause, { message: "Failed to execute statement", operation: "execute" }),
-              }),
-            )
-          }
-        })
+        retryOnLock(
+          Effect.withFiber<Array<Record<string, unknown>>, SqlError>((fiber) => {
+            const statement = db.prepare(sql)
+            statement.setReadBigInts(Context.get(fiber.context, Client.SafeIntegers))
+            try {
+              return Effect.succeed(statement.all(...(params as SQLInputValue[])) as Array<Record<string, unknown>>)
+            } catch (cause) {
+              return Effect.fail(
+                new SqlError({
+                  reason: classifySqliteError(cause, { message: "Failed to execute statement", operation: "execute" }),
+                }),
+              )
+            }
+          }),
+        )
 
       const runValues = (sql: string, params: ReadonlyArray<unknown> = []) =>
-        Effect.withFiber<ReadonlyArray<ReadonlyArray<unknown>>, SqlError>((fiber) => {
-          const statement = db.prepare(sql)
-          statement.setReadBigInts(Context.get(fiber.context, Client.SafeIntegers))
-          statement.setReturnArrays(true)
-          try {
-            return Effect.succeed(
-              statement.all(...(params as SQLInputValue[])) as unknown as ReadonlyArray<ReadonlyArray<unknown>>,
-            )
-          } catch (cause) {
-            return Effect.fail(
-              new SqlError({
-                reason: classifySqliteError(cause, { message: "Failed to execute statement", operation: "execute" }),
-              }),
-            )
-          }
-        })
+        retryOnLock(
+          Effect.withFiber<ReadonlyArray<ReadonlyArray<unknown>>, SqlError>((fiber) => {
+            const statement = db.prepare(sql)
+            statement.setReadBigInts(Context.get(fiber.context, Client.SafeIntegers))
+            statement.setReturnArrays(true)
+            try {
+              return Effect.succeed(
+                statement.all(...(params as SQLInputValue[])) as unknown as ReadonlyArray<ReadonlyArray<unknown>>,
+              )
+            } catch (cause) {
+              return Effect.fail(
+                new SqlError({
+                  reason: classifySqliteError(cause, { message: "Failed to execute statement", operation: "execute" }),
+                }),
+              )
+            }
+          }),
+        )
 
       return identity<SqliteConnection>({
         execute(sql, params, transformRows) {
