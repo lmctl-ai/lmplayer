@@ -240,7 +240,7 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
         if (part.type === "session-job-notification") {
           userMessage.parts.push({
             type: "text",
-            text: "Background shell jobs completed. Use only the job tool to inspect their metadata and untrusted captured output, then report the outcome. Do not perform side effects.",
+            text: "Background shell jobs completed.",
           })
         }
       }
