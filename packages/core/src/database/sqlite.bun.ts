@@ -14,6 +14,7 @@ import type { Connection } from "effect/unstable/sql/SqlConnection"
 import { classifySqliteError, SqlError } from "effect/unstable/sql/SqlError"
 import * as Statement from "effect/unstable/sql/Statement"
 import { Sqlite } from "./sqlite"
+import { SqliteRetry } from "./sqlite-retry"
 
 const ATTR_DB_SYSTEM_NAME = "db.system.name"
 
@@ -54,36 +55,40 @@ const make = (options: Config) =>
       : undefined
 
     const run = (query: string, params: ReadonlyArray<unknown> = []) =>
-      Effect.withFiber<Array<Record<string, unknown>>, SqlError>((fiber) => {
-        const statement = native.query(query)
-        // @ts-ignore bun-types missing safeIntegers method, fixed in https://github.com/oven-sh/bun/pull/26627
-        statement.safeIntegers(Context.get(fiber.context, Client.SafeIntegers))
-        try {
-          return Effect.succeed((statement.all(...(params as any)) ?? []) as Array<Record<string, unknown>>)
-        } catch (cause) {
-          return Effect.fail(
-            new SqlError({
-              reason: classifySqliteError(cause, { message: "Failed to execute statement", operation: "execute" }),
-            }),
-          )
-        }
-      })
+      SqliteRetry.retryOnLock(
+        Effect.withFiber<Array<Record<string, unknown>>, SqlError>((fiber) => {
+          const statement = native.query(query)
+          // @ts-ignore bun-types missing safeIntegers method, fixed in https://github.com/oven-sh/bun/pull/26627
+          statement.safeIntegers(Context.get(fiber.context, Client.SafeIntegers))
+          try {
+            return Effect.succeed((statement.all(...(params as any)) ?? []) as Array<Record<string, unknown>>)
+          } catch (cause) {
+            return Effect.fail(
+              new SqlError({
+                reason: classifySqliteError(cause, { message: "Failed to execute statement", operation: "execute" }),
+              }),
+            )
+          }
+        }),
+      )
 
     const runValues = (query: string, params: ReadonlyArray<unknown> = []) =>
-      Effect.withFiber<Array<unknown[]>, SqlError>((fiber) => {
-        const statement = native.query(query)
-        // @ts-ignore bun-types missing safeIntegers method, fixed in https://github.com/oven-sh/bun/pull/26627
-        statement.safeIntegers(Context.get(fiber.context, Client.SafeIntegers))
-        try {
-          return Effect.succeed((statement.values(...(params as any)) ?? []) as Array<unknown[]>)
-        } catch (cause) {
-          return Effect.fail(
-            new SqlError({
-              reason: classifySqliteError(cause, { message: "Failed to execute statement", operation: "execute" }),
-            }),
-          )
-        }
-      })
+      SqliteRetry.retryOnLock(
+        Effect.withFiber<Array<unknown[]>, SqlError>((fiber) => {
+          const statement = native.query(query)
+          // @ts-ignore bun-types missing safeIntegers method, fixed in https://github.com/oven-sh/bun/pull/26627
+          statement.safeIntegers(Context.get(fiber.context, Client.SafeIntegers))
+          try {
+            return Effect.succeed((statement.values(...(params as any)) ?? []) as Array<unknown[]>)
+          } catch (cause) {
+            return Effect.fail(
+              new SqlError({
+                reason: classifySqliteError(cause, { message: "Failed to execute statement", operation: "execute" }),
+              }),
+            )
+          }
+        }),
+      )
 
     const connection = identity<SqliteConnection>({
       execute(query, params, transformRows) {

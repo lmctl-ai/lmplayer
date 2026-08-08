@@ -75,4 +75,8 @@ export const Flag = {
   get OPENCODE_CLIENT() {
     return process.env["OPENCODE_CLIENT"] ?? "cli"
   },
+  get OPENCODE_DB_BUSY_TIMEOUT_MS() {
+    const value = Number(process.env["OPENCODE_DB_BUSY_TIMEOUT_MS"])
+    return Number.isFinite(value) && value > 0 ? value : undefined
+  },
 }
