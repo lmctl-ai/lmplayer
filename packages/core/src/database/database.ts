@@ -2,7 +2,7 @@ export * as Database from "./database"
 
 import { EffectDrizzleSqlite } from "@opencode-ai/effect-drizzle-sqlite"
 import { layer as sqliteLayer } from "#sqlite"
-import { Context, Effect, Layer } from "effect"
+import { Context, Effect, Layer, Schedule } from "effect"
 import { Global } from "../global"
 import { Flag } from "../flag/flag"
 import { isAbsolute, join } from "path"
@@ -35,6 +35,17 @@ const layer = Layer.effect(
     yield* db.run("PRAGMA foreign_keys = ON")
     yield* db.run("PRAGMA wal_checkpoint(PASSIVE)")
     yield* DatabaseMigration.apply(db)
+
+    // A one-shot checkpoint at startup isn't enough for a long-lived, heavily
+    // written-to DB shared across many concurrent opencode processes: the WAL
+    // can grow large between process starts, and a large WAL raises the odds
+    // that some other reader (e.g. a third-party tool opening this file
+    // read-only to discover sessions) hits transient contention on a fresh
+    // connection. Keep checkpointing it down periodically for the life of
+    // this process.
+    yield* db
+      .run("PRAGMA wal_checkpoint(PASSIVE)")
+      .pipe(Effect.ignore, Effect.repeat(Schedule.spaced("30 seconds")), Effect.forkScoped)
 
     return { db }
   }).pipe(Effect.orDie),
