@@ -215,7 +215,11 @@ export function make(input: {
       "session",
     )
     const messages = yield* request(
-      () => input.sdk.session.messages({ directory: params.cwd, sessionID: params.sessionId }, { throwOnError: true }),
+      () =>
+        input.sdk.session.messages(
+          { directory: params.cwd, sessionID: params.sessionId, limit: 20 },
+          { throwOnError: true },
+        ),
       "session",
     )
     const restored = restoreFromMessages(messages.map((item) => item.info))
