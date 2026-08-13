@@ -524,29 +524,40 @@ export const get = Effect.fn("MessageV2.get")(function* (input: { sessionID: Ses
   }
 })
 
-export function filterCompacted(msgs: Iterable<WithParts>) {
+// Scans msgs (expected newest-first) for the most recent compaction boundary,
+// stopping as soon as one is found rather than requiring the full history.
+// `complete: true` means a boundary was found and result already contains
+// everything filterCompacted needs; `complete: false` means msgs was
+// exhausted with no boundary found (caller may need to supply more/older
+// messages, or there truly is none).
+function scanForCompactionBoundary(msgs: Iterable<WithParts>): { result: WithParts[]; complete: boolean } {
   const result = [] as WithParts[]
   const completed = new Set<string>()
   let retain: MessageID | undefined
   for (const msg of msgs) {
     result.push(msg)
     if (retain) {
-      if (msg.info.id === retain) break
+      if (msg.info.id === retain) return { result, complete: true }
       continue
     }
     if (msg.info.role === "user" && completed.has(msg.info.id)) {
       const part = msg.parts.find((item): item is CompactionPart => item.type === "compaction")
       if (!part) continue
-      if (!part.tail_start_id) break
+      if (!part.tail_start_id) return { result, complete: true }
       retain = part.tail_start_id
-      if (msg.info.id === retain) break
+      if (msg.info.id === retain) return { result, complete: true }
       continue
     }
     if (msg.info.role === "user" && completed.has(msg.info.id) && msg.parts.some((part) => part.type === "compaction"))
-      break
+      return { result, complete: true }
     if (msg.info.role === "assistant" && msg.info.summary && msg.info.finish && !msg.info.error)
       completed.add(msg.info.parentID)
   }
+  return { result, complete: false }
+}
+
+export function filterCompacted(msgs: Iterable<WithParts>) {
+  const { result } = scanForCompactionBoundary(msgs)
   result.reverse()
   const compactionIndex = result.findLastIndex(
     (msg) =>
@@ -577,8 +588,30 @@ export function filterCompacted(msgs: Iterable<WithParts>) {
   return result
 }
 
+// Pages newest-first, same as stream(), but stops as soon as
+// scanForCompactionBoundary finds a complete boundary instead of always
+// walking the full session history - long, heavily-compacted sessions only
+// pay for however far back the most recent compaction boundary actually is.
 export const filterCompactedEffect = Effect.fnUntraced(function* (sessionID: SessionID) {
-  return filterCompacted(yield* stream(sessionID))
+  const size = 50
+  const accumulated: WithParts[] = []
+  let before: string | undefined
+  while (true) {
+    const next = yield* page({ sessionID, limit: size, before }).pipe(
+      Effect.catchIf(NotFoundError.isInstance, () =>
+        Effect.succeed({ items: [] as WithParts[], more: false, cursor: undefined }),
+      ),
+    )
+    if (next.items.length === 0) break
+    for (let i = next.items.length - 1; i >= 0; i--) {
+      const item = next.items[i]
+      if (item) accumulated.push(item)
+    }
+    if (scanForCompactionBoundary(accumulated).complete) break
+    if (!next.more || !next.cursor) break
+    before = next.cursor
+  }
+  return filterCompacted(accumulated)
 })
 
 // filterCompacted reorders messages for model consumption
