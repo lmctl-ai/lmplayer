@@ -748,4 +748,47 @@ describe("acp event routing", () => {
       ],
     ])
   })
+
+  it("resubscribes after the global event stream throws instead of going silent forever", async () => {
+    const events = createEventStream()
+    const updates: SessionUpdateParams[] = []
+    const calls = { eventSubscribe: 0 }
+    const sdk = {
+      global: {
+        event: (options?: { signal?: AbortSignal }) => {
+          calls.eventSubscribe++
+          if (calls.eventSubscribe === 1) return Promise.reject(new Error("stream reset"))
+          return Promise.resolve({ stream: events.stream(options?.signal) })
+        },
+      },
+      session: {
+        message: () => Promise.resolve({ data: undefined }),
+        get: () => Promise.resolve({ data: { id: "ses_loaded" } }),
+        messages: () => Promise.resolve({ data: [] }),
+      },
+    } as unknown as OpencodeClient
+    const connection = {
+      sessionUpdate: (params: SessionUpdateParams) => {
+        updates.push(params)
+        return Promise.resolve()
+      },
+    } satisfies Pick<AgentSideConnection, "sessionUpdate">
+    const session = makeSessionService()
+    const subscription = new ACPEvent.Subscription({ sdk, connection, session })
+    await createKnownSession(session, "ses_a", { messageId: "msg_a", partId: "part_a", partType: "text" })
+
+    subscription.start()
+    try {
+      await pollUntil(() => calls.eventSubscribe >= 2, "expected a resubscribe attempt after the first failure", {
+        timeoutMs: 3000,
+      })
+
+      events.push({ payload: textDelta("ses_a", "msg_a", "part_a", "hello") })
+      await pollUntil(() => updates.length > 0, "expected the delta to be delivered after resubscribing")
+
+      expect(updates[0]?.sessionId).toBe("ses_a")
+    } finally {
+      subscription.stop()
+    }
+  })
 })
