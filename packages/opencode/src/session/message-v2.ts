@@ -524,6 +524,35 @@ export const get = Effect.fn("MessageV2.get")(function* (input: { sessionID: Ses
   }
 })
 
+type CompactionBoundaryState = { completed: Set<string>; retain: MessageID | undefined }
+
+function compactionBoundaryState(): CompactionBoundaryState {
+  return { completed: new Set(), retain: undefined }
+}
+
+// Single step of the newest-to-oldest compaction boundary scan, mutating
+// `state` in place. Returns true once msg completes the boundary (caller
+// should include msg in its result and then stop scanning).
+function compactionBoundaryStep(state: CompactionBoundaryState, msg: WithParts): boolean {
+  if (state.retain) return msg.info.id === state.retain
+  if (msg.info.role === "user" && state.completed.has(msg.info.id)) {
+    const part = msg.parts.find((item): item is CompactionPart => item.type === "compaction")
+    if (!part) return false
+    if (!part.tail_start_id) return true
+    state.retain = part.tail_start_id
+    return msg.info.id === state.retain
+  }
+  if (
+    msg.info.role === "user" &&
+    state.completed.has(msg.info.id) &&
+    msg.parts.some((part) => part.type === "compaction")
+  )
+    return true
+  if (msg.info.role === "assistant" && msg.info.summary && msg.info.finish && !msg.info.error)
+    state.completed.add(msg.info.parentID)
+  return false
+}
+
 // Scans msgs (expected newest-first) for the most recent compaction boundary,
 // stopping as soon as one is found rather than requiring the full history.
 // `complete: true` means a boundary was found and result already contains
@@ -532,26 +561,10 @@ export const get = Effect.fn("MessageV2.get")(function* (input: { sessionID: Ses
 // messages, or there truly is none).
 function scanForCompactionBoundary(msgs: Iterable<WithParts>): { result: WithParts[]; complete: boolean } {
   const result = [] as WithParts[]
-  const completed = new Set<string>()
-  let retain: MessageID | undefined
+  const state = compactionBoundaryState()
   for (const msg of msgs) {
     result.push(msg)
-    if (retain) {
-      if (msg.info.id === retain) return { result, complete: true }
-      continue
-    }
-    if (msg.info.role === "user" && completed.has(msg.info.id)) {
-      const part = msg.parts.find((item): item is CompactionPart => item.type === "compaction")
-      if (!part) continue
-      if (!part.tail_start_id) return { result, complete: true }
-      retain = part.tail_start_id
-      if (msg.info.id === retain) return { result, complete: true }
-      continue
-    }
-    if (msg.info.role === "user" && completed.has(msg.info.id) && msg.parts.some((part) => part.type === "compaction"))
-      return { result, complete: true }
-    if (msg.info.role === "assistant" && msg.info.summary && msg.info.finish && !msg.info.error)
-      completed.add(msg.info.parentID)
+    if (compactionBoundaryStep(state, msg)) return { result, complete: true }
   }
   return { result, complete: false }
 }
@@ -588,15 +601,18 @@ export function filterCompacted(msgs: Iterable<WithParts>) {
   return result
 }
 
-// Pages newest-first, same as stream(), but stops as soon as
-// scanForCompactionBoundary finds a complete boundary instead of always
-// walking the full session history - long, heavily-compacted sessions only
-// pay for however far back the most recent compaction boundary actually is.
+// Pages newest-first, same as stream(), but stops as soon as the boundary
+// scan completes instead of always walking the full session history - long,
+// heavily-compacted sessions only pay for however far back the most recent
+// compaction boundary actually is. Each fetched message is fed through
+// compactionBoundaryStep exactly once (state carried across pages) so this
+// stays linear in the number of messages read, not quadratic.
 export const filterCompactedEffect = Effect.fnUntraced(function* (sessionID: SessionID) {
   const size = 50
   const accumulated: WithParts[] = []
+  const state = compactionBoundaryState()
   let before: string | undefined
-  while (true) {
+  outer: while (true) {
     const next = yield* page({ sessionID, limit: size, before }).pipe(
       Effect.catchIf(NotFoundError.isInstance, () =>
         Effect.succeed({ items: [] as WithParts[], more: false, cursor: undefined }),
@@ -605,9 +621,10 @@ export const filterCompactedEffect = Effect.fnUntraced(function* (sessionID: Ses
     if (next.items.length === 0) break
     for (let i = next.items.length - 1; i >= 0; i--) {
       const item = next.items[i]
-      if (item) accumulated.push(item)
+      if (!item) continue
+      accumulated.push(item)
+      if (compactionBoundaryStep(state, item)) break outer
     }
-    if (scanForCompactionBoundary(accumulated).complete) break
     if (!next.more || !next.cursor) break
     before = next.cursor
   }
