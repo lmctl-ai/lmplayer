@@ -59,8 +59,12 @@ export class Subscription {
   start() {
     if (this.started) return
     this.started = true
-    this.run().catch(() => {
+    this.run().catch((error) => {
       if (this.abort.signal.aborted) return
+      // run()'s own while loop now catches and resubscribes on failure, so
+      // reaching here means something escaped that entirely - still surface
+      // it instead of leaving the client permanently silent with no clue why.
+      Effect.runPromise(Effect.logError("acp event subscription exited unexpectedly", { error })).catch(() => {})
     })
   }
 
@@ -143,7 +147,23 @@ export class Subscription {
 
   private async run() {
     while (!this.abort.signal.aborted) {
-      await this.consume().catch(() => {})
+      try {
+        await this.consume()
+      } catch (error) {
+        if (!this.abort.signal.aborted) {
+          // The global event subscription (session/update notifications to the
+          // attached ACP client) can drop for reasons unrelated to the session
+          // itself still running fine server-side (network blip, stream reset).
+          // Without this catch, that error would escape run() entirely and the
+          // caller's own catch in start() just swallows it - the client goes
+          // permanently silent (no busy/thinking/response ever again) even
+          // though the session keeps completing turns normally. Log it and let
+          // the while loop's next iteration resubscribe instead.
+          await Effect.runPromise(
+            Effect.logError("acp event subscription dropped, resubscribing", { error }),
+          ).catch(() => {})
+        }
+      }
       this.disconnected()
       if (!this.abort.signal.aborted) await new Promise((resolve) => setTimeout(resolve, 1000))
     }
