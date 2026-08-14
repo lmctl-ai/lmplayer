@@ -146,11 +146,21 @@ export class Subscription {
   }
 
   private async run() {
+    // Consecutive failures with zero successful (re)subscription in between.
+    // Bounded so a genuinely dead/misconfigured event source (or, in tests, a
+    // sdk mock that never implements global.event at all) can't retry forever
+    // in the background - a real transient drop recovers well within this
+    // many attempts, at 1 attempt/second.
+    const maxConsecutiveFailures = 10
+    let consecutiveFailures = 0
+
     while (!this.abort.signal.aborted) {
       try {
         await this.consume()
+        consecutiveFailures = 0
       } catch (error) {
         if (!this.abort.signal.aborted) {
+          consecutiveFailures++
           // The global event subscription (session/update notifications to the
           // attached ACP client) can drop for reasons unrelated to the session
           // itself still running fine server-side (network blip, stream reset).
@@ -160,8 +170,15 @@ export class Subscription {
           // though the session keeps completing turns normally. Log it and let
           // the while loop's next iteration resubscribe instead.
           await Effect.runPromise(
-            Effect.logError("acp event subscription dropped, resubscribing", { error }),
+            Effect.logError("acp event subscription dropped, resubscribing", { error, consecutiveFailures }),
           ).catch(() => {})
+          if (consecutiveFailures >= maxConsecutiveFailures) {
+            await Effect.runPromise(
+              Effect.logError("acp event subscription giving up after repeated failures", { consecutiveFailures }),
+            ).catch(() => {})
+            this.disconnected()
+            return
+          }
         }
       }
       this.disconnected()
