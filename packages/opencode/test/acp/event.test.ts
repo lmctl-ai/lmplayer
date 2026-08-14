@@ -791,4 +791,44 @@ describe("acp event routing", () => {
       subscription.stop()
     }
   })
+
+  it(
+    "gives up after repeated consecutive failures instead of retrying forever",
+    async () => {
+    const calls = { eventSubscribe: 0 }
+    const sdk = {
+      global: {
+        event: () => {
+          calls.eventSubscribe++
+          return Promise.reject(new Error("still down"))
+        },
+      },
+      session: {
+        message: () => Promise.resolve({ data: undefined }),
+        get: () => Promise.resolve({ data: { id: "ses_loaded" } }),
+        messages: () => Promise.resolve({ data: [] }),
+      },
+    } as unknown as OpencodeClient
+    const connection = {
+      sessionUpdate: () => Promise.resolve(),
+    } satisfies Pick<AgentSideConnection, "sessionUpdate">
+    const session = makeSessionService()
+    const subscription = new ACPEvent.Subscription({ sdk, connection, session })
+
+    subscription.start()
+    try {
+      // 10 failures + the give-up log, each gated by the 1s backoff - only
+      // wait as long as actually needed instead of a fixed sleep.
+      await pollUntil(() => calls.eventSubscribe >= 10, "expected retries to stop advancing past the cap", {
+        timeoutMs: 15_000,
+      })
+      const stalledAt = calls.eventSubscribe
+      await new Promise((resolve) => setTimeout(resolve, 2500))
+      expect(calls.eventSubscribe).toBe(stalledAt)
+    } finally {
+      subscription.stop()
+    }
+    },
+    20_000,
+  )
 })
