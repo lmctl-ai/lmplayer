@@ -618,6 +618,19 @@ export const filterCompactedEffect = Effect.fnUntraced(function* (sessionID: Ses
 // ([compaction-user, summary, ...retained tail..., continue-user]), so array
 // position is not chronological. IDs are only a deterministic tie-breaker
 // because imported messages do not necessarily have monotonic IDs.
+//
+// MessageID.ascending() packs `timestamp * 4096 + counter` into only 48 bits
+// of hex, so the encoded value (and therefore raw string/id comparison)
+// wraps back to zero roughly every 2^48 / 4096 ms (~2.2 years) - an id minted
+// just after a wrap sorts *before* one minted just before it, even though
+// it's newer. time.created is a plain, untruncated Date.now() value and
+// doesn't have this problem, so compare that first and only fall back to id
+// to break ties between messages created in the same millisecond.
+export function compareRecency(a: { id: string; time: { created: number } }, b: { id: string; time: { created: number } }) {
+  if (a.time.created !== b.time.created) return a.time.created - b.time.created
+  return a.id > b.id ? 1 : a.id < b.id ? -1 : 0
+}
+
 export function latest(msgs: WithParts[]) {
   let user: User | undefined
   let assistant: Assistant | undefined
