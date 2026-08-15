@@ -342,6 +342,64 @@ const layer = Layer.effect(
       return changed.length > 0
     })
 
+    // A notification claim's 30s lease can expire while the claiming process is
+    // still alive and legitimately busy (a long tool-heavy turn, a slow LLM
+    // response, other concurrent work in the same session) - it just hasn't
+    // gotten back around to renewing or releasing the claim yet. Resetting the
+    // claim to "pending" purely on lease expiry, with no check that the
+    // claimant actually died, lets a completely unrelated process (e.g. any
+    // other opencode instance that happens to start up while the lease is
+    // outstanding, since reconcileStale scans every session in the shared DB)
+    // start its own concurrent runLoop for this session - two processes then
+    // race to write competing assistant messages under the same parent, and
+    // whichever one's process exits first (a short-lived headless dispatch)
+    // leaves its copy permanently incomplete. Only release a claim once we've
+    // confirmed its pid is actually gone, mirroring the job-launch reclaim
+    // logic above, which already gets this right.
+    const releaseExpiredNotificationClaims = (
+      client: Pick<typeof db, "select" | "update">,
+      sessionID: SessionID,
+      now: number,
+    ) =>
+      Effect.gen(function* () {
+        const expired = yield* client
+          .select({ id: SessionJobTable.id, notification_claim_pid: SessionJobTable.notification_claim_pid })
+          .from(SessionJobTable)
+          .where(
+            and(
+              eq(SessionJobTable.session_id, sessionID),
+              eq(SessionJobTable.notification_state, "claimed"),
+              or(isNull(SessionJobTable.notification_claim_until), lt(SessionJobTable.notification_claim_until, now)),
+            ),
+          )
+          .all()
+          .pipe(Effect.orDie)
+        const stale = expired.filter(
+          (row) => row.notification_claim_pid === null || !processAlive(row.notification_claim_pid),
+        )
+        if (stale.length === 0) return
+        yield* client
+          .update(SessionJobTable)
+          .set({
+            notification_state: "pending",
+            notification_claim_token: null,
+            notification_claim_until: null,
+            notification_claim_pid: null,
+          })
+          .where(
+            and(
+              eq(SessionJobTable.session_id, sessionID),
+              inArray(
+                SessionJobTable.id,
+                stale.map((row) => row.id),
+              ),
+              eq(SessionJobTable.notification_state, "claimed"),
+            ),
+          )
+          .run()
+          .pipe(Effect.orDie)
+      })
+
     const reconcileStale: Interface["reconcileStale"] = Effect.fn("SessionJobStore.reconcileStale")(function* (
       sessionID,
       now = Date.now(),
@@ -389,18 +447,7 @@ const layer = Layer.effect(
           { behavior: "immediate" },
         )
         .pipe(Effect.orDie)
-      yield* db
-        .update(SessionJobTable)
-        .set({ notification_state: "pending", notification_claim_token: null, notification_claim_until: null })
-        .where(
-          and(
-            eq(SessionJobTable.session_id, sessionID),
-            eq(SessionJobTable.notification_state, "claimed"),
-            or(isNull(SessionJobTable.notification_claim_until), lt(SessionJobTable.notification_claim_until, now)),
-          ),
-        )
-        .run()
-        .pipe(Effect.orDie)
+      yield* releaseExpiredNotificationClaims(db, sessionID, now)
       yield* db
         .update(SessionJobTable)
         .set({ output_deleting: false, output_delete_token: null, time_updated: now })
@@ -469,21 +516,7 @@ const layer = Layer.effect(
           .transaction(
             (tx) =>
               Effect.gen(function* () {
-                yield* tx
-                  .update(SessionJobTable)
-                  .set({
-                    notification_state: "pending",
-                    notification_claim_token: null,
-                    notification_claim_until: null,
-                  })
-                  .where(
-                    and(
-                      eq(SessionJobTable.session_id, sessionID),
-                      eq(SessionJobTable.notification_state, "claimed"),
-                      lt(SessionJobTable.notification_claim_until, now),
-                    ),
-                  )
-                  .run()
+                yield* releaseExpiredNotificationClaims(tx, sessionID, now)
                 const rows = yield* tx
                   .select()
                   .from(SessionJobTable)
@@ -500,6 +533,7 @@ const layer = Layer.effect(
                     notification_state: "claimed",
                     notification_claim_token: token,
                     notification_claim_until: now + 30_000,
+                    notification_claim_pid: process.pid,
                   })
                   .where(
                     and(
@@ -517,6 +551,7 @@ const layer = Layer.effect(
                   notification_state: "claimed" as const,
                   notification_claim_token: token,
                   notification_claim_until: now + 30_000,
+                  notification_claim_pid: process.pid,
                 }))
               }),
             { behavior: "immediate" },
@@ -529,7 +564,12 @@ const layer = Layer.effect(
       function* (sessionID, token) {
         yield* db
           .update(SessionJobTable)
-          .set({ notification_state: "pending", notification_claim_token: null, notification_claim_until: null })
+          .set({
+            notification_state: "pending",
+            notification_claim_token: null,
+            notification_claim_until: null,
+            notification_claim_pid: null,
+          })
           .where(
             and(
               eq(SessionJobTable.session_id, sessionID),
@@ -575,6 +615,7 @@ const layer = Layer.effect(
             notification_message_id: messageID,
             notification_claim_token: null,
             notification_claim_until: null,
+            notification_claim_pid: null,
           })
           .where(
             and(
