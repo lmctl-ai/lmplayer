@@ -44,5 +44,6 @@ export const migrations = (
     import("./migration/20260802054542_session_job_output_reads"),
     import("./migration/20260802072653_session_job_notification_observation"),
     import("./migration/20260804023541_session_job_owner_fencing"),
+    import("./migration/20260815012222_add_notification_claim_pid"),
   ])
 ).map((module) => module.default) satisfies DatabaseMigration.Migration[]

@@ -216,6 +216,7 @@ export const SessionJobTable = sqliteTable(
     notification_state: text().$type<SessionJob.NotificationState>().notNull().default("none"),
     notification_claim_token: text(),
     notification_claim_until: integer(),
+    notification_claim_pid: integer(),
     notification_batch_id: text(),
     notification_message_id: text(),
     notification_observed_message_id: text(),

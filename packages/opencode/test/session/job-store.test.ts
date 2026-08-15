@@ -8,7 +8,7 @@ import { ProjectV2 } from "@opencode-ai/core/project"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { AbsolutePath } from "@opencode-ai/core/schema"
-import { MessageTable, PartTable, SessionTable } from "@opencode-ai/core/session/sql"
+import { MessageTable, PartTable, SessionJobTable, SessionTable } from "@opencode-ai/core/session/sql"
 import { SessionProjector } from "@opencode-ai/core/session/projector"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
 import { eq } from "drizzle-orm"
@@ -162,6 +162,7 @@ describe("SessionJobStore", () => {
     "reconciles abandoned launches and expired notification claims",
     Effect.gen(function* () {
       const store = yield* SessionJobStore.Service
+      const { db } = yield* Database.Service
       const sessionID = yield* setup()
       const submitted = yield* store.submit(submission(sessionID, "call-reconcile"))
       expect(yield* store.reconcileStale(sessionID, submitted.row.time_updated + 29_999)).toEqual([])
@@ -175,6 +176,19 @@ describe("SessionJobStore", () => {
       expect(first).toHaveLength(1)
       yield* store.reserveAdmission(sessionID, "claim-first", "reserved-batch", "msg_reserved")
       expect(yield* store.claimNotifications(sessionID, "claim-too-soon", 10_000)).toHaveLength(0)
+      // A lease expiring alone must not release the claim while its holder is
+      // still alive (this test process, in this case) - only a confirmed-dead
+      // claimant should be reclaimable. See the dedicated test below for the
+      // full alive-vs-dead comparison; this just guards the happy path here
+      // still requires the claimant to actually be gone.
+      expect(yield* store.claimNotifications(sessionID, "claim-while-alive", 32_000)).toHaveLength(0)
+      const deadPID = 2_147_483_647
+      yield* db
+        .update(SessionJobTable)
+        .set({ notification_claim_pid: deadPID })
+        .where(eq(SessionJobTable.id, submitted.row.id))
+        .run()
+        .pipe(Effect.orDie)
       const recovered = yield* store.claimNotifications(sessionID, "claim-recovered", 32_000)
       expect(recovered).toHaveLength(1)
       expect(recovered[0]?.notification_claim_token).toBe("claim-recovered")
@@ -182,6 +196,14 @@ describe("SessionJobStore", () => {
       expect(recovered[0]?.notification_message_id).toBe("msg_reserved")
       yield* store.reconcileStale(sessionID, 61_999)
       expect((yield* store.get(sessionID, submitted.row.id)).notification_claim_token).toBe("claim-recovered")
+      // claim-recovered is now held by this (alive) test process too -
+      // simulate it dying before the next reclaim attempt.
+      yield* db
+        .update(SessionJobTable)
+        .set({ notification_claim_pid: deadPID })
+        .where(eq(SessionJobTable.id, submitted.row.id))
+        .run()
+        .pipe(Effect.orDie)
       yield* store.reconcileStale(sessionID, 62_001)
       const restarted = yield* store.claimNotifications(sessionID, "claim-after-restart", 32_001)
       expect(restarted).toHaveLength(1)
