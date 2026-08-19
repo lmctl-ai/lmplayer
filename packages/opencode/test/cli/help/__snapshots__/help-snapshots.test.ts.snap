@@ -456,12 +456,14 @@ lmplayer session
 manage sessions
 
 Commands:
-  lmplayer session ls                  list sessions
-  lmplayer session tail <sessionID>    print recent session messages
-  lmplayer session report <sessionID>  report session metrics
-  lmplayer session health <sessionID>  report session context health
-  lmplayer session list                list sessions
-  lmplayer session delete <sessionID>  delete a session
+  lmplayer session ls                   list sessions
+  lmplayer session tail <sessionID>     print recent session messages
+  lmplayer session report <sessionID>   report session metrics
+  lmplayer session metrics <sessionID>  report machine-queryable session metrics (tokens, cost,
+                                        latency, tools, files)
+  lmplayer session health <sessionID>   report session context health
+  lmplayer session list                 list sessions
+  lmplayer session delete <sessionID>   delete a session
 
 Options:
   -h, --help        show help                                                              [boolean]
