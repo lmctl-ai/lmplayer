@@ -210,6 +210,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 
+- **Upstream refresh:** merged 586 upstream opencode commits from
+  `anomalyco/dev` (through `Revert "update go models"`). Highlights: a
+  `truncate`/`serialize`-based rewrite of the compaction conversation prompt
+  (not adopted here — lmplayer's own organize/summary compaction pipeline was
+  kept unchanged to avoid entangling an unrelated upstream redesign with this
+  merge), a `glob` `includeIgnored` parameter, and routine model/provider
+  updates. Not a clean merge this time: three files conflicted with
+  lmplayer's own compaction feature (`packages/core/src/plugin/agent.ts`,
+  `packages/opencode/src/session/compaction.ts`,
+  `packages/opencode/test/session/compaction.test.ts`) and were resolved by
+  keeping lmplayer's existing behavior; two stale snapshots
+  (`test/tool/__snapshots__/parameters.test.ts.snap`,
+  `test/cli/help/__snapshots__/help-snapshots.test.ts.snap`) were
+  regenerated separately. All other lmplayer features were preserved
+  (unioned) across the merge.
 - **Upstream refresh:** merged 42 upstream opencode commits (through `sync
   release versions for v1.17.18`), synchronizing release versions from `1.17.15`
   to `1.17.18`. Highlights: stats model-comparison pages and home, a built-in
