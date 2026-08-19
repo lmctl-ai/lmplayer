@@ -678,6 +678,72 @@ jobNotifications.instance("delivers one completed-job notification turn and stop
   }),
 )
 
+jobNotifications.instance(
+  "launches a background job from a real LLM bash tool call and delivers its completion notification",
+  () =>
+    Effect.gen(function* () {
+      const { llm } = yield* useServerConfig(providerCfg)
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const store = yield* SessionJobStore.Service
+      const chat = yield* sessions.create({
+        title: "Background via tool call",
+        permission: [{ permission: "*", pattern: "*", action: "allow" }],
+      })
+
+      yield* prompt.prompt({
+        sessionID: chat.id,
+        agent: "build",
+        noReply: true,
+        parts: [{ type: "text", text: "run a background check" }],
+      })
+      yield* llm.tool("bash", {
+        command: "printf done",
+        description: "Background check",
+        background: true,
+      })
+      yield* llm.text("Backgrounding that check.")
+      // Queue the notification-turn reply before it can fire - delivery races
+      // the rest of this turn once the job is submitted.
+      yield* llm.push(reply().text("The background job completed.").stop())
+
+      const result = yield* prompt.loop({ sessionID: chat.id })
+      expect(result.info.role).toBe("assistant")
+
+      const msgs = yield* MessageV2.filterCompactedEffect(chat.id)
+      const launch = msgs
+        .flatMap((msg) => msg.parts)
+        .find(
+          (part): part is CompletedToolPart =>
+            part.type === "tool" && part.tool === "bash" && part.state.status === "completed",
+        )
+      expect(launch).toBeDefined()
+      const launchOutput = launch && launch.state.status === "completed" ? JSON.parse(launch.state.output) : undefined
+      expect(launchOutput?.jobID).toStartWith("job_")
+
+      const delivered = yield* pollWithTimeout(
+        store
+          .get(chat.id, launchOutput.jobID)
+          .pipe(Effect.map((row) => (row.notification_state === "delivered" ? row : undefined))),
+        "job completion notification was not delivered",
+      )
+      expect(delivered.notification_message_id).toStartWith("msg_")
+
+      const messages = yield* sessions.messages({ sessionID: chat.id })
+      const notification = messages.find((message) =>
+        message.parts.some((part) => part.type === "session-job-notification"),
+      )
+      expect(notification?.info.role).toBe("user")
+      const replies = messages.filter(
+        (message) =>
+          message.info.role === "assistant" &&
+          message.info.parentID === notification?.info.id &&
+          message.info.finish === "stop",
+      )
+      expect(replies).toHaveLength(1)
+    }),
+)
+
 it.instance("fires a cron prompt as a normal unrestricted turn", () =>
   Effect.gen(function* () {
     const { llm } = yield* useServerConfig(providerCfg)
