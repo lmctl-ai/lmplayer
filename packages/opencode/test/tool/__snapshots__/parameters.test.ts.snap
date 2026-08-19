@@ -43,6 +43,44 @@ exports[`tool parameters JSON Schema (wire shape) bash 1`] = `
 }
 `;
 
+exports[`tool parameters JSON Schema (wire shape) cron 1`] = `
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "action": {
+      "description": "Operation to perform on this session's in-memory cron jobs",
+      "enum": [
+        "create",
+        "list",
+        "delete",
+      ],
+      "type": "string",
+    },
+    "cron": {
+      "description": "Standard five-field cron expression evaluated in local time",
+      "type": "string",
+    },
+    "id": {
+      "description": "Cron job ID returned by create",
+      "type": "string",
+    },
+    "prompt": {
+      "description": "Prompt to run each time the schedule fires",
+      "type": "string",
+    },
+    "recurring": {
+      "default": true,
+      "description": "Whether to recur; defaults to true",
+      "type": "boolean",
+    },
+  },
+  "required": [
+    "action",
+  ],
+  "type": "object",
+}
+`;
+
 exports[`tool parameters JSON Schema (wire shape) edit 1`] = `
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -77,6 +115,10 @@ exports[`tool parameters JSON Schema (wire shape) glob 1`] = `
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "includeIgnored": {
+      "description": "Include files ignored by .gitignore and other ignore files. Defaults to false.",
+      "type": "boolean",
+    },
     "path": {
       "description": "The directory to search in. If not specified, the current working directory will be used. IMPORTANT: Omit this field to use the default directory. DO NOT enter "undefined" or "null" - simply omit it for the default behavior. Must be a valid directory path if provided.",
       "type": "string",
