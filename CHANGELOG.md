@@ -13,6 +13,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- **Session-scoped background jobs + cron scheduler.** Ported from a sibling
+  opencode fork (`lmctlhq/opencode`, branch `session-job-port`, 19 commits
+  cherry-picked). Lets an agent submit a shell command as a persisted,
+  restart-durable background job (`bash` tool's new `background: true` flag)
+  and continue the turn immediately; job completion is delivered as a
+  notification-origin follow-up turn with the full toolset (not a restricted
+  read-only subset — an earlier, more restrictive design was tried and
+  reverted upstream after causing poll-looping). A new `cron` tool schedules
+  in-memory recurring/one-shot prompts per session. Concurrency/reliability
+  hardening ported alongside it: SQLite WAL is checkpointed periodically
+  (not just at startup) and transient lock contention is retried instead of
+  failing the turn; ACP's event subscription resubscribes on failure instead
+  of going silently dead, capped at 10 consecutive failures; message
+  recency comparison uses `time.created` instead of raw ID strings (fixes a
+  ~2.2-year `MessageID` encoding wraparound that could permanently stick a
+  session on a stale turn); `filterCompactedEffect` and ACP's `loadSession`
+  now bound their history scans instead of re-reading/re-replaying the
+  entire session on every turn. The deepest fix: a notification claim could
+  previously be reclaimed from a still-alive process by any new opencode
+  process starting up anywhere on the host (`reconcileStale()` scans the
+  whole shared DB with no liveness check) — a `notification_claim_pid`
+  column + `processAlive()` check now mirrors the already-correct job-launch
+  reclaim pattern. lmplayer's own pre-existing `BackgroundJob` (in-memory
+  task tracking, `packages/core/src/background-job.ts`) is untouched — a
+  different, non-persisted feature with no naming collision. Covered by the
+  ported unit suite (`job-runtime.test.ts`, `job-store.test.ts`,
+  `cron-runtime.test.ts`, `notification-retry.test.ts`,
+  `ensure-user-terminated.test.ts`, `sqlite-retry.test.ts`) plus a new
+  mock-LLM integration test driving the real bash-tool background-job path
+  through `prompt.loop()` end to end.
 - **Positive tool provisioning + lean system prompt ("profiles"), and a built-in
   `lean` profile for weak/simple models (e.g. `ollama/qwen2.5`).** Inverts the
   default request-building model. Today the runtime materializes the full ~28-tool
