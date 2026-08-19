@@ -1515,7 +1515,7 @@ const layer = Layer.effect(
         if (!provider) continue
         const pluginAuth = yield* auth.get(providerID).pipe(Effect.orDie)
 
-        provider.models = yield* Effect.promise(async () => {
+        provider.models = yield* Plugin.guardPromise(async () => {
           const next = await models(toPublicInfo(provider), { auth: pluginAuth })
           return Object.fromEntries(
             Object.entries(next).map(([id, model]) => [
