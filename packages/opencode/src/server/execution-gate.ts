@@ -63,18 +63,44 @@ const DRAIN_TIMEOUT = Duration.minutes(10)
 
 let shuttingDown = false
 
+// Bounded window for SessionJobRuntime.shutdown() below — same cap the one-shot
+// CLI path uses (index.ts) for the identical reason: some background-job
+// subprocesses (e.g. docker-based MCP servers without `--init`) don't react to
+// SIGTERM promptly, so this can't be unbounded without risking a hung exit.
+const JOB_SHUTDOWN_TIMEOUT = Duration.seconds(10)
+
 // Shared drain-then-exit routine, triggered by SIGTERM/SIGINT or POST /shutdown.
 // Idempotent (guards against double-trigger). Sets the draining flag SYNCHRONOUSLY
 // so new runs are rejected (503) right away, then — after a short grace so any
 // just-sent HTTP response flushes — waits for the in-flight run to finish on the
-// global gate (it is NOT interrupted) and force-exits.
+// global gate (it is NOT interrupted), terminates this process's own background
+// session jobs (mirrors the one-shot CLI path in index.ts — without this, a
+// `serve` SIGTERM left detached job processes as untracked orphans, since only
+// the one-shot exit path ever called SessionJobRuntime.shutdown()), and force-exits.
 export function gracefulShutdown(reason: string) {
   if (shuttingDown) return
   shuttingDown = true
   draining = true
   console.log(`draining (${reason}); waiting for in-flight run to finish (timeout ${Duration.format(DRAIN_TIMEOUT)})`)
   Effect.runPromise(Effect.sleep("100 millis").pipe(Effect.andThen(beginDrain()), Effect.timeout(DRAIN_TIMEOUT)))
-    .then(() => console.log("drain complete; exiting"))
-    .catch(() => console.log("drain timeout exceeded; exiting anyway"))
+    .then(() => console.log("drain complete; shutting down background jobs"))
+    .catch(() => console.log("drain timeout exceeded; shutting down background jobs anyway"))
+    .then(shutdownJobs)
     .finally(() => process.exit(0))
+}
+
+async function shutdownJobs() {
+  const { AppRuntime } = await import("@/effect/app-runtime")
+  const { SessionJobRuntime } = await import("@/session/job-runtime")
+  const result = await Promise.race([
+    AppRuntime.runPromise(SessionJobRuntime.Service.pipe(Effect.flatMap((service) => service.shutdown()))).then(
+      () => ({ type: "complete" as const }),
+      (error: unknown) => ({ type: "failed" as const, error }),
+    ),
+    new Promise<{ type: "timeout" }>((resolve) =>
+      setTimeout(() => resolve({ type: "timeout" }), Duration.toMillis(JOB_SHUTDOWN_TIMEOUT)),
+    ),
+  ])
+  if (result.type === "failed") console.log(`background job shutdown failed: ${String(result.error)}`)
+  if (result.type === "timeout") console.log("background job shutdown exceeded 10 seconds; exiting anyway")
 }

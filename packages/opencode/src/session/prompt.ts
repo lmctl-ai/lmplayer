@@ -69,6 +69,7 @@ import { ProjectTable } from "@opencode-ai/core/project/sql"
 import { InstanceRef, WorkspaceRef } from "@/effect/instance-ref"
 import { SessionTurnContext } from "./turn-context"
 import { SessionJobNotificationRetry, type Owner as NotificationRetryOwner } from "./notification-retry"
+import { serialize as gateSerialize } from "@/server/execution-gate"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -1662,17 +1663,26 @@ const layer = Layer.effect(
         .get()
         .pipe(Effect.orDie)
       if (!owner) return false
-      return yield* Effect.gen(function* () {
-        const notifications = yield* jobStore.list(sessionID)
-        if (!notifications.some((row) => row.notification_state === "pending" || row.notification_state === "admitted"))
-          return false
-        const request = yield* state.wake(sessionID, lastAssistant(sessionID), notify(sessionID))
-        if (!request.accepted) return false
-        yield* request.settled
-        return (yield* jobStore.list(sessionID)).some(
-          (row) => row.notification_state === "pending" || row.notification_state === "admitted",
-        )
-      }).pipe(
+      // Notification turns are full LLM runs and must respect the same
+      // process-global sequential gate as HTTP-origin turns (single-user
+      // direction pillar) — gate the wake caller, not the runner it calls into
+      // (gating inside the runner would invert lock order against an HTTP
+      // request already holding the permit and waiting on this same session's
+      // runner, i.e. deadlock). A ServiceUnavailable rejection here propagates
+      // to the notification retry owner, which already retries on any failure.
+      return yield* gateSerialize(
+        Effect.gen(function* () {
+          const notifications = yield* jobStore.list(sessionID)
+          if (!notifications.some((row) => row.notification_state === "pending" || row.notification_state === "admitted"))
+            return false
+          const request = yield* state.wake(sessionID, lastAssistant(sessionID), notify(sessionID))
+          if (!request.accepted) return false
+          yield* request.settled
+          return (yield* jobStore.list(sessionID)).some(
+            (row) => row.notification_state === "pending" || row.notification_state === "admitted",
+          )
+        }),
+      ).pipe(
         Effect.provideService(InstanceRef, {
           directory: owner.directory,
           worktree: owner.project.worktree,
@@ -1708,51 +1718,61 @@ const layer = Layer.effect(
           .get()
           .pipe(Effect.orDie)
         if (!owner) return false
-        return yield* Effect.gen(function* () {
-          const persisted = yield* Deferred.make<boolean>()
-          const request = yield* state.wakeIfIdle(
-            sessionID,
-            lastAssistant(sessionID),
-            Effect.gen(function* () {
-              const messages = yield* MessageV2.filterCompactedEffect(sessionID).pipe(
-                Effect.provideService(Database.Service, database),
-              )
-              const latest = MessageV2.latest(messages)
-              if (
-                !latest.user ||
-                !latest.assistant ||
-                latest.assistant.parentID !== latest.user.id ||
-                latest.assistant.time.completed === undefined ||
-                (latest.assistant.finish === undefined && latest.assistant.error === undefined)
-              ) {
-                yield* Deferred.succeed(persisted, false)
-                return yield* lastAssistant(sessionID)
-              }
+        // Same rationale as runNotificationAttempt above: a cron fire is a full
+        // LLM turn and must go through the process-global gate too, gated at
+        // this caller (not inside the runner it calls into). setWake's callback
+        // type carries no error channel, so a gate rejection is converted back
+        // to `false` here — the tick loop already treats `false` as "retry next
+        // tick" (resets firingMinute), which is exactly the desired behavior
+        // for a transient gate-busy rejection.
+        return yield* gateSerialize(
+          Effect.gen(function* () {
+            const persisted = yield* Deferred.make<boolean>()
+            const request = yield* state.wakeIfIdle(
+              sessionID,
+              lastAssistant(sessionID),
+              Effect.gen(function* () {
+                const messages = yield* MessageV2.filterCompactedEffect(sessionID).pipe(
+                  Effect.provideService(Database.Service, database),
+                )
+                const latest = MessageV2.latest(messages)
+                if (
+                  !latest.user ||
+                  !latest.assistant ||
+                  latest.assistant.parentID !== latest.user.id ||
+                  latest.assistant.time.completed === undefined ||
+                  (latest.assistant.finish === undefined && latest.assistant.error === undefined)
+                ) {
+                  yield* Deferred.succeed(persisted, false)
+                  return yield* lastAssistant(sessionID)
+                }
 
-              const messageID = MessageID.ascending()
-              yield* sessions.updateMessage({
-                id: messageID,
-                sessionID,
-                role: "user",
-                time: { created: Date.now() },
-                agent: latest.user.agent,
-                model: latest.user.model,
-              })
-              yield* sessions.updatePart({
-                id: PartID.ascending(),
-                sessionID,
-                messageID,
-                type: "text",
-                text,
-              })
-              yield* sessions.touch(sessionID)
-              yield* Deferred.succeed(persisted, true)
-              return yield* runLoop(sessionID)
-            }).pipe(Effect.ensuring(Deferred.succeed(persisted, false).pipe(Effect.asVoid))),
-          )
-          if (!request.accepted) return false
-          return yield* Deferred.await(persisted)
-        }).pipe(
+                const messageID = MessageID.ascending()
+                yield* sessions.updateMessage({
+                  id: messageID,
+                  sessionID,
+                  role: "user",
+                  time: { created: Date.now() },
+                  agent: latest.user.agent,
+                  model: latest.user.model,
+                })
+                yield* sessions.updatePart({
+                  id: PartID.ascending(),
+                  sessionID,
+                  messageID,
+                  type: "text",
+                  text,
+                })
+                yield* sessions.touch(sessionID)
+                yield* Deferred.succeed(persisted, true)
+                return yield* runLoop(sessionID)
+              }).pipe(Effect.ensuring(Deferred.succeed(persisted, false).pipe(Effect.asVoid))),
+            )
+            if (!request.accepted) return false
+            return yield* Deferred.await(persisted)
+          }),
+        ).pipe(
+          Effect.catchTag("ServiceUnavailable", () => Effect.succeed(false)),
           Effect.provideService(InstanceRef, {
             directory: owner.directory,
             worktree: owner.project.worktree,

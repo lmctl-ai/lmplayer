@@ -38,6 +38,16 @@ export const CronTool = Tool.define(
           }
           const cron = yield* required("cron", params.cron)
           const prompt = yield* required("prompt", params.prompt)
+          // Mirror job.ts's `stop` ask: scheduling a future self-prompt is a
+          // standing action on the session (like stopping a background job),
+          // so it should be governed by file-based permission rules too, not
+          // created unconditionally.
+          yield* ctx.ask({
+            permission: "cron",
+            patterns: ["create"],
+            always: [],
+            metadata: { cron, prompt },
+          })
           const created = yield* runtime
             .create(ctx.sessionID, { cron, prompt, recurring: params.recurring })
             .pipe(Effect.mapError((error) => new Tool.InvalidArgumentsError({ tool: "cron", detail: error.message })))
