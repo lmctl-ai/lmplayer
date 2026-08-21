@@ -3,6 +3,14 @@
 **From:** lmcode fleet (meta-lead). Precise, evidence-backed answer to "how does the agent get woken / poll?"
 file:line refs + an empirical subprocess-lifecycle test. Repo: opencode-derived lmplayer.
 
+**UPDATE 2026-08-21:** §1's "no scheduler" claim is now stale. The session-job-port
+merge added `SessionCronRuntime` (`session/cron-runtime.ts`), an in-memory
+30-second tick timer that DOES re-invoke the model on a schedule (a `cron` tool
+lets an agent create recurring/one-shot self-prompts). The rest of this doc
+(turn-loop mechanics, subprocess lifecycle) is unaffected. See
+`review-2026-08-20-codebase-and-direction.md` §2 for how cron-fired turns
+interact with the execution gate this doc also describes.
+
 ## 1. There is NO scheduler that polls/wakes the LLM. A "turn" is purely prompt-driven.
 - A run starts ONLY when a new prompt/message arrives: `prompt()` -> `state.ensureRunning(sessionID, ...,
   runLoop(sessionID))` (session/prompt.ts:1053,1360). HTTP entry: handlers/session.ts:403 (`prompt`) / :414,428
