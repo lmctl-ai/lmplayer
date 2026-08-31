@@ -777,6 +777,7 @@ export const RunCommand = effectCmd({
         // created, and replies issued from inside the loop must use that client.
         async function loop(client: OpencodeClient, events: Awaited<ReturnType<typeof sdk.event.subscribe>>) {
           const toggles = new Map<string, boolean>()
+          const sessions = new Set([sessionID])
           let error: string | undefined
           // Tracks whether a terminal `session.status: idle` was actually
           // observed. If the stream ends without setting this (and without an
@@ -784,6 +785,10 @@ export const RunCommand = effectCmd({
           let idle = false
 
           for await (const event of events.stream) {
+            if (event.type === "session.created" && event.properties.info.parentID) {
+              if (sessions.has(event.properties.info.parentID)) sessions.add(event.properties.info.id)
+            }
+
             if (
               event.type === "message.updated" &&
               event.properties.sessionID === sessionID &&
@@ -884,7 +889,7 @@ export const RunCommand = effectCmd({
 
             if (event.type === "permission.asked") {
               const permission = event.properties
-              if (permission.sessionID !== sessionID) continue
+              if (!sessions.has(permission.sessionID)) continue
 
               if (auto) {
                 await client.permission.reply({
