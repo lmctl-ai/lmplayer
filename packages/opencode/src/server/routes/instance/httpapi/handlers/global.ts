@@ -133,6 +133,6 @@ export const globalHandlers = HttpApiBuilder.group(RootHttpApi, "global", (handl
       .handle("configUpdate", configUpdate)
       .handle("dispose", dispose)
       .handle("shutdown", shutdown)
-      .handleRaw("upgrade", upgradeRaw)
+      .handle("upgrade", upgrade)
   }),
 )
