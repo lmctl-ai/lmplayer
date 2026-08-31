@@ -34,7 +34,7 @@ passes --model.
 # PROFILES — positive tool provisioning + lean system prompt (SHIPPED, branch `lean-profiles`)
 
 Commit `6a2f51d2d`, pushed to lmplayer (Coder=sonnet-5, Reviewer1=gpt-5.5 adversarial → APPROVE-WITH-NITS,
-signed off). PR: https://github.com/lmctlhq/lmplayer/pull/new/lean-profiles
+signed off). PR: https://github.com/lmctl-ai/lmplayer/pull/new/lean-profiles
 
 ## The principle (operator): INVERT materialize-all-then-deny
 Today the runtime builds the FULL ~28-tool catalog then subtractively denies via permissions

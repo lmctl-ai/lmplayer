@@ -60,7 +60,7 @@ session):
   waits on the gate permit, so a cron fire or job completion DURING drain starts a
   fresh ungated LLM turn that `process.exit(0)` then kills mid-flight.
 
-Root cause: the subsystem was ported from `lmctlhq/opencode`, which has no
+Root cause: the subsystem was ported from a sibling opencode fork, which has no
 execution gate — the gate is lmplayer-specific (added by `e5b7033ab`). Nobody
 reconciled the two; `research-background-jobs.md:282-284` shows the gate was
 understood pre-port, but the port didn't route the new turn origins through it.
@@ -89,7 +89,7 @@ CHANGELOG `[Unreleased]` ("The deepest fix") claims a `notification_claim_pid`
 column + `processAlive()` check prevents a new process from reclaiming a
 notification claim held by a still-alive process. **That fix is NOT in lmplayer.**
 `grep -r notification_claim_pid packages/` → zero hits. It is sibling-fork commit
-`eaa7ccbf6` (2026-08-15, lmctlhq/opencode HEAD: migration
+`eaa7ccbf6` (2026-08-15, sibling opencode fork HEAD: migration
 `20260815012222_add_notification_claim_pid` + ~97-line job-store change) — the tip
 commit that the 19-commit cherry-pick missed. Today in lmplayer, `reconcileStale`
 releases "claimed" notifications purely on lease expiry

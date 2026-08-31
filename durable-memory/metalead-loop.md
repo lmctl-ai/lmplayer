@@ -52,7 +52,7 @@ automation of the whole cycle once proven. Until then, run the raw-subprocess ve
 ## WORKFLOW (operator 2026-07-07): code -> commit -> review -> push
 Standing dev flow for all teams: CODE the change, COMMIT it (conventional), REVIEW it (adversarial, a DIFFERENT
 provider than the author), then PUSH. Push is now ENABLED to the internal repo (`git push lmplayer dev` ->
-lmctlhq/lmplayer). Supersedes the earlier "local only, no push". Meta-lead delegates the review+push tail too.
+lmctl-ai/lmplayer). Supersedes the earlier "local only, no push". Meta-lead delegates the review+push tail too.
 
 ## CHATROOM MAINTENANCE (lmchat skill — https://lmctl.com/skills/lmchat-skill.md)
 Base URL (documented): https://lmctl.ai/tools/lmchat  (the execute-api URL is the same backend). Auth: Bearer key.
