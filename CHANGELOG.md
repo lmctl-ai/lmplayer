@@ -14,7 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Added
 
 - **Session-scoped background jobs + cron scheduler.** Ported from a sibling
-  opencode fork (`lmctlhq/opencode`, branch `session-job-port`, 19 commits
+  opencode fork (branch `session-job-port`, 19 commits
   cherry-picked). Lets an agent submit a shell command as a persisted,
   restart-durable background job (`bash` tool's new `background: true` flag)
   and continue the turn immediately; job completion is delivered as a

@@ -470,7 +470,7 @@
 - metrics side-project (foundation): `lmplayer session metrics <id> [--json]` (tokens+cost_usd+latency+tool
   counts+files created/modified; reads persisted store) shipped+pushed (48cf2f4e0). Contract filed lmplayerdev
   seq29 / lmctldev seq28 (lmctl to wire health to it).
-- Workflow now: code->commit->review->push (push enabled to lmctlhq/lmplayer). Teams: design council + per-project
+- Workflow now: code->commit->review->push (push enabled to lmctl-ai/lmplayer). Teams: design council + per-project
   lmplayer-dev/lmvideo-dev + QA, all provider=lmplayer github-copilot. NEXT: org-metrics analyzer (reads sessions
   via session metrics + comms -> perf report); lmctl-side health wiring; other products (svg-transit, diagramkit).
 - org-metrics ANALYZER (first slice): new repo /niceapps/mma/oc/org-metrics — `org-metrics report <teamfile>
