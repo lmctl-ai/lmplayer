@@ -1,129 +1,148 @@
-<p align="center">
-  <a href="https://opencode.ai">
-    <picture>
-      <source srcset="packages/console/app/src/asset/logo-ornate-dark.svg" media="(prefers-color-scheme: dark)">
-      <source srcset="packages/console/app/src/asset/logo-ornate-light.svg" media="(prefers-color-scheme: light)">
-      <img src="packages/console/app/src/asset/logo-ornate-light.svg" alt="OpenCode logo">
-    </picture>
-  </a>
-</p>
-<p align="center">The open source AI coding agent.</p>
-<p align="center">
-  <a href="https://opencode.ai/discord"><img alt="Discord" src="https://img.shields.io/discord/1391832426048651334?style=flat-square&label=discord" /></a>
-  <a href="https://www.npmjs.com/package/opencode-ai"><img alt="npm" src="https://img.shields.io/npm/v/opencode-ai?style=flat-square" /></a>
-  <a href="https://github.com/anomalyco/opencode/actions/workflows/publish.yml"><img alt="Build status" src="https://img.shields.io/github/actions/workflow/status/anomalyco/opencode/publish.yml?style=flat-square&branch=dev" /></a>
-</p>
+# lmplayer
 
-<p align="center">
-  <a href="README.md">English</a> |
-  <a href="README.zh.md">简体中文</a> |
-  <a href="README.zht.md">繁體中文</a> |
-  <a href="README.ko.md">한국어</a> |
-  <a href="README.de.md">Deutsch</a> |
-  <a href="README.es.md">Español</a> |
-  <a href="README.fr.md">Français</a> |
-  <a href="README.it.md">Italiano</a> |
-  <a href="README.da.md">Dansk</a> |
-  <a href="README.ja.md">日本語</a> |
-  <a href="README.pl.md">Polski</a> |
-  <a href="README.ru.md">Русский</a> |
-  <a href="README.bs.md">Bosanski</a> |
-  <a href="README.ar.md">العربية</a> |
-  <a href="README.no.md">Norsk</a> |
-  <a href="README.br.md">Português (Brasil)</a> |
-  <a href="README.th.md">ไทย</a> |
-  <a href="README.tr.md">Türkçe</a> |
-  <a href="README.uk.md">Українська</a> |
-  <a href="README.bn.md">বাংলা</a> |
-  <a href="README.gr.md">Ελληνικά</a> |
-  <a href="README.vi.md">Tiếng Việt</a>
-</p>
+An open source AI coding agent built for agents, scripts, and unattended workflows. Send prompts from the command line, run a single-user REST service, or open the optional terminal UI.
 
-[![OpenCode Terminal UI](packages/web/src/assets/lander/screenshot.png)](https://opencode.ai)
+lmplayer is a fork of [anomalyco/opencode](https://github.com/anomalyco/opencode). It builds on OpenCode's provider support, coding tools, sessions, subagents, MCP integration, and client/server architecture. It is independently maintained and is not affiliated with or built by the OpenCode team.
 
----
+## What differs from OpenCode?
 
-### Installation
+These are lmplayer additions and behavior changes relative to the upstream snapshot tracked by this checkout (`9f69463f1d`, August 31, 2026), rather than a claim about every future OpenCode release.
 
-```bash
-# YOLO
-curl -fsSL https://opencode.ai/install | bash
+| Area                                                      | lmplayer addition or change                                                                                                                                                                                                                     |
+| --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| CLI by default                                            | `lmplayer "your prompt"` runs non-interactively; piped input works too. Bare `lmplayer` on a terminal shows help. Launch the TUI explicitly with `lmplayer tui`.                                                                                |
+| Background shell execution (`run_in_background` behavior) | The `bash` tool accepts **`background: true`**, returns a job ID immediately, and delivers completion as a follow-up session turn. The `job` tool lists jobs, inspects state, reads captured output, and stops jobs. Job records are persisted. |
+| Internal cron                                             | A session-scoped `cron` tool creates, lists, and deletes recurring or one-shot prompt schedules using five-field cron expressions. No external system crontab is required.                                                                      |
+| Durable-memory compaction                                 | The default `organize` mode rewrites a session-owned Markdown memory file and injects it into later turns. Traditional summary compaction remains available through `compaction.mode: "summary"`.                                               |
+| File-based permission decisions                           | On the active `run`/`serve` permission path, residual `ask` rules resolve through `permission_ask: "deny"` (default) or `"allow"`, instead of waiting for a human prompt. Explicit allow/deny rules still apply.                                |
+| Local project configuration                               | Project config discovery uses the starting directory and its own `.opencode` directory instead of walking through parent directories. Global configuration and explicit config overrides remain supported.                                      |
+| Sequential service execution                              | A process-wide FIFO gate serializes execution requests across sessions. Read-only and control endpoints remain responsive; in-process subagents bypass the gate. Background-job notifications and cron turns also use the gate.                 |
+| CLI configuration and model discovery                     | `config get/set/unset/verify`, JSON model and provider listings, model verification and live probes, and the `--effort` alias make setup accessible to scripts.                                                                                 |
+| Session observability                                     | `session tail`, `report`, `health`, and `metrics` expose history and diagnostics. `session metrics --json` provides the `session-metrics/v1` contract for token usage, estimated cost, latency, tool use, and touched files.                    |
+| Positive tool provisioning                                | Agent profiles can declare `provision` to limit which tool definitions reach the model. The built-in `lean` agent uses a short prompt and a bash-only tool set. Permission checks still apply.                                                  |
+| Local Ollama support                                      | Use `ollama/<model>` without declaring the provider or supplying an API key. Supports `OLLAMA_HOST`, per-model `@host` selection, chat-only defaults, and explicit `+tools` opt-in.                                                             |
+| Structured Linux tools                                    | Dedicated tools for commands such as `git`, `gh`, `rg`, `find`, `tar`, and `unzip` support operation-specific permission checks. A `secured` agent provides a starting point for restricted tool use.                                           |
+| Remote operator polling (prototype)                       | `run --remote-poll` receives instructions through an outbound HTTP mailbox and submits them through the normal session prompt path. Useful when the machine cannot accept inbound connections.                                                  |
+| Separate application storage                              | XDG config, data, cache, and state directories use `lmplayer`, keeping them separate from an OpenCode installation.                                                                                                                             |
+| TUI adjustments                                           | Terminal titles identify `lmplayer`, the sidebar starts hidden, and resizing forces a full repaint.                                                                                                                                             |
 
-# Package managers
-npm i -g opencode-ai@latest        # or bun/pnpm/yarn
-scoop install opencode             # Windows
-choco install opencode             # Windows
-brew install anomalyco/tap/opencode # macOS and Linux (recommended, always up to date)
-brew install opencode              # macOS and Linux (official brew formula, updated less)
-sudo pacman -S opencode            # Arch Linux (Stable)
-paru -S opencode-bin               # Arch Linux (Latest from AUR)
-mise use -g opencode               # Any OS
-nix run nixpkgs#opencode           # or github:anomalyco/opencode for latest dev branch
+Background **subagent** execution is also available through the `task` tool's `background: true` option. This capability is shared with the tracked upstream baseline; it is separate from lmplayer's persisted background **shell jobs**.
+
+### Background jobs and internal cron
+
+These are model-facing tools in the default `run`/`serve` runtime, not top-level CLI flags. The separate V2 core runtime does not yet implement these background shell jobs. An agent can call the `bash` tool with:
+
+```json
+{
+  "command": "bun run build",
+  "background": true
+}
 ```
 
-> [!TIP]
-> Remove versions older than 0.1.x before installing.
+The `job` tool supports `list`, `get`, `output`, and `stop`. Job metadata and captured output are stored for later inspection, and completion can wake the session so the agent can continue working. Persistence does not mean a running command is automatically restarted: graceful shutdown stops this process's jobs, and recovery reconciles stored job state.
 
-### Desktop App (BETA)
+For recurring work, an agent can call `cron` with:
 
-OpenCode is also available as a desktop application. Download directly from the [releases page](https://github.com/anomalyco/opencode/releases) or [opencode.ai/download](https://opencode.ai/download).
-
-| Platform              | Download                           |
-| --------------------- | ---------------------------------- |
-| macOS (Apple Silicon) | `opencode-desktop-mac-arm64.dmg`   |
-| macOS (Intel)         | `opencode-desktop-mac-x64.dmg`     |
-| Windows               | `opencode-desktop-windows-x64.exe` |
-| Linux                 | `.deb`, `.rpm`, or `.AppImage`     |
-
-```bash
-# macOS (Homebrew)
-brew install --cask opencode-desktop
-# Windows (Scoop)
-scoop bucket add extras; scoop install extras/opencode-desktop
+```json
+{
+  "action": "create",
+  "cron": "*/15 * * * *",
+  "prompt": "Check the build status and report any failures.",
+  "recurring": true
+}
 ```
 
-#### Installation Directory
+Cron expressions use local time. Set `recurring` to `false` to fire once at the next matching time. Schedules are **in memory**: they disappear when the process exits, and recurring schedules expire after seven days. Keep the hosting process running for scheduled work; cron creation is permission-checked.
 
-The install script respects the following priority order for the installation path:
+## Build and install from source
 
-1. `$OPENCODE_INSTALL_DIR` - Custom installation directory
-2. `$XDG_BIN_DIR` - XDG Base Directory Specification compliant path
-3. `$HOME/bin` - Standard user binary directory (if it exists or can be created)
-4. `$HOME/.opencode/bin` - Default fallback
+Use the Bun version specified by `packageManager` in [package.json](package.json) (currently Bun 1.3.14).
 
 ```bash
-# Examples
-OPENCODE_INSTALL_DIR=/usr/local/bin curl -fsSL https://opencode.ai/install | bash
-XDG_BIN_DIR=$HOME/.local/bin curl -fsSL https://opencode.ai/install | bash
+git clone https://github.com/lmctl-ai/lmplayer.git
+cd lmplayer
+bun install
+cd packages/opencode
+bun run build --single --skip-install
 ```
 
-### Agents
+This builds a native executable for the current platform, including the embedded web UI. Add `--skip-embed-web-ui` for a build without the embedded web app.
 
-OpenCode includes two built-in agents you can switch between with the `Tab` key.
+On Linux x64, install the result into a directory on your PATH:
 
-- **build** - Default, full-access agent for development work
-- **plan** - Read-only agent for analysis and code exploration
-  - Denies file edits by default
-  - Asks permission before running bash commands
-  - Ideal for exploring unfamiliar codebases or planning changes
+```bash
+mkdir -p "$HOME/.local/bin"
+install -m 755 dist/opencode-linux-x64/bin/lmplayer "$HOME/.local/bin/lmplayer.new"
+mv "$HOME/.local/bin/lmplayer.new" "$HOME/.local/bin/lmplayer"
+export PATH="$HOME/.local/bin:$PATH"
+lmplayer --version
+```
 
-Also included is a **general** subagent for complex searches and multistep tasks.
-This is used internally and can be invoked using `@general` in messages.
+Other platforms produce a corresponding `dist/opencode-<platform>-<arch>/bin/` directory. The internal package name remains `opencode`; the executable is `lmplayer`. OpenCode's upstream package-manager and installer commands install OpenCode, so use this checkout to build lmplayer.
 
-Learn more about [agents](https://opencode.ai/docs/agents).
+For development without compiling, run from the repository root:
 
-### Documentation
+```bash
+bun dev --help
+bun dev tui
+```
 
-For more info on how to configure OpenCode, [**head over to our docs**](https://opencode.ai/docs).
+## Quick start
 
-### Contributing
+```bash
+# Authenticate with a supported provider
+lmplayer providers login
 
-If you're interested in contributing to OpenCode, please read our [contributing docs](./CONTRIBUTING.md) before submitting a pull request.
+# Discover models and available reasoning-effort variants
+lmplayer models --json
+lmplayer providers list --json
 
-### Building on OpenCode
+# Run a prompt with a provider/model ID selected from the model list
+lmplayer run --model "<provider/model>" --effort high "Explain this repository"
+lmplayer "Fix the failing test and verify the change"
 
-If you are working on a project that's related to OpenCode and is using "opencode" as part of its name, for example "opencode-dashboard" or "opencode-mobile", please add a note to your README to clarify that it is not built by the OpenCode team and is not affiliated with us in any way.
+# Validate configuration, open the TUI, or start the REST service
+lmplayer config verify
+lmplayer tui
+lmplayer serve --hostname 127.0.0.1 --port 4096
 
----
+# Inspect an existing session without running it again
+lmplayer session ls --json
+lmplayer session metrics "<sessionID>" --json
+lmplayer session health "<sessionID>" --json
+```
 
-**Join our community** [Discord](https://discord.gg/opencode) | [X.com](https://x.com/opencode)
+Model availability and effort tiers depend on the provider and account. `lmplayer models --test <provider>` sends real probe requests; `lmplayer models verify <provider/model>` checks model resolution and availability without being an end-to-end generation test.
+
+For a running Ollama server with the model already downloaded:
+
+```bash
+lmplayer run --model ollama/qwen2.5 "Hello"
+lmplayer run --agent lean --model ollama/qwen2.5+tools "List the files here"
+```
+
+Ollama models default to chat-only. `+tools` enables tool calls; choose a model that supports them. The `lean` agent offers bash, which can execute arbitrary shell commands.
+
+## Configuration and memory
+
+The default global config directory is `~/.config/lmplayer` (or `$XDG_CONFIG_HOME/lmplayer`). Config filenames remain `opencode.json` / `opencode.jsonc`, and many inherited environment variables still use the `OPENCODE_*` prefix.
+
+```bash
+lmplayer config get
+lmplayer config set compaction.mode organize
+lmplayer config set permission_ask deny
+lmplayer config verify
+```
+
+Runtime session memory lives under `$XDG_DATA_HOME/lmplayer/session/<sessionID>/durable-memory/index.md`, with `~/.local/share` as the default data root. It is separate from this repository's [durable-memory/](durable-memory/index.md), which records project decisions, implementation notes, and operating guidance.
+
+The remote-poll channel remains a prototype: its cursor resets on restart, and `delta` replies currently behave like `full` replies. Session cost metrics are derived estimates from recorded usage and available model pricing, not billing statements.
+
+## Documentation and contributing
+
+- [Changelog](CHANGELOG.md): lmplayer changes and upstream refreshes.
+- [Project memory](durable-memory/index.md): feature designs, contracts, and known limitations. Older entries use the former name `lmcode`; some historical status notes have been superseded.
+- [Contributing](CONTRIBUTING.md) and [repository instructions](AGENTS.md): development conventions. Run tests and typechecks from the relevant package directory.
+- [Upstream OpenCode](https://github.com/anomalyco/opencode): the original project and shared functionality.
+
+The other `README.*.md` files currently retain upstream documentation; this English README describes lmplayer. See [LICENSE](LICENSE) for licensing.
