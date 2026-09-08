@@ -217,6 +217,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- **GPT-6 Astra with OpenAI/Codex OAuth.** Retain the exact `gpt-6-astra`
+  model ID in the OAuth catalog filter, which previously rejected its undotted
+  version name. Existing pro-mode exclusions remain unchanged. Verified live
+  generation and tool calling through `openai/gpt-6-astra`.
+
 - **Interactive TUI: force a full repaint on terminal resize (no more cut-off
   that a resize won't fix).** The main `lmplayer tui` renders through
   `@opentui/core`'s default alternate-screen mode, whose resize path
