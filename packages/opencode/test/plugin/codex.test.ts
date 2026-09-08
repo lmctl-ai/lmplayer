@@ -326,6 +326,78 @@ describe("plugin.codex", () => {
     )
   })
 
+  test("retains gpt-6-astra under OAuth with zero subscription cost while preserving exclusions", async () => {
+    const hooks = await CodexAuthPlugin({} as never)
+    const limit = { context: 1_050_000, input: 922_000, output: 128_000 }
+    const provider = {
+      models: {
+        "gpt-6-astra": {
+          id: "gpt-6-astra",
+          api: { id: "gpt-6-astra" },
+          limit,
+          cost: { input: 15, output: 60, cache: { read: 7.5, write: 15 } },
+          options: {},
+        },
+        "gpt-6-astra-high": {
+          id: "gpt-6-astra-high",
+          api: { id: "gpt-6-astra" },
+          limit,
+          cost: { input: 15, output: 60, cache: { read: 7.5, write: 15 } },
+          options: { reasoningEffort: "high" },
+        },
+        "gpt-6-astra-pro": {
+          id: "gpt-6-astra-pro",
+          api: { id: "gpt-6-astra" },
+          limit,
+          cost: { input: 15, output: 60, cache: { read: 7.5, write: 15 } },
+          options: { reasoningMode: "pro" },
+        },
+        "gpt-5.5-pro": {
+          id: "gpt-5.5-pro",
+          api: { id: "gpt-5.5-pro" },
+          limit,
+          cost: { input: 10, output: 30 },
+          options: {},
+        },
+        "gpt-4": {
+          id: "gpt-4",
+          api: { id: "gpt-4" },
+          limit,
+          cost: { input: 30, output: 60 },
+          options: {},
+        },
+      },
+    }
+
+    const oauthModels = await hooks.provider!.models!(provider as never, { auth: { type: "oauth" } } as never)
+
+    // Retention and zero cost
+    expect(oauthModels["gpt-6-astra"]).toBeDefined()
+    expect(oauthModels["gpt-6-astra"]?.cost).toEqual({
+      input: 0,
+      output: 0,
+      cache: { read: 0, write: 0 },
+    })
+    expect(oauthModels["gpt-6-astra"]?.limit).toEqual(limit)
+
+    // Non-pro effort variant retained
+    expect(oauthModels["gpt-6-astra-high"]).toBeDefined()
+    expect(oauthModels["gpt-6-astra-high"]?.cost).toEqual({
+      input: 0,
+      output: 0,
+      cache: { read: 0, write: 0 },
+    })
+
+    // Preserved exclusions: pro mode and disallowed/unknown models
+    expect(oauthModels["gpt-6-astra-pro"]).toBeUndefined()
+    expect(oauthModels["gpt-5.5-pro"]).toBeUndefined()
+    expect(oauthModels["gpt-4"]).toBeUndefined()
+
+    // API auth pass-through
+    const apiModels = await hooks.provider!.models!(provider as never, { auth: { type: "api" } } as never)
+    expect(apiModels).toBe(provider.models as never)
+  })
+
   test("deduplicates concurrent Codex token refreshes", async () => {
     const refreshedAccess = createTestJwt({
       "https://api.openai.com/auth": { chatgpt_compute_residency: "eu" },
