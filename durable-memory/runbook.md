@@ -3,11 +3,21 @@
 How to run and test lmcode in this environment (no installed `lmcode` binary yet).
 
 ## Toolchain
-- bun: `/tmp/opencode/.bun/bin/bun` (add to PATH: `export PATH=/tmp/opencode/.bun/bin:$PATH`).
+- Current host (verified 2026-09-09): `/home/mma/.bun/bin/bun`, version 1.3.14.
+  Autopilot dispatches may omit Bun from PATH. Use the absolute executable or
+  `export PATH=/home/mma/.bun/bin:$PATH` for scripts and Git hooks that invoke
+  Bun internally. Check the installed path before reinstalling; the old
+  `/tmp/opencode/.bun/bin/bun` bootstrap path is historical.
 - `node_modules` is installed at repo root (run `bun install` if missing).
 - Run the CLI from source: from `packages/opencode`:
   `bun run --conditions=browser ./src/index.ts <args>`
   (the `--conditions=browser` matches the repo `dev` script).
+
+Latest release check (2026-09-09): 25 Codex plugin tests and four TUI
+lifecycle/renderer tests pass with the absolute Bun executable. Installed
+`lmplayer` matches the built artifact; diagram lint returns `ok`; the published
+Astra example is present. Coder and Reviewer are idle, and implementation
+commits through `d46ab3bc7f` are on `origin/dev`.
 
 ## Auth (GitHub Copilot, OAuth device flow)
 - lmcode reads creds from `~/.local/share/lmplayer/auth.json` (data dir; renamed from opencode).
