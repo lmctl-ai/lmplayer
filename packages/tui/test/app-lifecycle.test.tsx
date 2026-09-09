@@ -47,10 +47,12 @@ test("SIGHUP clears title and disposes scoped resources once", async () => {
       }).pipe(Effect.provide(AppNodeBuilder.build(Global.node))),
     )
     await ready
+    await setup.renderOnce()
     process.emit("SIGHUP")
     await task
 
     expect(setup.renderer.isDestroyed).toBe(true)
+    expect(titles).toContain("lmplayer")
     expect(titles.at(-1)).toBe("")
     expect(disposes).toBe(1)
     expect(process.listeners("SIGHUP").every((listener) => listeners.has(listener))).toBe(true)

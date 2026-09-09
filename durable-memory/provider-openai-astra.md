@@ -58,3 +58,22 @@ and OpenCode have separate XDG auth/config directories.
 Coordination attempts to math Lead and lmctl-src Lead returned busy, not queued;
 never treat those attempts as delivered messages. Final findings must be sent
 through the originating reply or retried when the receiver is available.
+
+## Release verification (2026-09-09)
+
+- Re-derived dispatch state with `lmctl status`: Coder and Reviewer idle; the
+  review completed, and lmctl Lead subsequently received the findings through
+  the originating reply (inbound dispatch #13483 completed).
+- Found three local-only lmplayer commits: TUI title, English README, and Astra
+  OAuth support. This check-in publishes them to `origin/dev` together with an
+  explicit TUI lifecycle assertion for the `lmplayer` terminal title.
+- Fresh checks: 25 Codex plugin tests and four TUI lifecycle/renderer tests pass;
+  both package typechecks pass; formatting passes; lint has zero errors
+  (existing warnings remain).
+- Installed binary matches the built artifact byte-for-byte and returns
+  `RELEASE_CHECK_OK` from a live Astra request. Diagram lint still returns `ok`;
+  the published example still contains the Astra declaration.
+- Canonical example commit `a776cb7` is already on lmctl-src `origin/main`.
+  Website mirror commit `16d9874` is included in this check-in's publication.
+- No feature work or delegated tasks remain. `.mcp.json` is unrelated local
+  harness state and must not be included in these commits.
