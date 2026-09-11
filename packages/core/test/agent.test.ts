@@ -226,7 +226,8 @@ describe("AgentV2", () => {
       expect(secured?.permissions.filter((rule) => rule.effect === "allow")).toEqual(
         securedAllowRules.map((rule) => ({ ...rule, effect: "allow" })),
       )
-      for (const rule of securedAllowRules) expect(PermissionV2.evaluate(rule.action, rule.resource, secured?.permissions ?? []).effect).toBe("allow")
+      for (const rule of securedAllowRules)
+        expect(PermissionV2.evaluate(rule.action, rule.resource, secured?.permissions ?? []).effect).toBe("allow")
       expect(PermissionV2.evaluate("bash", "pwd", secured?.permissions ?? []).effect).toBe("deny")
       expect(PermissionV2.evaluate("question", "Continue?", secured?.permissions ?? []).effect).toBe("deny")
       expect(PermissionV2.evaluate("external_directory", "/tmp/*", secured?.permissions ?? []).effect).toBe("deny")
@@ -291,6 +292,74 @@ describe("AgentV2", () => {
           call: { type: "tool-call", id: "call-question", name: "question", input: {} },
         })).result,
       ).toEqual({ type: "error", value: "Unknown tool: question" })
+    }),
+  )
+
+  it.effect("admits external read and edit by default for coding agents while preserving sensitive rules", () =>
+    Effect.gen(function* () {
+      const agent = yield* AgentV2.Service
+      yield* AgentPlugin.Plugin.effect(
+        host({
+          agent: agentHost(agent),
+        }),
+      ).pipe(
+        Effect.provideService(
+          Location.Service,
+          Location.Service.of(location({ directory: AbsolutePath.make("/project") })),
+        ),
+      )
+
+      const build = yield* agent.get(AgentV2.ID.make("build"))
+      const general = yield* agent.get(AgentV2.ID.make("general"))
+
+      for (const ag of [build, general]) {
+        expect(ag).toBeDefined()
+        const perms = ag!.permissions
+
+        expect(PermissionV2.evaluate("external_directory", "/external/workspace/*", perms).effect).toBe("allow")
+        expect(PermissionV2.evaluate("external_directory", "/tmp/*", perms).effect).toBe("allow")
+
+        expect(PermissionV2.evaluate("read", "/external/workspace/file.ts", perms).effect).toBe("allow")
+        expect(PermissionV2.evaluate("edit", "/external/workspace/file.ts", perms).effect).toBe("allow")
+
+        expect(PermissionV2.evaluate("read", "/external/workspace/.env", perms).effect).toBe("ask")
+        expect(PermissionV2.evaluate("read", "/external/workspace/.env.local", perms).effect).toBe("ask")
+        expect(PermissionV2.evaluate("read", "/external/workspace/.env.example", perms).effect).toBe("allow")
+      }
+    }),
+  )
+
+  it.effect("allows external reads but preserves mutation denials for plan and explore agents", () =>
+    Effect.gen(function* () {
+      const agent = yield* AgentV2.Service
+      yield* AgentPlugin.Plugin.effect(
+        host({
+          agent: agentHost(agent),
+        }),
+      ).pipe(
+        Effect.provideService(
+          Location.Service,
+          Location.Service.of(location({ directory: AbsolutePath.make("/project") })),
+        ),
+      )
+
+      const plan = yield* agent.get(AgentV2.ID.make("plan"))
+      expect(plan).toBeDefined()
+      const planPerms = plan!.permissions
+      expect(PermissionV2.evaluate("external_directory", "/external/workspace/*", planPerms).effect).toBe("allow")
+      expect(PermissionV2.evaluate("read", "/external/workspace/file.ts", planPerms).effect).toBe("allow")
+      expect(PermissionV2.evaluate("edit", "/external/workspace/file.ts", planPerms).effect).toBe("deny")
+      expect(PermissionV2.evaluate("bash", "cat /external/workspace/file.ts", planPerms).effect).toBe("deny")
+
+      const explore = yield* agent.get(AgentV2.ID.make("explore"))
+      expect(explore).toBeDefined()
+      const explorePerms = explore!.permissions
+      expect(PermissionV2.evaluate("external_directory", "/external/workspace/*", explorePerms).effect).toBe("allow")
+      expect(PermissionV2.evaluate("read", "/external/workspace/file.ts", explorePerms).effect).toBe("allow")
+      expect(PermissionV2.evaluate("grep", "pattern", explorePerms).effect).toBe("allow")
+      expect(PermissionV2.evaluate("glob", "*.ts", explorePerms).effect).toBe("allow")
+      expect(PermissionV2.evaluate("edit", "/external/workspace/file.ts", explorePerms).effect).toBe("deny")
+      expect(PermissionV2.evaluate("bash", "ls /external/workspace", explorePerms).effect).toBe("deny")
     }),
   )
 })

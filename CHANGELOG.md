@@ -217,6 +217,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- **Default cross-project filesystem access.** Normal agents now allow external
+  directories in both runtimes. Structured Linux tools accept external working
+  directories by default and check permissions before execution. Explicit
+  external-directory/read/edit rules and configured workdir roots still restrict
+  access; restricted agent profiles remain restricted.
+
 - **GPT-6 Astra with OpenAI/Codex OAuth.** Retain the exact `gpt-6-astra`
   model ID in the OAuth catalog filter, which previously rejected its undotted
   version name. Existing pro-mode exclusions remain unchanged. Verified live

@@ -304,7 +304,7 @@ export const GitTool = Tool.define(
         Effect.gen(function* () {
           const instance = yield* InstanceState.context
           if (params.args.length === 0) throw new Error("git requires a subcommand")
-          const workdir = yield* resolveWorkdirWithConfig(instance.directory, params.workdir)
+          const workdir = yield* resolveWorkdirWithConfig(ctx, instance.directory, params.workdir)
           const cwd = workdir.cwd
 
           // HARD guard: reject known command-execution vectors from the raw argv

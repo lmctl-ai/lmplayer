@@ -112,7 +112,7 @@ export const Plugin = define({
     const worktree = location.directory
     const whitelistedDirs = [TRUNCATION_GLOB, path.join(Global.Path.tmp, "*")]
     const readonlyExternalDirectory: PermissionV2.Ruleset = [
-      { action: "external_directory", resource: "*", effect: "ask" },
+      { action: "external_directory", resource: "*", effect: "allow" },
       ...whitelistedDirs.map(
         (resource): PermissionV2.Rule => ({ action: "external_directory", resource, effect: "allow" }),
       ),
