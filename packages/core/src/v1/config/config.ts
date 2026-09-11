@@ -154,7 +154,7 @@ export const Info = Schema.Struct({
     Schema.Struct({
       extra_roots: Schema.optional(Schema.mutable(Schema.Array(Schema.String))).annotate({
         description:
-          "Additional absolute directories that linux structured tools may use as workdir roots. Paths are still confined to workspace root plus these extra roots.",
+          "When set, restrict Linux structured-tool working directories to the workspace plus these absolute roots; an empty list restricts to the workspace. When omitted, any directory is allowed subject to permissions.",
       }),
     }),
   ).annotate({

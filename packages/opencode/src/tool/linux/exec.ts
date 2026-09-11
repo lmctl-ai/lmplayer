@@ -3,6 +3,8 @@ import { Effect, Option, Schema, Stream } from "effect"
 import { ChildProcess } from "effect/unstable/process"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { Config } from "@/config/config"
+import { assertExternalDirectoryEffect } from "../external-directory"
+import type { Tool } from "../tool"
 
 // Structured wrapper around a real Linux binary. This is the whole point of the
 // linux tool batch: instead of a free-form shell string (bash), each tool takes
@@ -15,7 +17,8 @@ import { Config } from "@/config/config"
 export type ExecResult = { stdout: string; stderr: string; code: number; args: string[] }
 
 export const Workdir = Schema.optional(Schema.String).annotate({
-  description: "Optional working directory for the command. Must resolve inside the session workspace root.",
+  description:
+    "Optional working directory for the command. External directories require external_directory permission. When tool_workdir.extra_roots is configured, the directory must be inside the workspace or a configured root.",
 })
 
 function insideRoot(root: string, target: string) {
@@ -31,21 +34,28 @@ export function resolveWorkdir(
   },
 ): string {
   const workspaceRoot = path.resolve(root)
-  const resolved = workdir ? (path.isAbsolute(workdir) ? path.resolve(workdir) : path.resolve(workspaceRoot, workdir)) : workspaceRoot
+  const resolved = workdir
+    ? path.isAbsolute(workdir)
+      ? path.resolve(workdir)
+      : path.resolve(workspaceRoot, workdir)
+    : workspaceRoot
+  if (options?.extraRoots === undefined) return resolved
   const roots = [workspaceRoot, ...(options?.extraRoots ?? []).map((item) => path.resolve(item))]
   if (roots.some((allowed) => insideRoot(allowed, resolved))) return resolved
   throw new Error(`workdir '${workdir}' resolves outside the workspace root`)
 }
 
-export const resolveWorkdirWithConfig = Effect.fn("LinuxTool.resolveWorkdirWithConfig")(function* (root: string, workdir?: string) {
+export const resolveWorkdirWithConfig = Effect.fn("LinuxTool.resolveWorkdirWithConfig")(function* (
+  ctx: Tool.Context,
+  root: string,
+  workdir?: string,
+) {
   const config = yield* Effect.serviceOption(Config.Service)
-  if (Option.isNone(config)) return { cwd: resolveWorkdir(root, workdir), extraRoots: [] as const }
-  const loaded = yield* config.value.get().pipe(Effect.catch(() => Effect.succeed(undefined)))
-  const extraRoots = loaded?.tool_workdir?.extra_roots ?? []
-  return {
-    cwd: resolveWorkdir(root, workdir, { extraRoots }),
-    extraRoots,
-  }
+  const loaded = Option.isNone(config) ? undefined : yield* config.value.get()
+  const extraRoots = loaded?.tool_workdir?.extra_roots
+  const cwd = resolveWorkdir(root, workdir, { extraRoots })
+  yield* assertExternalDirectoryEffect(ctx, cwd, { kind: "directory" })
+  return { cwd, extraRoots }
 })
 
 export function resourceWithWorkdir(resource: string, scope?: string): string {
@@ -87,22 +97,25 @@ export const exec = Effect.fn("LinuxTool.exec")(function* (
 
 // Shared result shaping: fail the tool on non-zero exit with a clear message,
 // otherwise return the command output as the tool result.
-export function report(input: {
-  binary: string
-  result: ExecResult
-  title: string
-  success: string
-}) {
+export function report(input: { binary: string; result: ExecResult; title: string; success: string }) {
   if (input.result.code !== 0) {
     const detail = input.result.stderr.trim() || input.result.stdout.trim() || "(no output)"
     throw new Error(`${input.binary} failed (exit ${input.result.code}): ${detail}`)
   }
-  const output = [input.result.stdout, input.result.stderr].map((s) => s.trim()).filter(Boolean).join("\n")
+  const output = [input.result.stdout, input.result.stderr]
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .join("\n")
   return {
     title: input.title,
     // `args` is surfaced so the `--` option terminator (flag-injection guard) is
     // observable/assertable, not just implied.
-    metadata: { exit: input.result.code, stdout: input.result.stdout, stderr: input.result.stderr, args: input.result.args },
+    metadata: {
+      exit: input.result.code,
+      stdout: input.result.stdout,
+      stderr: input.result.stderr,
+      args: input.result.args,
+    },
     output: output || input.success,
   }
 }

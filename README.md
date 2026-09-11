@@ -125,6 +125,14 @@ Ollama models default to chat-only. `+tools` enables tool calls; choose a model 
 
 ## Configuration and memory
 
+Normal agents allow filesystem access outside the current project by default.
+This includes filesystem tools and external working directories for structured
+Linux tools. Explicit `external_directory`, `read`, and `edit` restrictions still
+apply, as do OS permissions, sensitive-file rules, and restricted agent profiles
+such as `secured`. To restrict structured-tool working directories, set
+`tool_workdir.extra_roots` to the allowed additional roots; `[]` confines them to
+the workspace. Omit that setting for the unrestricted default.
+
 The default global config directory is `~/.config/lmplayer` (or `$XDG_CONFIG_HOME/lmplayer`). Config filenames remain `opencode.json` / `opencode.jsonc`, and many inherited environment variables still use the `OPENCODE_*` prefix.
 
 ```bash

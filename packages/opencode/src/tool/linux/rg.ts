@@ -92,7 +92,7 @@ export const RgTool = Tool.define(
       execute: (params: { args: readonly string[]; workdir?: string }, ctx: Tool.Context) =>
         Effect.gen(function* () {
           const instance = yield* InstanceState.context
-          const workdir = yield* resolveWorkdirWithConfig(instance.directory, params.workdir)
+          const workdir = yield* resolveWorkdirWithConfig(ctx, instance.directory, params.workdir)
           const cwd = workdir.cwd
           validateArgv(params.args, cwd)
 

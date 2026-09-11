@@ -1,24 +1,25 @@
 import { describe, expect, test } from "bun:test"
 import path from "path"
-import { Effect, Layer } from "effect"
-import { Config } from "@/config/config"
-import { resolveWorkdir, resolveWorkdirWithConfig } from "../../../src/tool/linux/exec"
+import { resolveWorkdir } from "../../../src/tool/linux/exec"
 
 describe("tool.linux.exec resolveWorkdir", () => {
-  test("default rejects outside workspace root", () => {
-    const workspace = "/tmp/workspace"
-    expect(() => resolveWorkdir(workspace, "../outside")).toThrow("resolves outside the workspace root")
+  test("default allows external absolute and relative workdirs", () => {
+    expect(resolveWorkdir("/tmp/workspace", "../outside")).toBe("/tmp/outside")
+    expect(resolveWorkdir("/tmp/workspace", "/tmp/outside")).toBe("/tmp/outside")
+    expect(resolveWorkdir("/tmp/workspace")).toBe("/tmp/workspace")
   })
 
-  test("configured extra root allows external workdir", async () => {
-    const workspace = "/tmp/workspace"
-    const outside = "/tmp/allowed-root"
-    const config = Layer.mock(Config.Service)({
-      get: () => Effect.succeed({ tool_workdir: { extra_roots: [outside] } }),
-    })
-    const result = await Effect.runPromise(resolveWorkdirWithConfig(workspace, outside).pipe(Effect.provide(config)))
-    expect(result.cwd).toBe(path.resolve(outside))
-    expect(result.extraRoots).toEqual([outside])
+  test("configured extra root allows external workdir", () => {
+    expect(resolveWorkdir("/tmp/workspace", "/tmp/allowed-root/nested", { extraRoots: ["/tmp/allowed-root"] })).toBe(
+      path.resolve("/tmp/allowed-root/nested"),
+    )
+  })
+
+  test("explicit empty roots restrict workdir to the workspace", () => {
+    expect(resolveWorkdir("/tmp/workspace", "nested", { extraRoots: [] })).toBe("/tmp/workspace/nested")
+    expect(() => resolveWorkdir("/tmp/workspace", "../outside", { extraRoots: [] })).toThrow(
+      "resolves outside the workspace root",
+    )
   })
 
   test("traversal escape beyond all roots is rejected", () => {

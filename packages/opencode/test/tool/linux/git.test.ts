@@ -30,6 +30,15 @@ const itWithWorkdirConfig = testEffect(
   ),
 )
 
+const itWithRestrictedWorkdir = testEffect(
+  Layer.merge(
+    toolLayer,
+    Layer.mock(Config.Service)({
+      get: () => Effect.succeed({ tool_workdir: { extra_roots: [] } }),
+    }),
+  ),
+)
+
 const ctx = {
   sessionID: SessionID.make("ses_test"),
   messageID: MessageID.make("msg_test"),
@@ -274,19 +283,66 @@ describe("tool.git behavioral", () => {
   )
 
   it.instance(
-    "rejects a workdir escaping the workspace root before permission",
+    "allows an external workdir by default and requests external directory permission",
     () =>
       Effect.gen(function* () {
+        const outside = yield* tmpdirScoped({ git: true })
         const info = yield* GitTool
         const tool = yield* info.init()
         const rec = makeCtx()
-        const exit = yield* tool.execute({ args: ["status"], workdir: ".." }, rec.ctx).pipe(Effect.exit)
+        const result = yield* tool.execute({ args: ["status"], workdir: outside }, rec.ctx)
+        expect(result.metadata.exit).toBe(0)
+        expect(rec.requests[0]).toMatchObject({
+          permission: "external_directory",
+          patterns: [path.join(outside, "*")],
+        })
+      }),
+    { git: true },
+  )
+
+  it.instance(
+    "external directory denial prevents command execution",
+    () =>
+      Effect.gen(function* () {
+        const outside = yield* tmpdirScoped()
+        const info = yield* GitTool
+        const tool = yield* info.init()
+        const requests: string[] = []
+        const denied: Tool.Context = {
+          ...ctx,
+          ask: (req) => {
+            requests.push(req.permission)
+            return req.permission === "external_directory"
+              ? Effect.die(new Error("external_directory denied"))
+              : Effect.void
+          },
+        }
+        const exit = yield* tool.execute({ args: ["init"], workdir: outside }, denied).pipe(Effect.exit)
         expect(Exit.isFailure(exit)).toBe(true)
         if (Exit.isFailure(exit)) {
-          const err = Cause.squash(exit.cause)
-          expect(err instanceof Error ? err.message : String(err)).toContain("resolves outside the workspace root")
+          expect(String(Cause.squash(exit.cause))).toContain("external_directory denied")
         }
-        expect(rec.requests.length).toBe(0)
+        expect(requests).toEqual(["external_directory"])
+        expect(yield* Effect.promise(() => Bun.file(path.join(outside, ".git", "HEAD")).exists())).toBe(false)
+      }),
+    { git: true },
+  )
+
+  itWithRestrictedWorkdir.instance(
+    "explicit empty roots reject an external workdir before permission or execution",
+    () =>
+      Effect.gen(function* () {
+        const outside = yield* tmpdirScoped()
+        const info = yield* GitTool
+        const tool = yield* info.init()
+        const rec = makeCtx()
+        const exit = yield* tool.execute({ args: ["init"], workdir: outside }, rec.ctx).pipe(Effect.exit)
+        expect(Exit.isFailure(exit)).toBe(true)
+        if (Exit.isFailure(exit)) {
+          expect(String(Cause.squash(exit.cause))).toContain("resolves outside the workspace root")
+        }
+        expect(rec.requests).toEqual([])
+        expect(yield* Effect.promise(() => Bun.file(path.join(outside, ".git", "HEAD")).exists())).toBe(false)
       }),
     { git: true },
   )
@@ -302,6 +358,7 @@ describe("tool.git behavioral", () => {
         const result = yield* tool.execute({ args: ["status"], workdir: outside }, rec.ctx)
         expect(result.metadata.exit).toBe(0)
         expect(result.metadata.classification).toMatchObject({ verb: "read", subcommand: "status" })
+        expect(rec.requests[0]?.permission).toBe("external_directory")
         expect(rec.requests.some((r) => (r.metadata as { workdir?: string } | undefined)?.workdir === outside)).toBe(true)
       }),
     { git: true },

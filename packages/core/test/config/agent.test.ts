@@ -12,7 +12,10 @@ import { Global } from "@opencode-ai/core/global"
 import { PermissionV2 } from "@opencode-ai/core/permission"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { ConfigMigrateV1 } from "@opencode-ai/core/v1/config/migrate"
+import { Location } from "@opencode-ai/core/location"
+import { AgentPlugin } from "@opencode-ai/core/plugin/agent"
 import { tmpdir } from "../fixture/tmpdir"
+import { location } from "../fixture/location"
 import { testEffect } from "../lib/effect"
 import { agentHost, host } from "../plugin/host"
 
@@ -297,6 +300,82 @@ Use native v2 fields.`,
         }),
       ),
     ),
+  )
+
+  it.effect("enforces explicit global and per-agent external_directory and edit restrictions over defaults", () =>
+    Effect.gen(function* () {
+      const agents = yield* AgentV2.Service
+      yield* AgentPlugin.Plugin.effect(host({ agent: agentHost(agents) })).pipe(
+        Effect.provideService(
+          Location.Service,
+          Location.Service.of(location({ directory: AbsolutePath.make("/project") })),
+        ),
+      )
+
+      const config = Config.Service.of({
+        entries: () =>
+          Effect.succeed([
+            new Config.Document({
+              type: "document",
+              info: decode({
+                permissions: [
+                  { action: "external_directory", resource: "/external/blocked/*", effect: "deny" },
+                  { action: "edit", resource: "/external/readonly/*", effect: "deny" },
+                ],
+                agents: {
+                  build: {
+                    permissions: [
+                      { action: "external_directory", resource: "/per-agent/build-blocked/*", effect: "deny" },
+                      { action: "edit", resource: "/per-agent/build-noedit/*", effect: "deny" },
+                    ],
+                  },
+                },
+              }),
+            }),
+          ]),
+      })
+
+      yield* ConfigAgentPlugin.Plugin.effect(host({ agent: agentHost(agents) })).pipe(
+        Effect.provideService(Config.Service, config),
+      )
+
+      const buildAgent = yield* agents.get(AgentV2.ID.make("build"))
+      const generalAgent = yield* agents.get(AgentV2.ID.make("general"))
+      expect(buildAgent).toBeDefined()
+      expect(generalAgent).toBeDefined()
+
+      // Default external admission remains active for unspecified paths
+      expect(PermissionV2.evaluate("external_directory", "/external/allowed/*", buildAgent!.permissions).effect).toBe(
+        "allow",
+      )
+      expect(PermissionV2.evaluate("read", "/external/allowed/file.ts", buildAgent!.permissions).effect).toBe("allow")
+      expect(PermissionV2.evaluate("edit", "/external/allowed/file.ts", buildAgent!.permissions).effect).toBe("allow")
+
+      // Explicit global denies override defaults for all agents
+      expect(
+        PermissionV2.evaluate("external_directory", "/external/blocked/file.ts", buildAgent!.permissions).effect,
+      ).toBe("deny")
+      expect(
+        PermissionV2.evaluate("external_directory", "/external/blocked/file.ts", generalAgent!.permissions).effect,
+      ).toBe("deny")
+      expect(PermissionV2.evaluate("edit", "/external/readonly/file.ts", buildAgent!.permissions).effect).toBe("deny")
+      expect(PermissionV2.evaluate("edit", "/external/readonly/file.ts", generalAgent!.permissions).effect).toBe("deny")
+      expect(PermissionV2.evaluate("read", "/external/readonly/file.ts", buildAgent!.permissions).effect).toBe("allow")
+
+      // Explicit per-agent restrictions apply to build but not general
+      expect(
+        PermissionV2.evaluate("external_directory", "/per-agent/build-blocked/file.ts", buildAgent!.permissions).effect,
+      ).toBe("deny")
+      expect(
+        PermissionV2.evaluate("external_directory", "/per-agent/build-blocked/file.ts", generalAgent!.permissions).effect,
+      ).toBe("allow")
+      expect(PermissionV2.evaluate("edit", "/per-agent/build-noedit/file.ts", buildAgent!.permissions).effect).toBe(
+        "deny",
+      )
+      expect(PermissionV2.evaluate("edit", "/per-agent/build-noedit/file.ts", generalAgent!.permissions).effect).toBe(
+        "allow",
+      )
+    }),
   )
 })
 

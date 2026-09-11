@@ -85,7 +85,21 @@ it.instance("plan agent forces delegation: denies all direct mutation", () =>
     expect(evalPerm(plan, "bash")).toBe("deny")
     // write/edit/apply_patch + the mutating native tools are removed from the toolset.
     // curl/wget ask under `read` but can write files, so they are denied by id too.
-    const mutating = ["edit", "write", "apply_patch", "mkdir", "rm", "mv", "cp", "touch", "tar", "unzip", "curl", "wget", "bash"]
+    const mutating = [
+      "edit",
+      "write",
+      "apply_patch",
+      "mkdir",
+      "rm",
+      "mv",
+      "cp",
+      "touch",
+      "tar",
+      "unzip",
+      "curl",
+      "wget",
+      "bash",
+    ]
     expect(Permission.disabled(mutating, plan!.permission)).toEqual(new Set(mutating))
   }),
 )
@@ -164,11 +178,11 @@ it.instance("explore agent denies edit and write", () =>
   }),
 )
 
-it.instance("explore agent asks for external directories and allows whitelisted external paths", () =>
+it.instance("explore agent allows external directories and whitelisted external paths", () =>
   Effect.gen(function* () {
     const explore = yield* load((svc) => svc.get("explore"))
     expect(explore).toBeDefined()
-    expect(Permission.evaluate("external_directory", "/some/other/path", explore!.permission).action).toBe("ask")
+    expect(Permission.evaluate("external_directory", "/some/other/path", explore!.permission).action).toBe("allow")
     expect(Permission.evaluate("external_directory", Truncate.GLOB, explore!.permission).action).toBe("allow")
     expect(
       Permission.evaluate("external_directory", path.join(Global.Path.tmp, "agent-work"), explore!.permission).action,
@@ -581,12 +595,28 @@ it.instance("Agent.get returns undefined for non-existent agent", () =>
   }),
 )
 
-it.instance("default permission includes doom_loop and external_directory as ask", () =>
+it.instance("default permission keeps doom_loop as ask and allows external directories", () =>
   Effect.gen(function* () {
     const build = yield* load((svc) => svc.get("build"))
     expect(evalPerm(build, "doom_loop")).toBe("ask")
-    expect(evalPerm(build, "external_directory")).toBe("ask")
+    expect(evalPerm(build, "external_directory")).toBe("allow")
   }),
+)
+
+it.instance(
+  "normal and custom agents allow external paths while read-only agents still deny edits",
+  () =>
+    Effect.gen(function* () {
+      for (const name of ["build", "general", "custom", "plan", "explore"]) {
+        const agent = yield* load((svc) => svc.get(name))
+        expect(Permission.evaluate("external_directory", "/another/project/*", agent!.permission).action).toBe("allow")
+        expect(Permission.evaluate("read", "../another/project/file.txt", agent!.permission).action).toBe("allow")
+        expect(Permission.evaluate("edit", "../another/project/file.txt", agent!.permission).action).toBe(
+          name === "plan" || name === "explore" ? "deny" : "allow",
+        )
+      }
+    }),
+  { config: { agent: { custom: {} } } },
 )
 
 it.instance("webfetch is allowed by default", () =>
@@ -662,7 +692,7 @@ it.instance("global tmp directory children are allowed for external_directory", 
     expect(
       Permission.evaluate("external_directory", path.join(Global.Path.tmp, "scratch"), build!.permission).action,
     ).toBe("allow")
-    expect(Permission.evaluate("external_directory", "/some/other/path", build!.permission).action).toBe("ask")
+    expect(Permission.evaluate("external_directory", "/some/other/path", build!.permission).action).toBe("allow")
   }),
 )
 

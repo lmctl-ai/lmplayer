@@ -119,7 +119,7 @@ const layer = Layer.effect(
           ...referenceDirs.map((dir) => path.join(dir, "*")),
         ]
         const readonlyExternalDirectory = {
-          "*": "ask",
+          "*": "allow",
           ...Object.fromEntries(whitelistedDirs.map((dir) => [dir, "allow"])),
         } satisfies Record<string, "allow" | "ask" | "deny">
 
@@ -127,7 +127,7 @@ const layer = Layer.effect(
           "*": "allow",
           doom_loop: "ask",
           external_directory: {
-            "*": "ask",
+            "*": "allow",
             ...Object.fromEntries(whitelistedDirs.map((dir) => [dir, "allow"])),
           },
           question: "deny",
