@@ -217,6 +217,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- **Codex background-job notification turns.** Omit unsupported output-token
+  limits for OpenAI OAuth requests even when notification turns skip plugin
+  hooks. This prevents `Unsupported parameter: max_output_tokens` errors while
+  preserving notification hook isolation and other providers' token limits.
+
 - **Default cross-project filesystem access.** Normal agents now allow external
   directories in both runtimes. Structured Linux tools accept external working
   directories by default and check permissions before execution. Explicit
