@@ -13,6 +13,7 @@ reachable via commands + editable config (with a verify step). The TUI is kept b
 the default.
 
 ## Docs in this portal (each a focused, LLM-friendly file)
+- `notification-output-limit.md` — NOTIFICATION-OUTPUT-LIMIT: mandatory Codex OAuth cap omission for unattended turns without re-enabling plugin hooks.
 - `filesystem-default-access.md` — FS-DEFAULT-ACCESS: default cross-directory access in both runtimes, explicit restriction precedence, and structured Linux workdir handling.
 - `provider-openai-astra.md` — verified `openai/gpt-6-astra` via Codex OAuth, exact-name filter fix, older-binary declaration workaround, published example, and clean diagram lint.
 - `direction.md` — operator north star: CLI + single-user sequential REST microservice, file-based permissions (no popup), standalone config (no parent/sibling merge).

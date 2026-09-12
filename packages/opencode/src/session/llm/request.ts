@@ -198,7 +198,9 @@ export const prepare = Effect.fn("LLMRequestPrep.prepare")(function* (input: Pre
     system,
     messages,
     tools: Object.fromEntries(Object.entries(tools).toSorted(([a], [b]) => a.localeCompare(b))),
-    params,
+    // Codex rejects output-token caps. Keep this transport requirement outside
+    // plugin hooks, which unattended notification turns intentionally skip.
+    params: isOpenaiOauth ? { ...params, maxOutputTokens: undefined } : params,
     messageTransformOptions: options,
     headers: {
       ...(input.model.providerID.startsWith("opencode")
