@@ -1,6 +1,6 @@
 # SHELL-SESSION-IDENTITY
 
-Status: resolved in source; final installation verification in progress.
+Status: resolved (2026-09-13).
 Reporter: hermes Lead, relayed by lmctl-src Lead (2026-09-13).
 
 Reported impact: a shell command from hermes printed another team's
@@ -82,3 +82,9 @@ A rebuilt binary (0.0.0-dev-202609130410) serving isolated temporary storage
 passed two concurrent HTTP session-shell requests under a synthetic wrong host
 identity. Both returned their own session IDs. No existing session data or
 credentials were used. The temporary server was terminated after verification.
+
+Final installation: 0.0.0-dev-202609130410 installed and byte-compared with the
+built artifact. The same isolated concurrent HTTP identity probe passed using
+/home/mma/.local/bin/lmplayer. All probe processes exited. Fix commits:
+50f40e82ba and fd9c74fc98, pushed to origin/dev. Restart long-running hosts to
+load the correction; command-level manual overrides remain possible by design.
