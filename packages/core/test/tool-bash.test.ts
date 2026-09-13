@@ -235,7 +235,7 @@ describe("BashTool", () => {
           reset()
           return withTool(
             tmp.path,
-            (registry) => settleTool(registry, call({ command: "printf core-bash" })),
+            (registry) => settleTool(registry, call({ command: 'printf "core-bash:$LMCTL_SELF_SESSIONID"' })),
             LayerNode.compile(AppProcess.node),
           ).pipe(
             Effect.andThen((settled) =>
@@ -243,7 +243,7 @@ describe("BashTool", () => {
                 expect(settled.result).toEqual({
                   type: "content",
                   value: [
-                    { type: "text", text: "core-bash" },
+                    { type: "text", text: `core-bash:${sessionID}` },
                     { type: "text", text: "Command exited with code 0." },
                   ],
                 })

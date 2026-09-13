@@ -582,7 +582,7 @@ const layer = Layer.effect(
               const cmd = ChildProcess.make(sh, args, {
                 cwd,
                 extendEnv: true,
-                env: { ...shellEnv.env, TERM: "dumb" },
+                env: { ...shellEnv.env, TERM: "dumb", LMCTL_SELF_SESSIONID: input.sessionID },
                 stdin: "ignore",
                 forceKillAfter: "3 seconds",
               })

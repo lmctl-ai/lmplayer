@@ -157,6 +157,8 @@ const layer = Layer.effectDiscard(
                   .shell ?? defaultShell()
               const command = ChildProcess.make(input.command, [], {
                 cwd: target.canonical,
+                env: { LMCTL_SELF_SESSIONID: context.sessionID },
+                extendEnv: true,
                 shell,
                 stdin: "ignore",
                 detached: process.platform !== "win32",
