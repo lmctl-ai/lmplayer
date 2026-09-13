@@ -45,3 +45,26 @@ changes and do not modify lmctl-src or hermes repositories.
 
 No runtime fix or live reproduction claimed yet. Installed release remains
 0.0.0-dev-202609120004; source baseline is 0f96964257.
+
+## Confirmed reproduction and targeted correction (2026-09-13)
+
+Reporter confirmed version 0.0.0-dev-202609120004 and the exact legacy bash
+schema, including background and job tools. API-host-managed launch mode is
+known; standalone versus shared server remains unknown.
+
+An isolated test process started with LMCTL_SELF_SESSIONID=ses_wrong_host
+executed two concurrent real shell calls with distinct synthetic session IDs.
+Before the correction both returned ses_wrong_host. After the correction each
+returns its calling context's session ID; the host environment is unchanged.
+This reproduces a concrete inheritance failure without asserting the exact
+incident launch topology. The correction assigns LMCTL_SELF_SESSIONID after
+ambient and plugin environment merging. Background jobs receive the same
+session-bound environment snapshot. The persistence claim in the description
+is corrected to describe fresh processes.
+
+All 27 shell tests pass, including two new identity regressions. Lint reports
+zero errors (10 existing warnings). Native build version smoke passes for
+0.0.0-dev-202609130354. A test-fixture type error was corrected during validation.
+
+Remaining: independently verify the installed runtime path and cover V2 and
+explicit session-shell identity propagation before closing the broader issue.

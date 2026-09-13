@@ -83,11 +83,12 @@ const ctx = {
   ask: () => Effect.void,
 }
 
-function captureBackgroundTimeout(captured: Array<number | undefined>) {
+function captureBackgroundTimeout(captured: Array<number | undefined>, identities: Array<string | undefined> = []) {
   return SessionJobRuntime.Service.of({
     submit: (input) =>
       Effect.sync(() => {
         captured.push(input.timeout)
+        identities.push(input.env.LMCTL_SELF_SESSIONID)
         const now = Date.now()
         return {
           created: true,
@@ -209,6 +210,36 @@ const mustTruncate = (result: {
     [`shell: ${process.env.SHELL || ""}`, `exit: ${String(result.metadata.exit)}`, "output:", result.output].join("\n"),
   )
 }
+
+describe("tool.shell session identity", () => {
+  it.instance("binds background submissions to their calling session", () => {
+    const identities: Array<string | undefined> = []
+    return Effect.gen(function* () {
+      yield* run({ command: "echo test", background: true }, { ...ctx, callID: "identity-background" })
+      expect(identities).toEqual([ctx.sessionID])
+    }).pipe(Effect.provideService(SessionJobRuntime.Service, captureBackgroundTimeout([], identities)))
+  })
+
+  it.instance("binds concurrent child environments to their calling sessions", () =>
+    Effect.gen(function* () {
+      const inherited = process.env.LMCTL_SELF_SESSIONID
+      const ids = [SessionID.make("ses_identity_one"), SessionID.make("ses_identity_two")]
+      const results = yield* Effect.all(
+        ids.map((sessionID) =>
+          run(
+            {
+              command: `"${process.execPath}" -e 'console.log(process.env.LMCTL_SELF_SESSIONID)'`,
+            },
+            { ...ctx, sessionID },
+          ),
+        ),
+        { concurrency: "unbounded" },
+      )
+      expect(results.map((result) => result.output.trim())).toEqual(ids)
+      expect(process.env.LMCTL_SELF_SESSIONID).toBe(inherited)
+    }),
+  )
+})
 
 describe("tool.shell", () => {
   each("basic", () =>

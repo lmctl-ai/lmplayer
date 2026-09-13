@@ -424,6 +424,8 @@ export const ShellTool = Tool.define(
       return {
         ...process.env,
         ...extra.env,
+        // A shared host may have been launched by a different lmctl session.
+        LMCTL_SELF_SESSIONID: ctx.sessionID,
       }
     })
 
