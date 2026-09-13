@@ -3137,3 +3137,22 @@ noLLMServer.instance(
     }),
   30_000,
 )
+
+
+unixNoLLMServer(
+  "shell binds child identity to the requested session",
+  () =>
+    Effect.gen(function* () {
+      const { prompt, chat } = yield* boot()
+      const inherited = process.env.LMCTL_SELF_SESSIONID
+      const result = yield* prompt.shell({
+        sessionID: chat.id,
+        agent: "build",
+        command: 'printf "%s" "$LMCTL_SELF_SESSIONID"',
+      })
+      const tool = completedTool(result.parts)
+      expect(tool?.state.output).toBe(chat.id)
+      expect(process.env.LMCTL_SELF_SESSIONID).toBe(inherited)
+    }),
+  { config: cfg },
+)

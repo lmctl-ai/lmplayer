@@ -1,6 +1,6 @@
 # SHELL-SESSION-IDENTITY
 
-Status: investigating.
+Status: resolved in source; final installation verification in progress.
 Reporter: hermes Lead, relayed by lmctl-src Lead (2026-09-13).
 
 Reported impact: a shell command from hermes printed another team's
@@ -68,3 +68,17 @@ zero errors (10 existing warnings). Native build version smoke passes for
 
 Remaining: independently verify the installed runtime path and cover V2 and
 explicit session-shell identity propagation before closing the broader issue.
+
+
+## Remaining entry points corrected
+
+V2 bash and the explicit session-shell API independently reproduced the same
+wrong-host identity failure before correction. Both now overlay the calling
+session ID on the child environment without mutating the host. Real-process
+regressions pass: 11 V2 bash tests and 11 session-shell tests (other prompt tests
+were filtered out). Both package typechecks pass; lint has zero errors.
+
+A rebuilt binary (0.0.0-dev-202609130410) serving isolated temporary storage
+passed two concurrent HTTP session-shell requests under a synthetic wrong host
+identity. Both returned their own session IDs. No existing session data or
+credentials were used. The temporary server was terminated after verification.
