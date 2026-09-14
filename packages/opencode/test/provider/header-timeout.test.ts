@@ -74,8 +74,44 @@ it.live("chunkTimeout raises a response stream error when SSE body stalls", () =
             }
           })
           expect(error).toBeInstanceOf(ProviderError.ResponseStreamError)
+          expect(String(error)).toContain("Provider response read idle for 50ms")
         }),
       { config: providerConfig(server.url, { chunkTimeout: 50 }) },
+    )
+  }),
+)
+
+it.live("total timeout aborts the body even with a longer idle bound", () =>
+  Effect.gen(function* () {
+    const server = yield* Effect.acquireRelease(
+      Effect.promise(() => delayedBodyServer(250)),
+      (server) => Effect.sync(() => server.server.close()),
+    )
+
+    yield* provideTmpdirInstance(
+      () =>
+        Effect.gen(function* () {
+          const provider = yield* Provider.Service
+          const model = yield* provider.getModel(ProviderV2.ID.make("test"), ModelV2.ID.make("test-model"))
+          const result = streamText({
+            model: yield* provider.getLanguage(model),
+            onError() {},
+            messages: [{ role: "user", content: "hello" }],
+          })
+
+          const error = yield* Effect.promise(async () => {
+            try {
+              for await (const part of result.fullStream) {
+                if (part.type === "error") return part.error
+              }
+            } catch (error) {
+              return error
+            }
+          })
+          expect(error).toBeDefined()
+          expect(String(error)).toMatch(/timeout|timed out/i)
+        }),
+      { config: providerConfig(server.url, { timeout: 50, chunkTimeout: 500 }) },
     )
   }),
 )
@@ -146,8 +182,10 @@ it.live("OpenAI Codex headerTimeout default can be disabled by config", () =>
               const provider = yield* Provider.Service
               const openai = yield* provider.getProvider(ProviderV2.ID.openai)
               expect(openai.options.headerTimeout).toBe(false)
+              expect(openai.options.chunkTimeout).toBe(600_000)
+              expect(openai.options.timeout).toBe(false)
             }),
-          { config: { provider: { openai: { options: { headerTimeout: false } } } } },
+          { config: { provider: { openai: { options: { headerTimeout: false, chunkTimeout: 600_000, timeout: false } } } } },
         )
       }),
     )
@@ -163,6 +201,8 @@ it.live("OpenAI API auth gets default headerTimeout", () =>
             const provider = yield* Provider.Service
             const openai = yield* provider.getProvider(ProviderV2.ID.openai)
             expect(openai.options.headerTimeout).toBe(300_000)
+            expect(openai.options.chunkTimeout).toBe(300_000)
+            expect(openai.options.timeout).toBe(1_800_000)
           }),
         )
       }),
