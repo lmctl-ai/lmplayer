@@ -177,3 +177,19 @@ currently unbounded scope until the part/ownership matrix exists.
 
 Design acceptance: all six epic questions are answered above; recommendation and
 limitations are explicit. Runtime compatibility tests are proposed, not executed.
+
+
+## Single migration runner clarification (task #175)
+
+Adopt the lmqueue/lmbee contract explicitly: each schema owner exports DDL,
+ordered migration steps and a version constant; exactly one designated runner
+executes the composed sequence against the shared file. Separate ownership
+journals do not imply separate runners. Lmplayer extension modules must not
+self-migrate on startup. OpenCode base definitions stay upstream-owned; a
+coordinated runner consumes the pinned base and extension definitions in a
+reviewed order. If unmodified OpenCode cannot participate, live shared-file
+mode remains unsupported rather than introducing a second runner.
+
+Reference reviewed: lmauto durable-memory/design-delta-lmqueue-extraction-scope.md,
+Schema/migration ownership section, lines 88-98. This is a design prerequisite,
+not a claim of an existing upstream extension API.
