@@ -45,7 +45,7 @@ function wrapSSE(res: Response, ms: number, ctl: AbortController) {
     async pull(ctrl) {
       const part = await new Promise<Awaited<ReturnType<typeof reader.read>>>((resolve, reject) => {
         const id = setTimeout(() => {
-          const err = new ProviderError.ResponseStreamError("SSE read timed out")
+          const err = new ProviderError.ResponseStreamError(`Provider response read idle for ${ms}ms; aborting`)
           ctl.abort(err)
           void reader.cancel(err)
           reject(err)
@@ -213,7 +213,7 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
         async getModel(sdk: any, modelID: string, _options?: Record<string, any>) {
           return sdk.responses(modelID)
         },
-        options: { headerTimeout: OPENAI_HEADER_TIMEOUT_DEFAULT },
+        options: { headerTimeout: OPENAI_HEADER_TIMEOUT_DEFAULT, chunkTimeout: 300_000, timeout: 1_800_000 },
       }),
     meta: () =>
       Effect.succeed({
