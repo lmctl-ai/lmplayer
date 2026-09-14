@@ -2,6 +2,8 @@
 
 Status: resolved for the legacy AI SDK request path (2026-09-14).
 Reporter: math meta-lead, 2026-09-14.
+Tracker: lmbee epic #167, child task #168 (done); owner lmplayer2:Lead.
+Evidence notes: #850 on task #168 and #851 on epic #167.
 
 Observed across lmbi/localwebcli/creator: lmplayer run remains alive and idle
 for over an hour, retaining the caller's servicing lock. Reported creator
@@ -35,9 +37,8 @@ Existing real HTTP stalled-body tests exercise the read timeout. Tests also
 check OpenAI defaults and explicit overrides. Before correction the default
 and diagnostic assertions fail.
 
-Remaining: total-ceiling regression, retry/error propagation and custom-fetch
-abort audit, then build/install and installed CLI stall verification. Do not
-close based solely on configuration assertions or a version smoke test.
+The total-ceiling regression, retry/error propagation, custom-fetch abort audit,
+and installed CLI stall verification were completed; evidence follows below.
 
 
 ## Abort and retry audit
@@ -59,3 +60,7 @@ storage. The process completes rather than retaining its caller indefinitely.
 Historical process snapshots do not prove the exact original stall location.
 These changes bound the verified HTTP request gap; they are not a global
 workflow deadline for tools, CPU stalls, or CLI operations outside provider IO.
+
+Future substantive reports must be recorded in `lmbee tasks` before the turn
+ends, with this repository record linked as supporting evidence. The standalone
+`lmtasks` CLI uses a different ledger and is not this fleet tracker.
