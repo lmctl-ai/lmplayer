@@ -24,3 +24,19 @@ Coordination sent to miniplayer: verify installed parity, actual Ollama/deepseek
 failover and SDK retry/overall-budget behavior. No miniplayer code or config
 modified. Shared-DB design clarified to require owner-exported DDL/version and
 exactly one composed migration runner; see docs/design/opencode-shared-store.md.
+
+## Per-call OpenAI boundary verified (2026-09-14)
+
+The real @ai-sdk/openai model from Provider.getLanguage honors a 50ms caller
+AbortSignal deadline against a stalled local HTTP response while retaining the
+300000ms idle / 1800000ms total generation defaults. New regression in
+header-timeout.test.ts passes along with the other seven timeout tests.
+LLM.StreamInput.abort is forwarded as SDK abortSignal (session/llm.ts:349);
+provider/provider.ts composes that signal with configured transport bounds.
+A per-call total abort deadline therefore wins when shorter. Numeric transport
+configuration remains SDK/config scoped; no per-prompt timeout fields or CLI
+flags were added. Miniplayer directly supplies the same AI SDK abortSignal.
+
+Math clarified that miniplayer owns actual classifier budgets, dead-endpoint
+failover testing and the qwen quality pass. #175 is complete from lmplayer's
+side; those tasks do not gate this verified override contract.

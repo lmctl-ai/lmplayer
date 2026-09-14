@@ -185,7 +185,11 @@ it.live("OpenAI Codex headerTimeout default can be disabled by config", () =>
               expect(openai.options.chunkTimeout).toBe(600_000)
               expect(openai.options.timeout).toBe(false)
             }),
-          { config: { provider: { openai: { options: { headerTimeout: false, chunkTimeout: 600_000, timeout: false } } } } },
+          {
+            config: {
+              provider: { openai: { options: { headerTimeout: false, chunkTimeout: 600_000, timeout: false } } },
+            },
+          },
         )
       }),
     )
@@ -272,3 +276,52 @@ function defaultAuthContent() {
     openai: { type: "oauth", refresh: "refresh", access: "access", expires: Date.now() + 60_000 },
   }
 }
+
+it.live("OpenAI transport honors a short per-call deadline without changing generation defaults", () =>
+  Effect.gen(function* () {
+    const server = yield* Effect.acquireRelease(
+      Effect.promise(() => delayedBodyServer(1_000)),
+      (server) => Effect.sync(() => server.server.close()),
+    )
+    const fixture = testProviderConfig(server.url)
+    yield* withAuthContent(
+      provideTmpdirInstance(
+        () =>
+          Effect.gen(function* () {
+            const provider = yield* Provider.Service
+            const openai = yield* provider.getProvider(ProviderV2.ID.openai)
+            expect(openai.options.chunkTimeout).toBe(300_000)
+            expect(openai.options.timeout).toBe(1_800_000)
+            const model = yield* provider.getModel(ProviderV2.ID.openai, ModelV2.ID.make("test-model"))
+            const language = yield* provider.getLanguage(model)
+            const signal = AbortSignal.timeout(50)
+            const error = yield* Effect.promise(async () => {
+              try {
+                const response = await language.doStream({
+                  prompt: [{ role: "user", content: [{ type: "text", text: "hello" }] }],
+                  abortSignal: signal,
+                })
+                const reader = response.stream.getReader()
+                try {
+                  while (true) {
+                    const part = await reader.read()
+                    if (part.done) break
+                    if (part.value.type === "error") return part.value.error
+                  }
+                } finally {
+                  reader.releaseLock()
+                }
+              } catch (error) {
+                return error
+              }
+            })
+            expect(signal.aborted).toBe(true)
+            expect(String(error)).toMatch(/timeout|timed out/i)
+            expect(openai.options.timeout).toBe(1_800_000)
+          }),
+        { config: { provider: { openai: { ...fixture.provider.test, npm: "@ai-sdk/openai" } } } },
+      ),
+      { openai: { type: "api", key: "test" } },
+    )
+  }),
+)
