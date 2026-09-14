@@ -519,3 +519,8 @@ describe("session.message-v2.fromError", () => {
     })
   })
 })
+
+test("provider idle timeout releases the caller instead of retrying the stall", () => {
+  const error = MessageV2.fromError(new ProviderError.IdleTimeoutError(300000), { providerID })
+  expect(SessionRetry.retryable(error, retryProvider)).toBeUndefined()
+})

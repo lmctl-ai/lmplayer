@@ -13,10 +13,17 @@ export class HeaderTimeoutError extends Error {
 }
 
 export class ResponseStreamError extends Error {
-  public override readonly name = "ProviderResponseStreamError"
+  public override readonly name: string = "ProviderResponseStreamError"
 
   constructor(message: string, options?: ErrorOptions) {
     super(message, options)
+  }
+}
+
+export class IdleTimeoutError extends ResponseStreamError {
+  public override readonly name = "ProviderIdleTimeoutError"
+  constructor(ms: number) {
+    super(`Provider response read idle for ${ms}ms; aborting`)
   }
 }
 

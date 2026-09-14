@@ -1,6 +1,6 @@
 # PROVIDER-STALL-TIMEOUT
 
-Status: investigating; OpenAI default bounds correction in progress.
+Status: resolved for the legacy AI SDK request path (2026-09-14).
 Reporter: math meta-lead, 2026-09-14.
 
 Observed across lmbi/localwebcli/creator: lmplayer run remains alive and idle
@@ -38,3 +38,24 @@ and diagnostic assertions fail.
 Remaining: total-ceiling regression, retry/error propagation and custom-fetch
 abort audit, then build/install and installed CLI stall verification. Do not
 close based solely on configuration assertions or a version smoke test.
+
+
+## Abort and retry audit
+
+IdleTimeoutError retains the duration-bearing diagnostic and is terminal in
+the session retry layer, avoiding five additional five-minute stalls. Other
+transient stream failures retain existing retry behavior. Header timeouts
+retain their prior retry policy. A custom-fetch cancellation guard bounds the
+caller wait even if a plugin or authentication promise ignores the signal;
+it does not claim to destroy resources privately owned by arbitrary plugins.
+
+71 focused tests pass across provider timeout, cancellation, and retry tests.
+Package typecheck and lint (zero errors) pass. Total timeout is independently
+verified against an HTTP body whose idle bound is longer. A local stalled SSE
+provider with a 100ms idle override produces a duration-bearing JSON error and
+CLI exit 1. The isolated CLI smoke uses synthetic credentials and temporary
+storage. The process completes rather than retaining its caller indefinitely.
+
+Historical process snapshots do not prove the exact original stall location.
+These changes bound the verified HTTP request gap; they are not a global
+workflow deadline for tools, CPU stalls, or CLI operations outside provider IO.

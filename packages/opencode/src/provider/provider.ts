@@ -32,6 +32,7 @@ import { SessionTurnContext } from "@/session/turn-context"
 import { ModelStatus } from "./model-status"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { ProviderError } from "./error"
+import { fetchWithAbort } from "./fetch-abort"
 
 const OPENAI_HEADER_TIMEOUT_DEFAULT = 300_000
 
@@ -45,7 +46,7 @@ function wrapSSE(res: Response, ms: number, ctl: AbortController) {
     async pull(ctrl) {
       const part = await new Promise<Awaited<ReturnType<typeof reader.read>>>((resolve, reject) => {
         const id = setTimeout(() => {
-          const err = new ProviderError.ResponseStreamError(`Provider response read idle for ${ms}ms; aborting`)
+          const err = new ProviderError.IdleTimeoutError(ms)
           ctl.abort(err)
           void reader.cancel(err)
           reject(err)
@@ -1946,11 +1947,15 @@ const layer = Layer.effect(
           const combined = signals.length === 0 ? null : signals.length === 1 ? signals[0] : AbortSignal.any(signals)
           if (combined) opts.signal = combined
 
-          const res = await fetchFn(input, {
-            ...opts,
-            // @ts-ignore see here: https://github.com/oven-sh/bun/issues/16682
-            timeout: false,
-          }).finally(() => headerTimeoutCtl?.clear())
+          const res = await fetchWithAbort<Response>(
+            () =>
+              fetchFn(input, {
+                ...opts,
+                // @ts-ignore see here: https://github.com/oven-sh/bun/issues/16682
+                timeout: false,
+              }),
+            combined,
+          ).finally(() => headerTimeoutCtl?.clear())
 
           if (!chunkAbortCtl) return res
           return wrapSSE(res, chunkTimeout, chunkAbortCtl)
