@@ -35,3 +35,6 @@ tsconfig.tsbuildinfo
 
 # lmctl teamfiles are local ops, never tracked
 *.lmctl
+
+# Local MCP server configuration
+/.mcp.json
