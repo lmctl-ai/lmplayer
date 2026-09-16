@@ -53,12 +53,16 @@ lmcode is for AGENT interaction, not humans. Make it a plain CLI:
 - Writers exist: `Config.updateGlobal()` (jsonc-preserving) and `Config.update()` (project). No `tui.json` writer outside the TUI. No `config get/set` CLI; only read-only `debug config`.
 
 ## The "batch timeout" to remove
-- Batch run loop itself has NO timeout. The only DEFAULT-ON timeout that can abort a model
-  turn is `OPENAI_HEADER_TIMEOUT_DEFAULT = 10_000` at `packages/opencode/src/provider/provider.ts:35`,
-  applied at `:208` (time-to-first-headers, OpenAI only).
-- Provider `timeout` and `chunkTimeout` (`aisdk.ts:90`, `provider.ts:1720`) are opt-in (default off).
-- DECISION (recommend): disable the default OpenAI header timeout for batch (or remove the default),
-  and confirm no other default bound exists. Needs operator confirmation on exactly which timeout they hit.
+- Batch run loop itself has NO timeout.
+- CORRECTION (2026-09-16, lmplayerAgy:Lead; stale since `baaabfff44`): the text below previously said
+  the only DEFAULT-ON timeout was `OPENAI_HEADER_TIMEOUT_DEFAULT = 10_000` and that `chunkTimeout`/`timeout`
+  were opt-in (default off). That was accurate when written but `baaabfff44` changed the OpenAI defaults:
+  header 300_000 ms, chunkTimeout (SSE idle) 300_000 ms, timeout (total request) 1_800_000 ms. All three
+  are DEFAULT-ON for the `openai` preset. `953f0352bd` then added `IdleTimeoutError` (terminal in
+  `retry.ts` — no retry cascade) and `fetchWithAbort` (bounds the caller even if a custom fetch ignores
+  its signal). Per-call caller deadlines also proven (`4d8a89f18c`).
+- NON-OPENAI PROVIDERS remain UNBOUNDED by default (Copilot, Ollama, custom). The same production stall
+  (parked in `epoll_wait` with no timeout) is still possible one provider over.
 
 ## Proposed phased plan
 
@@ -93,13 +97,13 @@ lmcode is for AGENT interaction, not humans. Make it a plain CLI:
   but accept a flag/stdin/env for agent use.
 
 ## Reviewer findings (resolved + verified by Lead)
-- TIMEOUT (verified): `OPENAI_HEADER_TIMEOUT_DEFAULT = 10_000` at provider.ts:35, applied ONLY to
-  the `openai` preset at :208 (time-to-first-headers). Run loop has NO wall-clock/idle timeout.
-  Provider `timeout`/`chunkTimeout` are opt-in (default off). NOTE: this default applies only when
-  the active provider is the `openai` preset; other presets (e.g. github-copilot) may not set it, so
-  confirm the operator's actual symptom/provider. Recommended change: make the OpenAI header timeout
-  opt-in (default disabled) so batch is never cut off; keep the machinery for opt-in via provider config.
-  Update header-timeout.test.ts to the new default. (Reviewer2's "600_000" was incorrect.)
+- TIMEOUT (verified at time of writing; CORRECTED 2026-09-16 lmplayerAgy:Lead — stale since `baaabfff44`):
+  Original finding said `OPENAI_HEADER_TIMEOUT_DEFAULT = 10_000` at provider.ts:35 and that
+  `timeout`/`chunkTimeout` were opt-in (default off). That was accurate then; `baaabfff44` changed
+  the OpenAI defaults to header 300_000, chunkTimeout 300_000, timeout 1_800_000 (all DEFAULT-ON).
+  `953f0352bd` added `IdleTimeoutError` (terminal in retry.ts) and `fetchWithAbort`. The "make the
+  header timeout opt-in" recommendation is now MOOT — the opposite was done (defaults raised and
+  two more bounds added). Non-OpenAI providers remain UNBOUNDED by default.
 - DEFAULT COMMAND (Reviewer1, verified): do NOT reuse RunCommand.handler directly as `$0` — its
   interactive guard keys off `args._[0] === "mini"` (run.ts:279). A `$0 [message..]` catch-all also
   risks swallowing tokens; yargs prefers explicit subcommands but a message starting with a command

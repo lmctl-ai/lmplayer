@@ -80,9 +80,12 @@ A dev `lmcode` command is installed at `~/.local/bin/lmcode` (runs from source).
 - `fix(session)`: closed 3 real gaps an external review (Fable, `review-2026-08-20-codebase-and-direction.md`) found in the above port — (1) notification/cron-fired turns now go through the same process-global sequential gate as HTTP turns (`gateSerialize` wrap in `prompt.ts`'s two wake callers; direction pillar 3 was silently broken by the port), (2) cherry-picked the missing `eaa7ccbf6` notification-claim-liveness fix that the original 19-commit port dropped despite the CHANGELOG claiming it landed, (3) `serve`'s SIGTERM path now runs `SessionJobRuntime.shutdown()` before exit, matching the one-shot CLI path (previously orphaned detached job processes). Also: `cron create` now asks permission (was ungated, unlike `job stop`), new `test/server/execution-gate.test.ts` unit-covers the gate mechanism itself. Full findings + prioritized next-direction list in the review doc.
 
 ## Open / TODO (not done)
-- The operator-reported "hard 5-minute timeout" is NOT in lmcode's default batch path (in-process run is
-  unbounded; only a stale SDK doc mentions 300000). Needs the operator's exact invocation/symptom to fix the
-  right thing. See design-cli-only.md.
+- Provider timeouts (CORRECTED 2026-09-16 lmplayerAgy:Lead; stale since `baaabfff44`): the OpenAI
+  preset now has DEFAULT-ON bounds (header 300s, SSE idle 300s, total 1800s; `IdleTimeoutError` is
+  terminal in retry; `fetchWithAbort` bounds custom fetches). The original TODO said the 5-min timeout
+  "is NOT in lmcode's default batch path" — that was accurate when written. REMAINING GAP: non-OpenAI
+  providers (Copilot, Ollama, custom) have NO default timeouts and are still vulnerable to the same
+  production stall. See design-cli-only.md.
 - claude-* via github-copilot: RESOLVED in the current build — `claude-sonnet-5` and `claude-opus-4.8`
   both return OK via github-copilot (re-smoked 2026-07-08 from source, `run --format json` exit 0), alongside
   gpt-5.5 and gemini-2.5-pro. The old 404 (anthropic /v1/messages shim) note is stale. See models-and-effort.md.
