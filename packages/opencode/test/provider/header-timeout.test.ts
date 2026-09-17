@@ -11,7 +11,7 @@ import { testEffect } from "../lib/effect"
 import { testProviderConfig } from "../lib/test-provider"
 import { Env } from "@/env"
 import { Plugin } from "@/plugin"
-import { Provider } from "@/provider/provider"
+import { Provider, PROVIDER_TOTAL_TIMEOUT_DEFAULT } from "@/provider/provider"
 import { ProviderError } from "@/provider/error"
 
 afterEach(async () => {
@@ -148,10 +148,110 @@ it.live("headerTimeout aborts when response headers do not arrive", () =>
   }),
 )
 
-it.live("headerTimeout is opt-in for non-OpenAI providers", () =>
+it.live("non-OpenAI providers without explicit options get the universal default bounds", () =>
   Effect.gen(function* () {
     const server = yield* Effect.acquireRelease(
-      Effect.promise(() => delayedHeaderServer(100)),
+      Effect.promise(() => delayedBodyServer(250)),
+      (server) => Effect.sync(() => server.server.close()),
+    )
+
+    yield* provideTmpdirInstance(
+      () =>
+        Effect.gen(function* () {
+          const provider = yield* Provider.Service
+          const model = yield* provider.getModel(ProviderV2.ID.make("test"), ModelV2.ID.make("test-model"))
+          const language = yield* provider.getLanguage(model)
+
+          // The universal defaults are minutes long, so their expiry cannot be
+          // reached inside a test. Observe the wiring instead: the total bound
+          // reaches AbortSignal.timeout, and three bounds (caller, SSE idle,
+          // total) compose into the signal the request is issued with. A missing
+          // default would leave only the caller signal and still resolve.
+          const realTimeout = AbortSignal.timeout
+          const realAny = AbortSignal.any
+          const timeoutCalls: number[] = []
+          const composed: number[] = []
+          AbortSignal.timeout = (ms: number) => {
+            timeoutCalls.push(ms)
+            return realTimeout(ms)
+          }
+          AbortSignal.any = (signals: AbortSignal[]) => {
+            composed.push(signals.length)
+            return realAny(signals)
+          }
+
+          const result = yield* Effect.promise(async () => {
+            try {
+              return { text: await streamText({ model: language, messages: [{ role: "user", content: "hello" }] }).text }
+            } catch (error) {
+              return { text: undefined, idle: String(error) }
+            } finally {
+              AbortSignal.timeout = realTimeout
+              AbortSignal.any = realAny
+            }
+          })
+
+          expect(timeoutCalls).toEqual([PROVIDER_TOTAL_TIMEOUT_DEFAULT])
+          expect(composed).toEqual([3])
+          expect(result).toEqual({ text: "late" })
+        }),
+      { config: providerConfig(server.url) },
+    )
+  }),
+)
+
+it.live("non-OpenAI providers can opt out of every universal timeout", () =>
+  Effect.gen(function* () {
+    const server = yield* Effect.acquireRelease(
+      Effect.promise(() => delayedBodyServer(250)),
+      (server) => Effect.sync(() => server.server.close()),
+    )
+
+    yield* provideTmpdirInstance(
+      () =>
+        Effect.gen(function* () {
+          const provider = yield* Provider.Service
+          const model = yield* provider.getModel(ProviderV2.ID.make("test"), ModelV2.ID.make("test-model"))
+          const language = yield* provider.getLanguage(model)
+
+          // `false` must survive the universal defaults: no total deadline may be
+          // armed, the SSE idle watchdog must stay off, and the caller signal is
+          // the only one left, so there is nothing to compose.
+          const realTimeout = AbortSignal.timeout
+          const realAny = AbortSignal.any
+          const timeoutCalls: number[] = []
+          const composed: number[] = []
+          AbortSignal.timeout = (ms: number) => {
+            timeoutCalls.push(ms)
+            return realTimeout(ms)
+          }
+          AbortSignal.any = (signals: AbortSignal[]) => {
+            composed.push(signals.length)
+            return realAny(signals)
+          }
+
+          const text = yield* Effect.promise(async () => {
+            try {
+              return await streamText({ model: language, messages: [{ role: "user", content: "hello" }] }).text
+            } finally {
+              AbortSignal.timeout = realTimeout
+              AbortSignal.any = realAny
+            }
+          })
+
+          expect(text).toBe("late")
+          expect(timeoutCalls).toEqual([])
+          expect(composed).toEqual([])
+        }),
+      { config: providerConfig(server.url, { headerTimeout: false, chunkTimeout: false, timeout: false }) },
+    )
+  }),
+)
+
+it.live("headerTimeout does not bound a provider that opts out with false", () =>
+  Effect.gen(function* () {
+    const server = yield* Effect.acquireRelease(
+      Effect.promise(() => delayedHeaderServer(250)),
       (server) => Effect.sync(() => server.server.close()),
     )
 
@@ -167,7 +267,7 @@ it.live("headerTimeout is opt-in for non-OpenAI providers", () =>
 
           expect(yield* Effect.promise(() => result.text)).toBe("ok")
         }),
-      { config: providerConfig(server.url) },
+      { config: providerConfig(server.url, { headerTimeout: false }) },
     )
   }),
 )

@@ -1746,6 +1746,7 @@ export type AgentConfig = {
   temperature?: number
   top_p?: number
   prompt?: string
+  provision?: Array<string>
   tools?: {
     [key: string]: boolean
   }
@@ -1767,6 +1768,7 @@ export type AgentConfig = {
     | unknown
     | string
     | number
+    | Array<string>
     | {
         [key: string]: boolean
       }
@@ -1811,8 +1813,11 @@ export type ProviderConfig = {
      * Timeout in milliseconds to wait for response headers. Provider integrations may set defaults. Set to false to disable timeout.
      */
     headerTimeout?: number | false
-    chunkTimeout?: number
-    [key: string]: unknown | string | boolean | number | false | number | false | number | undefined
+    /**
+     * Timeout in milliseconds between streamed SSE chunks for this provider. If no chunk arrives within this window, the request is aborted. Set to false to disable timeout.
+     */
+    chunkTimeout?: number | false
+    [key: string]: unknown | string | boolean | number | false | number | false | number | false | undefined
   }
   models?: {
     [key: string]: {
@@ -2057,6 +2062,7 @@ export type Config = {
   instructions?: Array<string>
   layout?: LayoutConfig
   permission?: PermissionConfig
+  permission_ask?: "deny" | "allow"
   tools?: {
     [key: string]: boolean
   }
@@ -2068,7 +2074,11 @@ export type Config = {
     max_lines?: number
     max_bytes?: number
   }
+  tool_workdir?: {
+    extra_roots?: Array<string>
+  }
   compaction?: {
+    mode?: "organize" | "summary"
     auto?: boolean
     prune?: boolean
     tail_turns?: number
@@ -2093,6 +2103,7 @@ export type Model = {
     id: string
     url: string
     npm: string
+    endpoint?: "chat" | "responses" | "messages"
   }
   name: string
   family?: string
@@ -2419,6 +2430,7 @@ export type Agent = {
     providerID: string
   }
   variant?: string
+  provision?: Array<string>
   prompt?: string
   options: {
     [key: string]: unknown
@@ -2602,6 +2614,10 @@ export type NotFoundError = {
   data: {
     message: string
   }
+}
+
+export type EffectHttpApiErrorServiceUnavailable = {
+  _tag: "ServiceUnavailable"
 }
 
 export type TextPartInput = {
@@ -7606,6 +7622,33 @@ export type GlobalUpgradeResponses = {
 
 export type GlobalUpgradeResponse = GlobalUpgradeResponses[keyof GlobalUpgradeResponses]
 
+export type GlobalShutdownData = {
+  body?: never
+  path?: never
+  query?: never
+  url: "/shutdown"
+}
+
+export type GlobalShutdownErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type GlobalShutdownError = GlobalShutdownErrors[keyof GlobalShutdownErrors]
+
+export type GlobalShutdownResponses = {
+  /**
+   * Drain started
+   */
+  200: {
+    draining: true
+  }
+}
+
+export type GlobalShutdownResponse = GlobalShutdownResponses[keyof GlobalShutdownResponses]
+
 export type EventSubscribeData = {
   body?: never
   path?: never
@@ -10188,6 +10231,10 @@ export type SessionPromptErrors = {
    * NotFoundError
    */
   404: NotFoundError
+  /**
+   * ServiceUnavailable
+   */
+  503: EffectHttpApiErrorServiceUnavailable
 }
 
 export type SessionPromptError = SessionPromptErrors[keyof SessionPromptErrors]
@@ -10281,6 +10328,119 @@ export type SessionMessageResponses = {
 
 export type SessionMessageResponse = SessionMessageResponses[keyof SessionMessageResponses]
 
+export type SessionExportData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+    tail?: string
+  }
+  url: "/session/{sessionID}/export"
+}
+
+export type SessionExportErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type SessionExportError = SessionExportErrors[keyof SessionExportErrors]
+
+export type SessionExportResponses = {
+  /**
+   * Portable session bundle
+   */
+  200: {
+    session: {
+      id: string
+      agent: string
+      model: {
+        providerID: string
+        modelID: string
+      }
+      directory: string
+      title: string
+    }
+    durableMemory: string
+    tail: Array<{
+      info: Message
+      parts: Array<Part>
+    }>
+    exportedAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    tailCount: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type SessionExportResponse = SessionExportResponses[keyof SessionExportResponses]
+
+export type SessionImportData = {
+  body?: {
+    session: {
+      id: string
+      agent: string
+      model: {
+        providerID: string
+        modelID: string
+      }
+      directory: string
+      title: string
+    }
+    durableMemory: string
+    tail: Array<{
+      info: Message
+      parts: Array<Part>
+    }>
+    exportedAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    tailCount: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/import"
+}
+
+export type SessionImportErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+  /**
+   * ServiceUnavailable
+   */
+  503: EffectHttpApiErrorServiceUnavailable
+}
+
+export type SessionImportError = SessionImportErrors[keyof SessionImportErrors]
+
+export type SessionImportResponses = {
+  /**
+   * Imported session
+   */
+  200: {
+    sessionID: string
+    imported: boolean
+    existed: boolean
+    messageCount: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    hadMemory: boolean
+  }
+}
+
+export type SessionImportResponse = SessionImportResponses[keyof SessionImportResponses]
+
 export type SessionForkData = {
   body?: {
     messageID?: string
@@ -10372,6 +10532,10 @@ export type SessionInitErrors = {
    * NotFoundError
    */
   404: NotFoundError
+  /**
+   * ServiceUnavailable
+   */
+  503: EffectHttpApiErrorServiceUnavailable
 }
 
 export type SessionInitError = SessionInitErrors[keyof SessionInitErrors]
@@ -10486,6 +10650,10 @@ export type SessionSummarizeErrors = {
    * NotFoundError
    */
   404: NotFoundError
+  /**
+   * ServiceUnavailable
+   */
+  503: EffectHttpApiErrorServiceUnavailable
 }
 
 export type SessionSummarizeError = SessionSummarizeErrors[keyof SessionSummarizeErrors]
@@ -10535,6 +10703,10 @@ export type SessionPromptAsyncErrors = {
    * NotFoundError
    */
   404: NotFoundError
+  /**
+   * ServiceUnavailable
+   */
+  503: EffectHttpApiErrorServiceUnavailable
 }
 
 export type SessionPromptAsyncError = SessionPromptAsyncErrors[keyof SessionPromptAsyncErrors]
@@ -10584,6 +10756,10 @@ export type SessionCommandErrors = {
    * NotFoundError
    */
   404: NotFoundError
+  /**
+   * ServiceUnavailable
+   */
+  503: EffectHttpApiErrorServiceUnavailable
 }
 
 export type SessionCommandError = SessionCommandErrors[keyof SessionCommandErrors]
@@ -10633,6 +10809,10 @@ export type SessionShellErrors = {
    * SessionBusyError
    */
   409: SessionBusyError
+  /**
+   * ServiceUnavailable
+   */
+  503: EffectHttpApiErrorServiceUnavailable
 }
 
 export type SessionShellError = SessionShellErrors[keyof SessionShellErrors]

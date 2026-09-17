@@ -34,7 +34,11 @@ import { RuntimeFlags } from "@/effect/runtime-flags"
 import { ProviderError } from "./error"
 import { fetchWithAbort } from "./fetch-abort"
 
-const OPENAI_HEADER_TIMEOUT_DEFAULT = 300_000
+export const PROVIDER_HEADER_TIMEOUT_DEFAULT = 300_000
+export const PROVIDER_CHUNK_TIMEOUT_DEFAULT = 300_000
+export const PROVIDER_TOTAL_TIMEOUT_DEFAULT = 1_800_000
+
+const OPENAI_HEADER_TIMEOUT_DEFAULT = PROVIDER_HEADER_TIMEOUT_DEFAULT
 
 function wrapSSE(res: Response, ms: number, ctl: AbortController) {
   if (typeof ms !== "number" || ms <= 0) return res
@@ -1925,8 +1929,10 @@ const layer = Layer.effect(
         if (existing) return existing
 
         const customFetch = options["fetch"]
-        const chunkTimeout = options["chunkTimeout"]
-        const headerTimeout = options["headerTimeout"]
+        // Universal defaults: every provider is bounded unless it explicitly opts
+        // out with `false`, or overrides the bound with its own numeric option.
+        const chunkTimeout = options["chunkTimeout"] ?? PROVIDER_CHUNK_TIMEOUT_DEFAULT
+        const headerTimeout = options["headerTimeout"] ?? PROVIDER_HEADER_TIMEOUT_DEFAULT
         delete options["chunkTimeout"]
         delete options["headerTimeout"]
 
@@ -1941,8 +1947,12 @@ const layer = Layer.effect(
           if (opts.signal) signals.push(opts.signal)
           if (chunkAbortCtl) signals.push(chunkAbortCtl.signal)
           if (headerTimeoutCtl) signals.push(headerTimeoutCtl.signal)
-          if (options["timeout"] !== undefined && options["timeout"] !== null && options["timeout"] !== false)
-            signals.push(AbortSignal.timeout(options["timeout"]))
+          // Total wall-clock bound. `timeout: false` opts out entirely; any other
+          // unset option falls back to the universal default.
+          const totalTimeout =
+            options["timeout"] === false ? undefined : (options["timeout"] ?? PROVIDER_TOTAL_TIMEOUT_DEFAULT)
+          if (typeof totalTimeout === "number" && totalTimeout > 0)
+            signals.push(AbortSignal.timeout(totalTimeout))
 
           const combined = signals.length === 0 ? null : signals.length === 1 ? signals[0] : AbortSignal.any(signals)
           if (combined) opts.signal = combined
