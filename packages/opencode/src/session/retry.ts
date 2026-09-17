@@ -87,6 +87,9 @@ export function retryable(error: Err, provider: string) {
   if (SessionV1.ContextOverflowError.isInstance(error)) return undefined
   if (SessionV1.APIError.isInstance(error)) {
     if (error.data.metadata?.code === "ProviderIdleTimeoutError") return undefined
+    // A header timeout means the provider never produced headers at all. Retrying
+    // re-arms the same stall, so release the caller instead of looping.
+    if (error.data.metadata?.code === "ProviderHeaderTimeoutError") return undefined
     const status = error.data.statusCode
     // 5xx errors are transient server failures and should always be retried,
     // even when the provider SDK doesn't explicitly mark them as retryable.

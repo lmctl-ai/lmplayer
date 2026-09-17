@@ -86,6 +86,8 @@ import type {
   GlobalEventResponses,
   GlobalHealthErrors,
   GlobalHealthResponses,
+  GlobalShutdownErrors,
+  GlobalShutdownResponses,
   GlobalUpgradeErrors,
   GlobalUpgradeResponses,
   InstanceDisposeErrors,
@@ -111,6 +113,7 @@ import type {
   McpRemoteConfig,
   McpStatusErrors,
   McpStatusResponses,
+  Message,
   ModelRef,
   MoveSessionDestination,
   OutputFormat,
@@ -189,10 +192,14 @@ import type {
   SessionDeleteResponses,
   SessionDiffErrors,
   SessionDiffResponses,
+  SessionExportErrors,
+  SessionExportResponses,
   SessionForkErrors,
   SessionForkResponses,
   SessionGetErrors,
   SessionGetResponses,
+  SessionImportErrors,
+  SessionImportResponses,
   SessionInitErrors,
   SessionInitResponses,
   SessionJobErrors,
@@ -1381,6 +1388,18 @@ export class Global extends HeyApiClient {
         ...options?.headers,
         ...params.headers,
       },
+    })
+  }
+
+  /**
+   * Graceful shutdown
+   *
+   * Begin a graceful drain-then-exit: reject new runs (503), wait for the in-flight run to finish (it is NOT interrupted), then exit. Responds immediately.
+   */
+  public shutdown<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
+    return (options?.client ?? this.client).post<GlobalShutdownResponses, GlobalShutdownErrors, ThrowOnError>({
+      url: "/shutdown",
+      ...options,
     })
   }
 
@@ -4003,6 +4022,97 @@ export class Session2 extends HeyApiClient {
       url: "/session/{sessionID}/message/{messageID}",
       ...options,
       ...params,
+    })
+  }
+
+  /**
+   * Export session bundle
+   *
+   * Export a lightweight, portable bundle for a session: metadata, durable-memory index, and the last N messages. Read-only.
+   */
+  public export<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      tail?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "tail" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<SessionExportResponses, SessionExportErrors, ThrowOnError>({
+      url: "/session/{sessionID}/export",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Import session bundle
+   *
+   * Reconstruct a session on this container from an exported bundle: ensure the session record (same id), durable-memory index, and tail messages. Idempotent by session id.
+   */
+  public import<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      session?: {
+        id: string
+        agent: string
+        model: {
+          providerID: string
+          modelID: string
+        }
+        directory: string
+        title: string
+      }
+      durableMemory?: string
+      tail?: Array<{
+        info: Message
+        parts: Array<Part2>
+      }>
+      exportedAt?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      tailCount?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "session" },
+            { in: "body", key: "durableMemory" },
+            { in: "body", key: "tail" },
+            { in: "body", key: "exportedAt" },
+            { in: "body", key: "tailCount" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<SessionImportResponses, SessionImportErrors, ThrowOnError>({
+      url: "/session/import",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
     })
   }
 
