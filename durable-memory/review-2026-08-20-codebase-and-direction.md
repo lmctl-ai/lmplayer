@@ -201,22 +201,19 @@ not an existing component.
 
 ## 9. Proposed next directions (prioritized)
 
-1. **Gate the notification/cron turn origins (close §2).** Direct pillar-3
-   violation; the fix is bounded (two wrap sites in prompt.ts + one conformance
-   test). Risk: lock-ordering mistake if gated inside the runner instead of the
-   caller (see sketch); drain semantics must stay 503-then-redeliver.
-2. **Port `eaa7ccbf6` (§3) + correct CHANGELOG.** Small, mechanical, removes a real
-   duplicate-turn race and a false doc claim. Risk: migration ordering vs local DBs
-   — the sibling migration file carries its own timestamp, should apply cleanly.
-3. **Unify shutdown (§4).** serve SIGTERM must run `SessionJobRuntime.shutdown()`
-   and halt the cron ticker post-drain. Small. Risk: 10s job-kill window added to
-   drain; cap total with the existing DRAIN_TIMEOUT.
-4. **Durable cron + `cron` permission ask (§5).** Persist schedules in SQLite
-   (mirror job-store patterns incl. liveness-checked ownership) so REFRESH recycles
-   don't silently drop an agent's schedules; add the ask so file-based rules can
-   deny scheduling. Medium. Risk: multi-process double-fire — needs the same
-   claim/fence discipline jobs already have; do it as a port-quality slice, not a
-   quick hack.
+1. **Gate the notification/cron turn origins (close §2) — SHIPPED.** Wrapped
+   wake callers in `gateSerialize` (commit `c51e7ff0ed`) and proven via process-wide
+   mock conformance integration test (`638186bd03`).
+2. **Port `eaa7ccbf6` (§3) + correct CHANGELOG — SHIPPED.** Shipped in `13b39babce`
+   introducing migration `20260815012222_add_notification_claim_pid` and `processAlive`
+   checks to prevent stealing claims from alive processes.
+3. **Unify shutdown (§4) — SHIPPED.** `gracefulShutdown` in `execution-gate.ts`
+   executes bounded `SessionJobRuntime.shutdown()` and clears cron on SIGTERM/SIGINT
+   (commit `c51e7ff0ed`).
+4. **Durable cron + `cron`/`job` permission governance (§5) — PARTIALLY SHIPPED.**
+   `cron create` and `job stop` permission asks implemented in tools; documented
+   in `design-permissions.md`; covered by dedicated unit test suites (`test/tool/cron.test.ts`
+   and `test/tool/job.test.ts`). Durable SQLite cron persistence remains open as future candidate.
 5. **Sequential-queue conformance test — SHIPPED.** Mock-harness integration test
    (`packages/opencode/test/session/prompt.test.ts`) asserting that the process-global
    execution gate strictly prevents any concurrent LLM turns process-wide across
@@ -224,11 +221,9 @@ not an existing component.
 6. **Live-ollama validation (§7.2).** Close the oldest BUILT-BUT-UNTESTED flag;
    unlocks the lean-profile/weak-model story end-to-end (lean profile exists
    precisely for qwen2.5-class models). Small, but requires an ollama host.
-7. **Job/cron observability in the CLI + session-metrics contract.** `lmplayer
-   session jobs <id> --json` (list/status/output paths) and job counts in
-   `session-metrics/v1` (contract-session-metrics.md is explicitly versioned for
-   extension). Fits the agent-drives-CLI purpose: today jobs are visible only to
-   the LLM via the `job` tool, not to the operator/lmctl. Small-medium.
+7. **Job observability in CLI + session-metrics contract — SHIPPED.** Added
+   `lmplayer session jobs <id> [--json] [--output] [--job] [--status]` and job counts
+   in `session-metrics/v1` schema (commit `33529a275f`).
 8. **Profiles phase 2 (§7.3) — SHIPPED.** Per-model auto-select + config-defined provision:
    makes weak-model support (`qwen*`) config-driven instead of flag-driven while
    strictly preserving explicit `--agent` override precedence. Wired via

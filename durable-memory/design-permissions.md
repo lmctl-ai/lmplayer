@@ -124,3 +124,46 @@ Unknown / unparseable / undeclared -> DENY. Nothing opaque executes.
 - Smoke: branch-local `bun run --conditions=browser packages/opencode/src/index.ts run --format json --model github-copilot/gpt-5.5 --agent secured "Use bash to run pwd..."` produced no fallback warning, no bash tool call, and response `Bash is unavailable.`
 - SDK/client regen: not needed; no public Protocol or Server HttpApi changed.
 - Notes: `bun.lock` was modified by worker worktree install and intentionally left unstaged/uncommitted. No merge to `dev`, no push, no PR. Escalations: none remaining; review found and worker fixed runtime agent registration, read-ish git policy, and sensitive operand gaps.
+
+## Background Jobs and Cron Permissions Contract
+
+Following the merge of the session-job port and review-2026-08-20 findings, standing agent actions across background jobs and cron schedules are governed by first-class semantic permissions:
+
+### 1. `job` Permission
+- **Scope**: Controls background job lifecycle operations within a session.
+- **`job stop`**: Requires permission check:
+  - `permission`: `"job"`
+  - `patterns`: `["stop:<jobID>"]`
+  - `metadata`: `{ jobID }`
+  - Configurable via file-based rules in `opencode.json` / `.opencode/opencode.json`, e.g.:
+    ```jsonc
+    {
+      "permission": {
+        "job": "deny" // or { "stop:*": "ask" }
+      }
+    }
+    ```
+- **Read / Inspection actions (`list`, `get`, `output`)**: Scoped to session without permission prompts.
+- **Background Execution (`bash` tool with `background: true`)**: Evaluates against standard `bash` permission rules (`ask(ctx, scan, params)`) before background dispatch.
+
+### 2. `cron` Permission
+- **Scope**: Controls scheduling of future recurring or one-shot agent prompts.
+- **`cron create`**: Requires permission check:
+  - `permission`: `"cron"`
+  - `patterns`: `["create"]`
+  - `metadata`: `{ cron, prompt }`
+  - Configurable via file-based rules, e.g.:
+    ```jsonc
+    {
+      "permission": {
+        "cron": "deny" // prevent agents from registering cron self-prompts
+      }
+    }
+    ```
+- **Read / Teardown actions (`list`, `delete`)**: Scoped to session without permission prompts.
+
+### 3. Agent Profiles Interaction
+- **`build` (default)**: Inherits `* : allow`, permitting `job stop` and `cron create` unless explicitly restricted in user config.
+- **`secured`**: Strict default-deny (`* : deny`); neither `job` nor `cron` is allowlisted. Shell execution and cron self-prompts are unconditionally rejected.
+- **`lean`**: Positive provisioning (`provision: ["bash"]`); `job` and `cron` tool definitions are never materialized or offered to the model.
+
