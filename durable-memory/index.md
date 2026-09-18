@@ -104,6 +104,8 @@ A dev `lmcode` command is installed at `~/.local/bin/lmcode` (runs from source).
 - `feat(cli)`: mcp remove command and config list command (Lead=agy). Added CLI subcommand `mcp remove <name>` (alias `rm`) to delete MCP servers from project or global JSONC/JSON configurations while preserving formatting and comments, and added `config list` (alias `ls`) supporting `--scope <project|global>`, `--project` (`-p`), and `--global` (`-g`) to output formatted JSON configuration. Tests: 14/14 in `test/cli/config.test.ts` and `test/cli/mcp-remove.test.ts`; clean monorepo turbo typecheck across all 30 packages.
 - `feat(cli)`: models test subcommand (Lead=agy). Added first-class CLI subcommand `models test [provider]` (supporting `--json`, `--timeout`, and `--concurrency`) to probe entitled models end-to-end via in-process prompt and report OK/FAIL, complementing existing `models verify <model>` and preserving backward-compatible `models --test`. Tests: 20/20 in `test/cli/models.test.ts` and `test/cli/models-cmd.test.ts`; clean monorepo turbo typecheck across all 30 packages.
 
+- `refactor(cli)`: branding and binary invocation cleanup (Lead=agy). Replaced residual hardcoded "opencode" binary invocations in `pr.ts` (`Process.text`, `Process.spawn`) with dynamic resolution (`which("lmplayer") ?? "opencode"`), updated UI logs to `Starting lmplayer...`, fixed `$0: "lmplayer"` in `runMini`, cleaned up `providers login` positional description to `auth provider URL or ID`, updated MCP client identifier in OAuth debug checks to `lmplayer-debug`, replaced session resume hint in splash footer with `lmplayer --mini -s`, aligned `error.test.ts` expectations with `FormatConfigError`, and refreshed CLI help snapshots. Tests: 6/6 `error.test.ts`, 35/35 `help-snapshots.test.ts`, 28/28 `mcp-add`/`mcp-enable`/`mcp-remove`/`providers-login`/`providers-toggle`; clean monorepo turbo typecheck across all 30 packages.
+
 ## Open / TODO (not done)
 
 - Tier 2 External Watchdog: Tier 1 in-process turn deadline is delivered. Tier 2 (external supervisor watchdog in lmctl/lmauto, ~1d) remains to backstop native kernel lockups (e.g. futex deadlocks that stall the JS event loop).
@@ -111,5 +113,4 @@ A dev `lmcode` command is installed at `~/.local/bin/lmcode` (runs from source).
   both return OK via github-copilot (re-smoked 2026-07-08 from source, `run --format json` exit 0), alongside
   gpt-5.5 and gemini-2.5-pro. The old 404 (anthropic /v1/messages shim) note is stale. See models-and-effort.md.
 - Portal "external location": currently = committed to this repo. If a separate external location is wanted, TBD.
-- Branding leftovers from the rename: ASCII logo + "opencode" describe strings, platform package names
-  (opencode-<plat>), publish.ts, postinstall.mjs. Cosmetic/packaging follow-up.
+- Packaging leftovers from the rename: platform package names (opencode-<plat>), publish.ts, postinstall.mjs. Packaging follow-up.
