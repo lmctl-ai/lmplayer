@@ -73,12 +73,16 @@ export type Error =
 
 export interface Interface {
   readonly resolve: (session: SessionSchema.Info) => Effect.Effect<Model, Error>
+  readonly resolveInfo?: (session: SessionSchema.Info) => Effect.Effect<ModelV2.Info | undefined, Error>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/v2/SessionRunnerModel") {}
 
 /** Test or embedding seam for supplying a model resolver directly. */
-export const layerWith = (resolve: Interface["resolve"]) => Layer.succeed(Service, Service.of({ resolve }))
+export const layerWith = (
+  resolve: Interface["resolve"],
+  resolveInfo?: Interface["resolveInfo"],
+) => Layer.succeed(Service, Service.of({ resolve, ...(resolveInfo ? { resolveInfo } : {}) }))
 
 const apiKey = (model: ModelV2.Info, credential?: Credential.Value) => {
   if (credential?.type === "key") return Auth.value(credential.key)
@@ -210,6 +214,17 @@ export const locationLayer = Layer.effect(
           selected,
           connection ? yield* integrations.connection.resolve(connection) : undefined,
         )
+      }),
+      resolveInfo: Effect.fn("SessionRunnerModel.resolveInfo")(function* (session) {
+        const defaultModel = session.model ? undefined : yield* catalog.model.default()
+        const selected = session.model
+          ? (yield* catalog.model.available()).find(
+              (model) => model.providerID === session.model?.providerID && model.id === session.model.id,
+            )
+          : defaultModel && supported(defaultModel)
+            ? defaultModel
+            : (yield* catalog.model.available()).find(supported)
+        return selected
       }),
     })
   }),

@@ -10,6 +10,7 @@ type Input = {
   readonly sessionID: SessionSchema.ID
   readonly agent: string
   readonly model: ModelV2.Ref
+  readonly cost?: readonly ModelV2.Cost[]
   readonly snapshot?: string
 }
 
@@ -19,9 +20,17 @@ const tokens = (usage: Usage | undefined) => {
   const reasoning = safe(usage?.reasoningTokens)
   const read = safe(usage?.cacheReadInputTokens)
   const write = safe(usage?.cacheWriteInputTokens)
+  const input =
+    usage?.nonCachedInputTokens !== undefined
+      ? safe(usage.nonCachedInputTokens)
+      : safe((usage?.inputTokens ?? 0) - read - write)
+  const output =
+    usage?.visibleOutputTokens !== undefined
+      ? safe(usage.visibleOutputTokens)
+      : safe((usage?.outputTokens ?? 0) - reasoning)
   return {
-    input: safe(usage?.nonCachedInputTokens),
-    output: safe(usage?.visibleOutputTokens),
+    input,
+    output,
     reasoning,
     cache: { read, write },
   }
@@ -69,7 +78,9 @@ export const createLLMEventPublisher = (events: EventV2.Interface, input: Input)
   let assistantActive = false
   let assistantFailed = false
   let providerFailed = false
-  let stepSettlement: { readonly finish: string; readonly tokens: ReturnType<typeof tokens> } | undefined
+  let stepSettlement:
+    | { readonly finish: string; readonly tokens: ReturnType<typeof tokens>; readonly cost: number }
+    | undefined
 
   const startAssistant = Effect.fnUntraced(function* () {
     if (assistantMessageID !== undefined) return assistantMessageID
@@ -397,7 +408,9 @@ export const createLLMEventPublisher = (events: EventV2.Interface, input: Input)
         yield* flush()
         assistantActive = false
         if (stepSettlement) return yield* Effect.die("Duplicate step finish")
-        stepSettlement = { finish: event.reason, tokens: tokens(event.usage) }
+        const stepTokens = tokens(event.usage)
+        const stepCost = ModelV2.Cost.calculate(input.cost, stepTokens)
+        stepSettlement = { finish: event.reason, tokens: stepTokens, cost: stepCost }
         return
       case "finish":
         return

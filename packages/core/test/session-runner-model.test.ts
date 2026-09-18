@@ -344,4 +344,20 @@ describe("SessionRunnerModel", () => {
       expect(SessionRunnerModel.supported(model({ type: "native", settings: {} }))).toBe(false)
     }),
   )
+
+  it.effect("resolveInfo returns catalog model info when provided", () =>
+    Effect.gen(function* () {
+      const testInfo = model({ type: "aisdk", package: "@ai-sdk/openai" })
+      const service = yield* Effect.provide(
+        SessionRunnerModel.Service,
+        SessionRunnerModel.layerWith(
+          () => Effect.succeed({} as any),
+          () => Effect.succeed(testInfo),
+        ),
+      )
+      expect(service.resolveInfo).toBeDefined()
+      const resolved = yield* service.resolveInfo!({} as any)
+      expect(resolved).toBe(testInfo)
+    }),
+  )
 })

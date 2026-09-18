@@ -231,6 +231,9 @@ const layer = Layer.effect(
       if (yield* compaction.compactIfNeeded({ sessionID: session.id, entries, model, request }))
         return yield* Effect.die(continueAfterCompaction(currentStep))
       const startSnapshot = yield* snapshots.capture()
+      const modelInfo = models.resolveInfo
+        ? yield* models.resolveInfo(session).pipe(Effect.catch(() => Effect.succeed(undefined)))
+        : undefined
       const publisher = createLLMEventPublisher(events, {
         sessionID: session.id,
         agent: agent.id,
@@ -239,6 +242,7 @@ const layer = Layer.effect(
           providerID: ProviderV2.ID.make(model.provider),
           ...(session.model?.variant === undefined ? {} : { variant: session.model.variant }),
         },
+        cost: modelInfo?.cost,
         snapshot: startSnapshot,
       })
       const withPublication = Semaphore.makeUnsafe(1).withPermit
@@ -344,7 +348,7 @@ const layer = Layer.effect(
                 timestamp: yield* DateTime.now,
                 assistantMessageID: yield* publisher.startAssistant(),
                 finish: stepSettlement.finish,
-                cost: 0,
+                cost: stepSettlement.cost,
                 tokens: stepSettlement.tokens,
                 snapshot: endSnapshot,
                 files,

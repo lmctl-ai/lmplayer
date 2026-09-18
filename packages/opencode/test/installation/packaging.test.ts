@@ -12,6 +12,7 @@ describe("packaging and postinstall", () => {
     expect(content).toContain('const sourceBinary = platform === "windows" ? "lmplayer.exe" : "lmplayer"')
     expect(content).toContain('const targetBinary = path.join(__dirname, "bin", platform === "windows" ? "lmplayer.exe" : "lmplayer")')
     expect(content).toContain('const legacyTarget = path.join(__dirname, "bin", platform === "windows" ? "opencode.exe" : "opencode")')
+    expect(content).toContain('const aliasTarget = path.join(__dirname, "bin", platform === "windows" ? "lmcode.exe" : "lmcode")')
 
     // Assert fallback candidate checking exists
     expect(content).toContain('path.join(binDir, sourceBinary)')
