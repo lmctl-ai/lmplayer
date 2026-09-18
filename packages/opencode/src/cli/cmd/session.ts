@@ -1049,16 +1049,33 @@ export function createSessionMetrics(
 
   const turns = messages.filter((m) => m.info.role === "assistant").length
 
-  // Cost: derived from tokens × pricing; 0 when pricing unavailable
+  // Cost: prefer persisted session row cost when present and > 0; fall back to tokens × pricing; 0 when pricing unavailable
+  const persistedCost = options?.session?.cost
+  const hasPersistedCost = typeof persistedCost === "number" && persistedCost > 0
   const pricing = options?.pricing
-  const costUsd = pricing
-    ? (tokens.input * pricing.input +
+  let costUsd: number
+  let costSource: "persisted" | "derived" | "unavailable"
+  let pricingAvailable: boolean
+
+  if (hasPersistedCost) {
+    costUsd = persistedCost
+    costSource = "persisted"
+    pricingAvailable = true
+  } else if (pricing) {
+    costUsd =
+      (tokens.input * pricing.input +
         tokens.output * pricing.output +
         tokens.reasoning * pricing.output +
         tokens.cache.read * pricing.cache.read +
         tokens.cache.write * pricing.cache.write) /
       1_000_000
-    : 0
+    costSource = "derived"
+    pricingAvailable = true
+  } else {
+    costUsd = 0
+    costSource = "unavailable"
+    pricingAvailable = false
+  }
 
   // Latency: per-turn durations from assistant time.completed - time.created
   const turnDurations = messages.flatMap((message) => {
@@ -1136,8 +1153,8 @@ export function createSessionMetrics(
     cost_usd: costUsd,
     cost: {
       usd: costUsd,
-      source: pricing ? ("derived" as const) : ("unavailable" as const),
-      pricing_available: !!pricing,
+      source: costSource,
+      pricing_available: pricingAvailable,
     },
     latency_ms: {
       total: latencyTotal,

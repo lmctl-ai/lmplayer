@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { createSessionMetrics, type CronInfo, type JobInfo, type SessionMessage } from "@/cli/cmd/session"
+import { createSessionMetrics, formatSessionMetrics, type CronInfo, type JobInfo, type SessionMessage } from "@/cli/cmd/session"
 
 type ToolPart = Extract<SessionMessage["parts"][number], { type: "tool" }>
 type TextPart = Extract<SessionMessage["parts"][number], { type: "text" }>
@@ -214,6 +214,56 @@ describe("session metrics", () => {
     const msgs = makeMessages()
     const metrics = createSessionMetrics("ses_metrics", msgs, {
       session: { tokens: sessionTokens },
+    })
+
+    expect(metrics.cost_usd).toBe(0)
+    expect(metrics.cost.usd).toBe(0)
+    expect(metrics.cost.source).toBe("unavailable")
+    expect(metrics.cost.pricing_available).toBe(false)
+  })
+
+  test("cost_usd uses persisted session.cost when provided and positive", () => {
+    const msgs = makeMessages()
+    const metrics = createSessionMetrics("ses_metrics", msgs, {
+      session: { tokens: sessionTokens, cost: 0.042 },
+    })
+
+    expect(metrics.cost_usd).toBe(0.042)
+    expect(metrics.cost.usd).toBe(0.042)
+    expect(metrics.cost.source).toBe("persisted")
+    expect(metrics.cost.pricing_available).toBe(true)
+  })
+
+  test("cost_usd prefers persisted session.cost even when pricing is provided", () => {
+    const msgs = makeMessages()
+    const metrics = createSessionMetrics("ses_metrics", msgs, {
+      session: { tokens: sessionTokens, cost: 0.05 },
+      pricing,
+    })
+
+    expect(metrics.cost_usd).toBe(0.05)
+    expect(metrics.cost.usd).toBe(0.05)
+    expect(metrics.cost.source).toBe("persisted")
+    expect(metrics.cost.pricing_available).toBe(true)
+  })
+
+  test("cost_usd falls back to derived pricing when session.cost is 0", () => {
+    const msgs = makeMessages()
+    const metrics = createSessionMetrics("ses_metrics", msgs, {
+      session: { tokens: sessionTokens, cost: 0 },
+      pricing,
+    })
+
+    expect(metrics.cost_usd).toBe(0.00175)
+    expect(metrics.cost.usd).toBe(0.00175)
+    expect(metrics.cost.source).toBe("derived")
+    expect(metrics.cost.pricing_available).toBe(true)
+  })
+
+  test("cost_usd falls back to unavailable when session.cost is 0 and pricing omitted", () => {
+    const msgs = makeMessages()
+    const metrics = createSessionMetrics("ses_metrics", msgs, {
+      session: { tokens: sessionTokens, cost: 0 },
     })
 
     expect(metrics.cost_usd).toBe(0)
@@ -536,5 +586,14 @@ describe("session metrics", () => {
       recurring: 2,
       one_shot: 1,
     })
+  })
+
+  test("formatSessionMetrics: displays (persisted) when cost is persisted", () => {
+    const msgs = makeMessages()
+    const metrics = createSessionMetrics("ses_persisted_format", msgs, {
+      session: { tokens: sessionTokens, cost: 0.123456 },
+    })
+    const formatted = formatSessionMetrics(metrics)
+    expect(formatted).toContain("Cost: $0.123456 (persisted)")
   })
 })

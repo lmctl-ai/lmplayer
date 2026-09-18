@@ -179,8 +179,10 @@ Fix: `gracefulShutdown` should run the same bounded `SessionJobRuntime.shutdown(
    `ToolRegistry.materialize()` seam untouched.
 4. Non-interactive API-key login for `providers login` (index.md:85, config-cli.md).
 5. Branding leftovers: RESOLVED — lmplayer binary aliases, lmplayer-<plat> platform packages, dual publish wrappers (lmplayer + opencode-ai), postinstall.mjs resolution precedence, and session continuation epilogue aligned to lmplayer.
-6. `contract-session-metrics.md:142`: cost still derived, not persisted at
-   write-time.
+6. `contract-session-metrics.md:142`: RESOLVED / SHIPPED — write-time cost persistence
+   implemented in `@opencode-ai/core` (`Model.Cost.calculate`, `stepSettlement.cost`,
+   `SessionTable.cost`) and integrated into `createSessionMetrics` (`source: "persisted"`,
+   falling back to `"derived"` or `"unavailable"`).
 7. design-cli-only.md:79 OPEN: retire `packages/cli` (second TUI embedder) + embedded
    web UI? Never decided.
 8. Operator's "hard 5-minute timeout" report still unreproduced (index.md:76-78).
@@ -236,6 +238,10 @@ not an existing component.
 10. **Doc hygiene pass on durable-memory — SHIPPED.** Fixed §5 stale claims
     in `durable-memory/lmctl-polling-findings.md` and `durable-memory/index.md` regarding
     cron scheduling, background job notification delivery, and execution gate serialization.
+11. **Persisted write-time cost and session metrics harmonization — SHIPPED.** Write-time
+    cost calculation (`Model.Cost.calculate`) projected into SQLite `session.cost` and assistant
+    messages, and integrated into `createSessionMetrics` with `source: "persisted"` (commit `9fc830b587`
+    and follow-up metrics integration).
 
 ## Uncertainties / second-opinion requests
 
