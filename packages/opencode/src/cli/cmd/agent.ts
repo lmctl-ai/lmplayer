@@ -358,29 +358,244 @@ export const AgentCreateCommand = effectCmd({
   handler: createAgent,
 })
 
+export type AgentListArgs = {
+  json?: boolean
+  mode?: "all" | "primary" | "subagent"
+}
+
+export const listAgents = Effect.fn("Cli.agent.list")(function* (args: AgentListArgs) {
+  const { Agent } = yield* Effect.promise(() => import("../../agent/agent"))
+  let agents = yield* Agent.Service.use((svc) => svc.list())
+
+  if (args.mode) {
+    agents = agents.filter((a) => a.mode === args.mode || a.mode === "all")
+  }
+
+  const sortedAgents = agents.sort((a, b) => {
+    if (a.native !== b.native) {
+      return a.native ? -1 : 1
+    }
+    return a.name.localeCompare(b.name)
+  })
+
+  if (args.json) {
+    process.stdout.write(
+      JSON.stringify(
+        sortedAgents.map((a) => ({
+          name: a.name,
+          description: a.description,
+          mode: a.mode,
+          native: a.native ?? false,
+          model: a.model ? `${a.model.providerID}/${a.model.modelID}` : undefined,
+          variant: a.variant,
+          provision: a.provision,
+          permission: a.permission,
+        })),
+        null,
+        2,
+      ) + EOL,
+    )
+    return
+  }
+
+  for (const agent of sortedAgents) {
+    const tag = agent.native ? " (built-in)" : ""
+    const modelStr = agent.model ? ` [model: ${agent.model.providerID}/${agent.model.modelID}]` : ""
+    process.stdout.write(`${agent.name} (${agent.mode})${tag}${modelStr}` + EOL)
+    if (agent.description) {
+      process.stdout.write(`  ${agent.description}` + EOL)
+    }
+    if (agent.provision && agent.provision.length > 0) {
+      process.stdout.write(`  provision: ${agent.provision.join(", ")}` + EOL)
+    }
+  }
+})
+
+export type AgentShowArgs = {
+  name: string
+  json?: boolean
+}
+
+export const showAgent = Effect.fn("Cli.agent.show")(function* (args: AgentShowArgs) {
+  const { Agent } = yield* Effect.promise(() => import("../../agent/agent"))
+  const agent = yield* Agent.Service.use((svc) => svc.get(args.name))
+
+  if (!agent) {
+    return yield* fail(`Agent not found: ${args.name}`)
+  }
+
+  if (args.json) {
+    process.stdout.write(
+      JSON.stringify(
+        {
+          name: agent.name,
+          description: agent.description,
+          mode: agent.mode,
+          native: agent.native ?? false,
+          model: agent.model ? `${agent.model.providerID}/${agent.model.modelID}` : undefined,
+          variant: agent.variant,
+          provision: agent.provision,
+          prompt: agent.prompt,
+          permission: agent.permission,
+        },
+        null,
+        2,
+      ) + EOL,
+    )
+    return
+  }
+
+  const tag = agent.native ? " (built-in)" : ""
+  process.stdout.write(`${agent.name} (${agent.mode})${tag}` + EOL)
+  if (agent.description) {
+    process.stdout.write(`  Description: ${agent.description}${EOL}`)
+  }
+  if (agent.model) {
+    process.stdout.write(`  Model: ${agent.model.providerID}/${agent.model.modelID}${EOL}`)
+  }
+  if (agent.variant) {
+    process.stdout.write(`  Variant: ${agent.variant}${EOL}`)
+  }
+  if (agent.provision && agent.provision.length > 0) {
+    process.stdout.write(`  Provision: ${agent.provision.join(", ")}${EOL}`)
+  }
+  if (agent.prompt) {
+    process.stdout.write(`  Prompt: ${agent.prompt.trim()}${EOL}`)
+  }
+  process.stdout.write(`  Permissions: ${JSON.stringify(agent.permission, null, 2)}${EOL}`)
+})
+
+export type AgentDeleteArgs = {
+  name: string
+  json?: boolean
+}
+
+export const deleteAgent = Effect.fn("Cli.agent.delete")(function* (args: AgentDeleteArgs) {
+  const { Agent } = yield* Effect.promise(() => import("../../agent/agent"))
+  const { InstanceRef } = yield* Effect.promise(() => import("@/effect/instance-ref"))
+  const maybeCtx = yield* InstanceRef
+  if (!maybeCtx) return yield* Effect.die("InstanceRef not provided")
+  const ctx = maybeCtx
+
+  const agent = yield* Agent.Service.use((svc) => svc.get(args.name))
+
+  if (agent?.native) {
+    return yield* fail(`Cannot delete built-in agent: ${args.name}`)
+  }
+
+  const candidates = [
+    path.join(ctx.worktree, ".opencode", "agents", `${args.name}.md`),
+    path.join(ctx.worktree, ".opencode", "agent", `${args.name}.md`),
+    path.join(ctx.worktree, "agents", `${args.name}.md`),
+    path.join(ctx.worktree, "agent", `${args.name}.md`),
+    path.join(Global.Path.config, "agents", `${args.name}.md`),
+    path.join(Global.Path.config, "agent", `${args.name}.md`),
+  ]
+
+  let deletedPath: string | undefined
+  for (const file of candidates) {
+    if (yield* Effect.promise(() => Filesystem.exists(file))) {
+      yield* Effect.promise(() => fs.unlink(file))
+      deletedPath = file
+      break
+    }
+  }
+
+  if (!deletedPath) {
+    const { Config } = yield* Effect.promise(() => import("@/config/config"))
+    const cfg = yield* Config.Service.use((c) => c.get())
+    if (cfg.agent && args.name in cfg.agent) {
+      yield* Config.Service.use((c) => c.unsetProject(["agent", args.name]))
+      yield* Config.Service.use((c) => c.unsetGlobal(["agent", args.name]))
+      deletedPath = "config.json"
+    }
+  }
+
+  if (!deletedPath) {
+    return yield* fail(`Agent not found: ${args.name}`)
+  }
+
+  if (args.json) {
+    process.stdout.write(
+      JSON.stringify(
+        {
+          name: args.name,
+          file: deletedPath,
+          deleted: true,
+        },
+        null,
+        2,
+      ) + EOL,
+    )
+    return
+  }
+
+  UI.println(UI.Style.TEXT_SUCCESS_BOLD + `Agent ${args.name} deleted (${deletedPath})` + UI.Style.TEXT_NORMAL)
+})
+
 export const AgentListCommand = effectCmd({
   command: "list",
+  aliases: ["ls"],
   describe: "list all available agents",
-  handler: Effect.fn("Cli.agent.list")(function* () {
-    const { Agent } = yield* Effect.promise(() => import("../../agent/agent"))
-    const agents = yield* Agent.Service.use((svc) => svc.list())
-    const sortedAgents = agents.sort((a, b) => {
-      if (a.native !== b.native) {
-        return a.native ? -1 : 1
-      }
-      return a.name.localeCompare(b.name)
-    })
+  builder: (yargs: Argv) =>
+    yargs
+      .option("json", {
+        type: "boolean",
+        describe: "output JSON",
+      })
+      .option("mode", {
+        type: "string",
+        describe: "filter by agent mode",
+        choices: ["all", "primary", "subagent"] as const,
+      }),
+  handler: listAgents,
+})
 
-    for (const agent of sortedAgents) {
-      process.stdout.write(`${agent.name} (${agent.mode})` + EOL)
-      process.stdout.write(`  ${JSON.stringify(agent.permission, null, 2)}` + EOL)
-    }
-  }),
+export const AgentShowCommand = effectCmd({
+  command: "show <name>",
+  aliases: ["get"],
+  describe: "show agent details",
+  builder: (yargs: Argv) =>
+    yargs
+      .positional("name", {
+        type: "string",
+        describe: "agent identifier",
+        demandOption: true,
+      })
+      .option("json", {
+        type: "boolean",
+        describe: "output JSON",
+      }),
+  handler: showAgent,
+})
+
+export const AgentDeleteCommand = effectCmd({
+  command: "delete <name>",
+  aliases: ["rm"],
+  describe: "delete a custom agent",
+  builder: (yargs: Argv) =>
+    yargs
+      .positional("name", {
+        type: "string",
+        describe: "agent identifier",
+        demandOption: true,
+      })
+      .option("json", {
+        type: "boolean",
+        describe: "output JSON",
+      }),
+  handler: deleteAgent,
 })
 
 export const AgentCommand = cmd({
   command: "agent",
   describe: "manage agents",
-  builder: (yargs) => yargs.command(AgentCreateCommand).command(AgentListCommand).demandCommand(),
+  builder: (yargs) =>
+    yargs
+      .command(AgentCreateCommand)
+      .command(AgentListCommand)
+      .command(AgentShowCommand)
+      .command(AgentDeleteCommand)
+      .demandCommand(),
   async handler() {},
 })

@@ -62,6 +62,12 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
 - `session compact <id> [--model provider/model] [--auto] [--json]` (alias `summarize`) — trigger session compaction/summarization.
 - `session delete <id>` — delete a session and all its messages and parts.
 
+## Agent management
+- `agent list` (alias `ls`) `[--json] [--mode all|primary|subagent]` — list all registered agents (built-in and custom) with their mode, model, and tool provision allowlists, sorted with built-ins first.
+- `agent show <name>` (alias `get`) `[--json]` — inspect details of a specific agent (description, mode, model, variant, provision, system prompt, and permissions).
+- `agent create` `[--name n] [--prompt p] [--prompt-file f] [--provision t1,t2] [--path dir] [--json]` — create a new custom agent with prompt-bypass or interactive wizard.
+- `agent delete <name>` (alias `rm`) `[--json]` — safely delete a custom agent file or config entry; guards against deleting built-in agents (`build`, `plan`, `lean`, `summary`, `title`).
+
 ## Known gaps / TODO (not yet built)
 - `models test [provider]` (probe each entitled model) — SHIPPED (with `--json`, `--timeout`, `--concurrency`).
 - Persistent default effort relies on per-run `--effort` (persisted to model.json state), no config field. (CLOSED: added top-level `default_variant` and `variant` alias to ConfigV1.Info schema, prompt fallback, and config verify).
