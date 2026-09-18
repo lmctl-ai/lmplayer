@@ -30,7 +30,7 @@ Arrays `disabled_providers`/`enabled_providers` are REPLACED by merge (need add/
   AND launch). Note: `verify` validates the EFFECTIVE post-bootstrap config (heavier; triggers instance init),
   not a pure file parse. `configSources()` currently reports GLOBAL candidates only (under-reports project/
   managed/remote provenance) — follow-up to derive from actually-loaded files.
-- NEXT: `config get/set/unset` (global, jsonc-safe, schema-validated). Enables `config set model <id>` to
+- DONE (commit be1fa5385b): `config get/set/unset` (global, jsonc-safe, schema-validated). Enables `config set model <id>` to
   switch model via CLI. `--project` deferred (writer broken).
 
 ## Effort default (decision)
@@ -40,5 +40,5 @@ saveVariant. So "choose effort" sticks across runs without a config field. (See 
 
 ## Non-interactive gaps (Reviewer3, for later)
 - `providers login` / `auth login`: RESOLVED — non-interactive API-key path added via `--key` / `--api-key` / `-k <key>`, `--key -` (stdin), and piped non-TTY stdin fallback.
+- `agent create`: RESOLVED — added `--prompt`, `--prompt-file`, `--name`, and `--provision` to bypass LLM generation and enable fully deterministic, non-interactive agent creation.
 - `session` has no compact/share/rename/fork CLI. `mcp add` flag-path is global-only.
-- `agent create` always calls the LLM (needs `--prompt`/`--prompt-file` to bypass).
