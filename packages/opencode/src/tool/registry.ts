@@ -34,6 +34,7 @@ import { CurlTool } from "./linux/curl"
 import { WgetTool } from "./linux/wget"
 import { UnzipTool } from "./linux/unzip"
 import { SessionInspectTool } from "./session-inspect"
+import { DurableMemoryTool } from "./durable-memory"
 import * as Tool from "./tool"
 import { Config } from "@/config/config"
 import { type ToolContext as PluginToolContext, type ToolDefinition } from "@opencode-ai/plugin"
@@ -153,6 +154,7 @@ const layer = Layer.effect(
     const wgettool = yield* WgetTool
     const unziptool = yield* UnzipTool
     const sessioninspect = yield* SessionInspectTool
+    const durablememory = yield* DurableMemoryTool
     const agent = yield* Agent.Service
     const codeMode = flags.experimentalCodeMode ? yield* Effect.promise(() => import("./code-mode")) : undefined
     const codeModeTool = codeMode ? yield* codeMode.CodeModeTool : undefined
@@ -280,6 +282,7 @@ const layer = Layer.effect(
           wget: Tool.init(wgettool),
           unzip: Tool.init(unziptool),
           sessionInspect: Tool.init(sessioninspect),
+          durableMemory: Tool.init(durablememory),
           ...(codeModeTool ? { execute: Tool.init(codeModeTool) } : {}),
         })
 
@@ -318,6 +321,7 @@ const layer = Layer.effect(
             tool.wget,
             tool.unzip,
             tool.sessionInspect,
+            tool.durableMemory,
             ...(tool.execute ? [tool.execute] : []),
             ...(flags.experimentalLspTool ? [tool.lsp] : []),
             ...(flags.experimentalPlanMode && flags.client === "cli" ? [tool.plan] : []),

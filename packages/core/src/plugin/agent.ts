@@ -163,6 +163,7 @@ export const Plugin = define({
       { action: "skill", resource: "*", effect: "allow" },
       { action: "tar", resource: "*", effect: "allow" },
       { action: "todowrite", resource: "*", effect: "allow" },
+      { action: "durable_memory", resource: "*", effect: "allow" },
       { action: "touch", resource: "*", effect: "allow" },
       { action: "unzip", resource: "*", effect: "allow" },
       { action: "webfetch", resource: "*", effect: "allow" },
@@ -255,7 +256,12 @@ export const Plugin = define({
         item.description =
           "General-purpose agent for researching complex questions and executing multi-step tasks. Use this agent to execute multiple units of work in parallel."
         item.mode = "subagent"
-        item.permissions.push(...PermissionV2.merge(defaults, [{ action: "todowrite", resource: "*", effect: "deny" }]))
+        item.permissions.push(
+          ...PermissionV2.merge(defaults, [
+            { action: "todowrite", resource: "*", effect: "deny" },
+            { action: "durable_memory", resource: "*", effect: "deny" },
+          ]),
+        )
       })
 
       draft.update(AgentV2.ID.make("explore"), (item) => {

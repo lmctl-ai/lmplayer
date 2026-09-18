@@ -51,6 +51,7 @@ const securedAllowRules = [
   { action: "skill", resource: "*" },
   { action: "tar", resource: "*" },
   { action: "todowrite", resource: "*" },
+  { action: "durable_memory", resource: "*" },
   { action: "touch", resource: "*" },
   { action: "unzip", resource: "*" },
   { action: "webfetch", resource: "*" },
