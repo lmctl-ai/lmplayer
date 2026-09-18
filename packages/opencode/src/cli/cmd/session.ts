@@ -20,6 +20,8 @@ import { Provider } from "@/provider/provider"
 import { SessionShare } from "@/share/session"
 import { SessionJob } from "@opencode-ai/schema/session-job"
 import { SessionCronRuntime } from "@/session/cron-runtime"
+import { ExportCommand } from "./export"
+import { ImportCommand } from "./import"
 
 export type SessionMessage = NonNullable<Awaited<ReturnType<OpencodeClient["session"]["messages"]>>["data"]>[number]
 
@@ -73,6 +75,10 @@ export const SessionCommand = cmd({
       .command(SessionCompactCommand)
       .command(SessionJobsCommand)
       .command(SessionCronsCommand)
+      .command(SessionTodoCommand)
+      .command(SessionDiffCommand)
+      .command(SessionExportCommand)
+      .command(SessionImportCommand)
       .demandCommand(),
   async handler() {},
 })
@@ -750,6 +756,114 @@ export const SessionCronsCommand = effectCmd({
   }),
 })
 
+export const SessionTodoCommand = effectCmd({
+  command: "todo <sessionID>",
+  describe: "list todo tasks for a session",
+  builder: (yargs) =>
+    yargs
+      .positional("sessionID", {
+        describe: "session ID to inspect",
+        type: "string",
+        demandOption: true,
+      })
+      .option("json", {
+        describe: "output JSON",
+        type: "boolean",
+      }),
+  handler: Effect.fn("Cli.session.todo")(function* (args) {
+    const sdk = yield* localSdk()
+    const sessionRes = yield* Effect.promise(async () => {
+      return sdk.session.get({ sessionID: args.sessionID })
+    })
+    if (sessionRes.error || !sessionRes.data) {
+      return yield* fail(
+        (sessionRes.error as { message?: string } | undefined)?.message ?? `Session not found: ${args.sessionID}`,
+      )
+    }
+
+    const result = yield* Effect.promise(async () => {
+      return sdk.session.todo({ sessionID: args.sessionID })
+    })
+    if (result.error || !result.data) {
+      return yield* fail(
+        (result.error as { message?: string } | undefined)?.message ??
+          `Failed to retrieve todos for session: ${args.sessionID}`,
+      )
+    }
+
+    if (args.json) {
+      console.log(JSON.stringify(result.data, null, 2))
+      return
+    }
+
+    console.log(formatSessionTodos(args.sessionID, result.data))
+  }),
+})
+
+export const SessionDiffCommand = effectCmd({
+  command: "diff <sessionID>",
+  describe: "show file diffs for a session",
+  builder: (yargs) =>
+    yargs
+      .positional("sessionID", {
+        describe: "session ID to inspect",
+        type: "string",
+        demandOption: true,
+      })
+      .option("message", {
+        alias: "m",
+        describe: "message ID to diff",
+        type: "string",
+      })
+      .option("stat", {
+        describe: "show diffstat summary only",
+        type: "boolean",
+      })
+      .option("json", {
+        describe: "output JSON",
+        type: "boolean",
+      }),
+  handler: Effect.fn("Cli.session.diff")(function* (args) {
+    const sdk = yield* localSdk()
+    const sessionRes = yield* Effect.promise(async () => {
+      return sdk.session.get({ sessionID: args.sessionID })
+    })
+    if (sessionRes.error || !sessionRes.data) {
+      return yield* fail(
+        (sessionRes.error as { message?: string } | undefined)?.message ?? `Session not found: ${args.sessionID}`,
+      )
+    }
+
+    const result = yield* Effect.promise(async () => {
+      return sdk.session.diff({
+        sessionID: args.sessionID,
+        messageID: args.message,
+      })
+    })
+    if (result.error || !result.data) {
+      return yield* fail(
+        (result.error as { message?: string } | undefined)?.message ??
+          `Failed to retrieve diff for session: ${args.sessionID}`,
+      )
+    }
+
+    if (args.json) {
+      console.log(JSON.stringify(result.data, null, 2))
+      return
+    }
+
+    if (args.stat) {
+      console.log(formatSessionDiffStat(args.sessionID, result.data))
+      return
+    }
+
+    console.log(formatSessionDiff(args.sessionID, result.data))
+  }),
+})
+
+export const SessionExportCommand = ExportCommand
+export const SessionImportCommand = ImportCommand
+
 export const SessionListCommand = effectCmd({
   command: "list",
   describe: "list sessions",
@@ -930,6 +1044,77 @@ export function formatCronDetail(cron: CronInfo): string {
   ]
   if (cron.expiresAt !== undefined) lines.push(`Expires: ${Locale.todayTimeOrDateTime(cron.expiresAt)}`)
   lines.push(`Last fired: ${cron.lastFiredAt !== undefined ? Locale.todayTimeOrDateTime(cron.lastFiredAt) : "-"}`)
+  return lines.join(EOL)
+}
+
+export type SessionTodoItem = {
+  id?: string
+  content: string
+  status: string
+  priority: string
+}
+
+export function formatSessionTodos(sessionID: string, todos: SessionTodoItem[]): string {
+  if (todos.length === 0) {
+    return `No todos found for session ${sessionID}`
+  }
+  const completed = todos.filter((t) => t.status === "completed").length
+  const lines = [`Todos for session ${sessionID} (${completed}/${todos.length} completed):`]
+  for (const todo of todos) {
+    const marker =
+      todo.status === "completed"
+        ? "[x]"
+        : todo.status === "in_progress"
+          ? "[>]"
+          : todo.status === "cancelled"
+            ? "[-]"
+            : "[ ]"
+    lines.push(`  ${marker} [${todo.priority}] ${todo.content}`)
+  }
+  return lines.join(EOL)
+}
+
+export type SessionFileDiff = {
+  file?: string
+  patch?: string
+  additions: number
+  deletions: number
+  status?: string
+}
+
+export function formatSessionDiffStat(sessionID: string, diffs: SessionFileDiff[]): string {
+  if (diffs.length === 0) {
+    return `No diffs found for session ${sessionID}`
+  }
+  let totalAdd = 0
+  let totalDel = 0
+  const lines = [`Diffstat for session ${sessionID}:`]
+  for (const d of diffs) {
+    const file = d.file ?? "unknown"
+    const add = d.additions ?? 0
+    const del = d.deletions ?? 0
+    totalAdd += add
+    totalDel += del
+    lines.push(`  ${file} | +${add} -${del}`)
+  }
+  lines.push(`${diffs.length} file(s) changed, ${totalAdd} insertions(+), ${totalDel} deletions(-)`)
+  return lines.join(EOL)
+}
+
+export function formatSessionDiff(sessionID: string, diffs: SessionFileDiff[]): string {
+  if (diffs.length === 0) {
+    return `No diffs found for session ${sessionID}`
+  }
+  const lines: string[] = []
+  for (const d of diffs) {
+    const file = d.file ?? "unknown"
+    const add = d.additions ?? 0
+    const del = d.deletions ?? 0
+    lines.push(`diff --git a/${file} b/${file} (+${add} -${del})`)
+    if (d.patch) {
+      lines.push(d.patch)
+    }
+  }
   return lines.join(EOL)
 }
 
