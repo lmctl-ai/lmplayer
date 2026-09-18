@@ -105,6 +105,7 @@ A dev `lmcode` command is installed at `~/.local/bin/lmcode` (runs from source).
 - `feat(cli)`: models test subcommand (Lead=agy). Added first-class CLI subcommand `models test [provider]` (supporting `--json`, `--timeout`, and `--concurrency`) to probe entitled models end-to-end via in-process prompt and report OK/FAIL, complementing existing `models verify <model>` and preserving backward-compatible `models --test`. Tests: 20/20 in `test/cli/models.test.ts` and `test/cli/models-cmd.test.ts`; clean monorepo turbo typecheck across all 30 packages.
 
 - `refactor(cli)`: branding and binary invocation cleanup (Lead=agy). Replaced residual hardcoded "opencode" binary invocations in `pr.ts` (`Process.text`, `Process.spawn`) with dynamic resolution (`which("lmplayer") ?? "opencode"`), updated UI logs to `Starting lmplayer...`, fixed `$0: "lmplayer"` in `runMini`, cleaned up `providers login` positional description to `auth provider URL or ID`, updated MCP client identifier in OAuth debug checks to `lmplayer-debug`, replaced session resume hint in splash footer with `lmplayer --mini -s`, aligned `error.test.ts` expectations with `FormatConfigError`, and refreshed CLI help snapshots. Tests: 6/6 `error.test.ts`, 35/35 `help-snapshots.test.ts`, 28/28 `mcp-add`/`mcp-enable`/`mcp-remove`/`providers-login`/`providers-toggle`; clean monorepo turbo typecheck across all 30 packages.
+- `fix(packaging)`: postinstall.mjs and publish.ts lmplayer binary naming and legacy fallback (Lead=agy). Updated `packages/opencode/script/postinstall.mjs` to target `lmplayer` (or `lmplayer.exe` on Windows) as primary `sourceBinary` and `targetBinary`, with resilient resolution and link/copy fallback to `opencode` (`legacyTarget`). Updated `packages/opencode/script/publish.ts` to generate postinstall stubs for `lmplayer` and expose dual `lmplayer` and `opencode` binaries in package.json `bin`. Added test suite `packages/opencode/test/installation/packaging.test.ts`. Tests: 3/3 `packaging.test.ts`, 12/12 `installation.test.ts`; clean monorepo turbo typecheck across all 30 packages.
 
 ## Open / TODO (not done)
 
@@ -113,4 +114,5 @@ A dev `lmcode` command is installed at `~/.local/bin/lmcode` (runs from source).
   both return OK via github-copilot (re-smoked 2026-07-08 from source, `run --format json` exit 0), alongside
   gpt-5.5 and gemini-2.5-pro. The old 404 (anthropic /v1/messages shim) note is stale. See models-and-effort.md.
 - Portal "external location": currently = committed to this repo. If a separate external location is wanted, TBD.
-- Packaging leftovers from the rename: platform package names (opencode-<plat>), publish.ts, postinstall.mjs. Packaging follow-up.
+- Packaging leftovers from the rename: platform package names (opencode-<plat>). Packaging follow-up.
+

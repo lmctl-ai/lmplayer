@@ -25,8 +25,9 @@ const archMap = {
 const platform = platformMap[os.platform()] ?? os.platform()
 const arch = archMap[os.arch()] ?? os.arch()
 const base = `opencode-${platform}-${arch}`
-const sourceBinary = platform === "windows" ? "opencode.exe" : "opencode"
-const targetBinary = path.join(__dirname, "bin", "opencode.exe")
+const sourceBinary = platform === "windows" ? "lmplayer.exe" : "lmplayer"
+const targetBinary = path.join(__dirname, "bin", platform === "windows" ? "lmplayer.exe" : "lmplayer")
+const legacyTarget = path.join(__dirname, "bin", platform === "windows" ? "opencode.exe" : "opencode")
 
 function supportsAvx2() {
   if (arch !== "x64") return false
@@ -118,16 +119,22 @@ function packageNames() {
 
 function resolveBinary(name) {
   const packageJsonPath = require.resolve(`${name}/package.json`)
-  const binaryPath = path.join(path.dirname(packageJsonPath), "bin", sourceBinary)
-  if (!fs.existsSync(binaryPath)) throw new Error(`Binary not found at ${binaryPath}`)
-  return binaryPath
+  const binDir = path.join(path.dirname(packageJsonPath), "bin")
+  const candidates = [
+    path.join(binDir, sourceBinary),
+    path.join(binDir, platform === "windows" ? "opencode.exe" : "opencode"),
+  ]
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate
+  }
+  throw new Error(`Binary not found at ${path.join(binDir, sourceBinary)}`)
 }
 
 function installPackage(name) {
   const version = packageJson.optionalDependencies?.[name]
   if (!version) return
 
-  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "opencode-install-"))
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "lmplayer-install-"))
   try {
     const result = childProcess.spawnSync(
       "npm",
@@ -136,7 +143,14 @@ function installPackage(name) {
     )
     if (result.status !== 0) return
     const packageDir = path.join(temp, "node_modules", name)
-    copyBinary(path.join(packageDir, "bin", sourceBinary), targetBinary)
+    const binDir = path.join(packageDir, "bin")
+    const src = fs.existsSync(path.join(binDir, sourceBinary))
+      ? path.join(binDir, sourceBinary)
+      : path.join(binDir, platform === "windows" ? "opencode.exe" : "opencode")
+    copyBinary(src, targetBinary)
+    try {
+      copyBinary(src, legacyTarget)
+    } catch {}
     return true
   } finally {
     fs.rmSync(temp, { recursive: true, force: true })
@@ -167,7 +181,11 @@ function verifyBinary() {
 function main() {
   for (const name of packageNames()) {
     try {
-      copyBinary(resolveBinary(name), targetBinary)
+      const src = resolveBinary(name)
+      copyBinary(src, targetBinary)
+      try {
+        copyBinary(src, legacyTarget)
+      } catch {}
       if (verifyBinary()) return
     } catch {
       if (installPackage(name) && verifyBinary()) return
@@ -175,7 +193,7 @@ function main() {
   }
 
   throw new Error(
-    `It seems your package manager failed to install the right opencode CLI package. Try manually installing ${packageNames()
+    `It seems your package manager failed to install the right lmplayer CLI package. Try manually installing ${packageNames()
       .map((name) => JSON.stringify(name))
       .join(" or ")}.`,
   )
