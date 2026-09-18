@@ -37,14 +37,49 @@ const cliTry = <Value>(message: string, fn: () => PromiseLike<Value>) =>
     catch: (error) => new CliError({ message: message + errorMessage(error) }),
   })
 
+export const resolveApiKey = Effect.fn("Cli.providers.resolveApiKey")(function* (keyArg?: string) {
+  if (keyArg) {
+    if (keyArg === "-") {
+      const piped = yield* cliTry("Failed to read API key from stdin: ", () => Bun.stdin.text())
+      const key = piped.trim()
+      if (!key) return yield* fail("No API key provided via stdin")
+      return key
+    }
+    const key = keyArg.trim()
+    if (!key) return yield* fail("API key cannot be empty")
+    return key
+  }
+  if (!process.stdin.isTTY) {
+    const piped = yield* cliTry("Failed to read API key from stdin: ", () => Bun.stdin.text())
+    const key = piped.trim()
+    if (key) return key
+    return yield* fail("No API key provided. When running non-interactively, supply --key <key> or pipe via stdin.")
+  }
+  const entered = yield* Prompt.password({
+    message: "Enter your API key",
+    validate: (x) => (x && x.length > 0 ? undefined : "Required"),
+  })
+  return yield* promptValue(entered)
+})
+
 const handlePluginAuth = Effect.fn("Cli.providers.pluginAuth")(function* (
   plugin: { auth: PluginAuth },
   provider: string,
   methodName?: string,
+  keyArg?: string,
 ) {
   const index = yield* Effect.gen(function* () {
     if (!methodName) {
+      if (keyArg) {
+        const apiIndex = plugin.auth.methods.findIndex((x) => x.type === "api")
+        if (apiIndex !== -1) return apiIndex
+      }
       if (plugin.auth.methods.length <= 1) return 0
+      if (!process.stdin.isTTY) {
+        return yield* fail(
+          `Login method is required when running non-interactively for ${provider}. Supply --method <method>. Available: ${plugin.auth.methods.map((x) => x.label).join(", ")}`,
+        )
+      }
       return yield* promptValue(
         yield* Prompt.select({
           message: "Login method",
@@ -77,12 +112,18 @@ const handlePluginAuth = Effect.fn("Cli.providers.pluginAuth")(function* (
       }
       if (prompt.condition && !prompt.condition(inputs)) continue
       if (prompt.type === "select") {
+        if (!process.stdin.isTTY) {
+          return yield* fail(`Non-interactive login does not support prompt "${prompt.message}"`)
+        }
         const value = yield* Prompt.select({
           message: prompt.message,
           options: prompt.options,
         })
         inputs[prompt.key] = yield* promptValue(value)
         continue
+      }
+      if (!process.stdin.isTTY) {
+        return yield* fail(`Non-interactive login does not support prompt "${prompt.message}"`)
       }
       const value = yield* Prompt.text({
         message: prompt.message,
@@ -171,11 +212,7 @@ const handlePluginAuth = Effect.fn("Cli.providers.pluginAuth")(function* (
   }
 
   if (method.type === "api") {
-    const key = yield* Prompt.password({
-      message: "Enter your API key",
-      validate: (x) => (x && x.length > 0 ? undefined : "Required"),
-    })
-    const apiKey = yield* promptValue(key)
+    const apiKey = yield* resolveApiKey(keyArg)
 
     const metadata = Object.keys(inputs).length ? { metadata: inputs } : {}
     const authorizeApi = method.authorize
@@ -377,6 +414,11 @@ export const ProvidersLoginCommand = effectCmd({
         alias: ["m"],
         describe: "login method label (skips method selection)",
         type: "string",
+      })
+      .option("key", {
+        alias: ["api-key", "k"],
+        describe: "API key (non-interactive; use '-' to read from stdin)",
+        type: "string",
       }),
   handler: Effect.fn("Cli.providers.login")(function* (args) {
     const authSvc = yield* Auth.Service
@@ -474,12 +516,18 @@ export const ProvidersLoginCommand = effectCmd({
       const input = args.provider
       const byID = options.find((x) => x.value === input)
       const byName = options.find((x) => x.label.toLowerCase() === input.toLowerCase())
-      const match = byID ?? byName
+      const byConfig = config.provider?.[input]
+        ? { label: config.provider[input].name ?? input, value: input }
+        : undefined
+      const match = byID ?? byName ?? byConfig
       if (!match) {
         return yield* fail(`Unknown provider "${input}"`)
       }
       provider = match.value
     } else {
+      if (!process.stdin.isTTY) {
+        return yield* fail("Provider is required when running non-interactively. Supply --provider <name>.")
+      }
       provider = yield* promptValue(
         yield* Prompt.autocomplete({
           message: "Select provider",
@@ -491,11 +539,16 @@ export const ProvidersLoginCommand = effectCmd({
 
     const plugin = hooks.findLast((x) => x.auth?.provider === provider)
     if (plugin && plugin.auth) {
-      const handled = yield* handlePluginAuth({ auth: plugin.auth! }, provider, args.method)
+      const handled = yield* handlePluginAuth({ auth: plugin.auth! }, provider, args.method, args.key)
       if (handled) return
     }
 
     if (provider === "other") {
+      if (!process.stdin.isTTY) {
+        return yield* fail(
+          "Provider 'other' interactive selection is not supported in non-interactive mode. Specify the provider name directly with --provider.",
+        )
+      }
       provider = (yield* promptValue(
         yield* Prompt.text({
           message: "Enter provider id",
@@ -505,7 +558,7 @@ export const ProvidersLoginCommand = effectCmd({
 
       const customPlugin = hooks.findLast((x) => x.auth?.provider === provider)
       if (customPlugin && customPlugin.auth) {
-        const handled = yield* handlePluginAuth({ auth: customPlugin.auth! }, provider, args.method)
+        const handled = yield* handlePluginAuth({ auth: customPlugin.auth! }, provider, args.method, args.key)
         if (handled) return
       }
 
@@ -538,12 +591,9 @@ export const ProvidersLoginCommand = effectCmd({
       )
     }
 
-    const key = yield* Prompt.password({
-      message: "Enter your API key",
-      validate: (x) => (x && x.length > 0 ? undefined : "Required"),
-    })
-    const apiKey = yield* promptValue(key)
+    const apiKey = yield* resolveApiKey(args.key)
     yield* Effect.orDie(authSvc.set(provider, { type: "api", key: apiKey }))
+    yield* Prompt.log.success(`Logged into ${provider}`)
 
     yield* Prompt.outro("Done")
   }),
