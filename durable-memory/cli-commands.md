@@ -42,6 +42,24 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
   ~/.local/bin/lmcode runs from source. Platform package names (opencode-<plat>), publish.ts,
   postinstall.mjs, ASCII logo + "opencode" describe strings remain (branding follow-up).
 
+## Session management
+- `session ls [--json]` / `session list [--max-count n] [--format table|json]` — list active and recent sessions.
+- `session tail <id> [--lines n] [--format text|json]` — tail/stream messages from a session.
+- `session report <id> [--json]` — report session activity, tokens, text sizes, duration, and touched files.
+- `session metrics <id> [--json]` — stable `session-metrics/v1` per-session machine-queryable metrics (tokens, write-time/persisted cost, latencies, tools, files, jobs, crons).
+- `session health <id> [--json]` — inspect session context usage and headroom against model limit.
+- `session todo <id> [--json]` — list todo tasks for a session with status checkboxes (`[x]`, `[>]`, `[-]`, `[ ]`) and priority tags.
+- `session diff <id> [--message msgID] [--stat] [--json]` — inspect file diffs and patches resulting from session turns, with optional diffstat summary (`--stat`).
+- `session export [id] [--sanitize]` — export session data as JSON with optional sensitive transcript sanitization.
+- `session import <file>` — import session data from a file or share URL.
+- `session jobs <id> [--json] [--output jobID] [--job jobID] [--status s]` — list and inspect background jobs.
+- `session crons <id> [--json] [--cron cronID] [--delete cronID]` — list, inspect, and delete scheduled cron jobs.
+- `session rename <id> <title> [--json]` — rename a session.
+- `session fork <id> [--message msgID] [--json]` — fork a session at a specific message boundary.
+- `session share <id> [--unshare] [--json]` / `session unshare <id> [--json]` — create or revoke public share links.
+- `session compact <id> [--model provider/model] [--auto] [--json]` (alias `summarize`) — trigger session compaction/summarization.
+- `session delete <id>` — delete a session and all its messages and parts.
+
 ## Known gaps / TODO (not yet built)
 - `models test [provider]` (probe each entitled model) — SHIPPED (with `--json`, `--timeout`, `--concurrency`).
 - Persistent default effort relies on per-run `--effort` (persisted to model.json state), no config field. (CLOSED: added top-level `default_variant` and `variant` alias to ConfigV1.Info schema, prompt fallback, and config verify).

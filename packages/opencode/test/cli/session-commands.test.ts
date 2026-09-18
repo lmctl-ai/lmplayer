@@ -36,6 +36,18 @@ describe("opencode session commands (CLI)", () => {
         const cronsRes = yield* opencode.spawn(["session", "crons", notFound])
         opencode.expectExit(cronsRes, 1)
         expect(cronsRes.stderr).toContain(`Session not found: ${notFound}`)
+
+        const todoRes = yield* opencode.spawn(["session", "todo", notFound])
+        opencode.expectExit(todoRes, 1)
+        expect(todoRes.stderr).toContain(`Session not found: ${notFound}`)
+
+        const diffRes = yield* opencode.spawn(["session", "diff", notFound])
+        opencode.expectExit(diffRes, 1)
+        expect(diffRes.stderr).toContain(`Session not found: ${notFound}`)
+
+        const exportRes = yield* opencode.spawn(["session", "export", notFound])
+        opencode.expectExit(exportRes, 1)
+        expect(exportRes.stderr).toContain(`Session not found: ${notFound}`)
       }),
     60_000,
   )
