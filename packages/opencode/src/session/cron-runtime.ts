@@ -1,5 +1,8 @@
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
-import { Clock, Context, Effect, Layer, Scope, Semaphore } from "effect"
+import { Clock, Context, Effect, Layer, Option, Scope, Semaphore } from "effect"
+import { Database } from "@opencode-ai/core/database/database"
+import { SessionCronTable, SessionTable } from "@opencode-ai/core/session/sql"
+import { and, eq } from "drizzle-orm"
 import type { SessionID } from "./schema"
 
 const TICK_INTERVAL = 30_000
@@ -84,7 +87,37 @@ const layer = Layer.effect(
     const scope = yield* Scope.Scope
     const lock = Semaphore.makeUnsafe(1)
     const entries = new Map<string, Entry>()
+    const databaseOption = yield* Effect.serviceOption(Database.Service)
     let wake: ((sessionID: SessionID, prompt: string) => Effect.Effect<boolean>) | undefined
+
+    if (Option.isSome(databaseOption)) {
+      const db = databaseOption.value.db
+      const rows = yield* db.select().from(SessionCronTable).all().pipe(Effect.orDie)
+      const now = yield* clock.currentTimeMillis
+      for (const row of rows) {
+        if (row.recurring && row.time_expires !== null && now >= row.time_expires) {
+          yield* db.delete(SessionCronTable).where(eq(SessionCronTable.id, row.id)).run().pipe(Effect.orDie)
+          continue
+        }
+        try {
+          const schedule = parseCron(row.cron)
+          const entry: Entry = {
+            id: row.id,
+            sessionID: row.session_id as SessionID,
+            cron: row.cron,
+            prompt: row.prompt,
+            recurring: row.recurring,
+            createdAt: row.time_created,
+            ...(row.time_expires !== null ? { expiresAt: row.time_expires } : {}),
+            ...(row.time_last_fired !== null ? { lastFiredAt: row.time_last_fired } : {}),
+            schedule,
+          }
+          entries.set(entry.id, entry)
+        } catch {
+          yield* db.delete(SessionCronTable).where(eq(SessionCronTable.id, row.id)).run().pipe(Effect.orDie)
+        }
+      }
+    }
 
     const create: Interface["create"] = Effect.fn("SessionCronRuntime.create")(function* (sessionID, input) {
       const schedule = yield* Effect.try({
@@ -112,6 +145,31 @@ const layer = Layer.effect(
           if (count >= MAX_CRON_JOBS_PER_SESSION) {
             return yield* Effect.fail(new LimitExceeded(MAX_CRON_JOBS_PER_SESSION))
           }
+          if (Option.isSome(databaseOption)) {
+            const db = databaseOption.value.db
+            const sessionExists = yield* db
+              .select({ id: SessionTable.id })
+              .from(SessionTable)
+              .where(eq(SessionTable.id, sessionID))
+              .get()
+              .pipe(Effect.orDie)
+            if (sessionExists) {
+              yield* db
+                .insert(SessionCronTable)
+                .values({
+                  id: entry.id,
+                  session_id: sessionID,
+                  cron: entry.cron,
+                  prompt: entry.prompt,
+                  recurring: entry.recurring,
+                  time_created: entry.createdAt,
+                  time_expires: entry.expiresAt ?? null,
+                  time_last_fired: null,
+                })
+                .run()
+                .pipe(Effect.orDie)
+            }
+          }
           entries.set(entry.id, entry)
           return toInfo(entry)
         }),
@@ -135,6 +193,13 @@ const layer = Layer.effect(
           const entry = entries.get(id)
           if (!entry || entry.sessionID !== sessionID) return yield* Effect.fail(new NotFound(id))
           entries.delete(id)
+          if (Option.isSome(databaseOption)) {
+            yield* databaseOption.value.db
+              .delete(SessionCronTable)
+              .where(and(eq(SessionCronTable.session_id, sessionID), eq(SessionCronTable.id, id)))
+              .run()
+              .pipe(Effect.orDie)
+          }
           return toInfo(entry)
         }),
       )
@@ -142,9 +207,16 @@ const layer = Layer.effect(
 
     const removeSession: Interface["removeSession"] = Effect.fn("SessionCronRuntime.removeSession")((sessionID) =>
       lock.withPermit(
-        Effect.sync(() => {
+        Effect.gen(function* () {
           for (const entry of entries.values()) {
             if (entry.sessionID === sessionID) entries.delete(entry.id)
+          }
+          if (Option.isSome(databaseOption)) {
+            yield* databaseOption.value.db
+              .delete(SessionCronTable)
+              .where(eq(SessionCronTable.session_id, sessionID))
+              .run()
+              .pipe(Effect.orDie)
           }
         }),
       ),
@@ -155,10 +227,17 @@ const layer = Layer.effect(
       const minute = Math.floor(now / 60_000)
       const callback = wake
       const due = yield* lock.withPermit(
-        Effect.sync(() => {
+        Effect.gen(function* () {
           for (const entry of entries.values()) {
             if (entry.recurring && entry.expiresAt !== undefined && now >= entry.expiresAt) {
               entries.delete(entry.id)
+              if (Option.isSome(databaseOption)) {
+                yield* databaseOption.value.db
+                  .delete(SessionCronTable)
+                  .where(eq(SessionCronTable.id, entry.id))
+                  .run()
+                  .pipe(Effect.orDie)
+              }
             }
           }
           if (!callback) return []
@@ -190,7 +269,7 @@ const layer = Layer.effect(
             ),
             Effect.flatMap((accepted) =>
               lock.withPermit(
-                Effect.sync(() => {
+                Effect.gen(function* () {
                   const current = entries.get(entry.id)
                   if (!current || current.firingMinute !== minute) return
                   if (!accepted) {
@@ -199,6 +278,13 @@ const layer = Layer.effect(
                   }
                   if (!current.recurring) {
                     entries.delete(entry.id)
+                    if (Option.isSome(databaseOption)) {
+                      yield* databaseOption.value.db
+                        .delete(SessionCronTable)
+                        .where(eq(SessionCronTable.id, entry.id))
+                        .run()
+                        .pipe(Effect.orDie)
+                    }
                     return
                   }
                   entries.set(entry.id, {
@@ -207,6 +293,14 @@ const layer = Layer.effect(
                     lastFiredMinute: minute,
                     lastFiredAt: now,
                   })
+                  if (Option.isSome(databaseOption)) {
+                    yield* databaseOption.value.db
+                      .update(SessionCronTable)
+                      .set({ time_last_fired: now })
+                      .where(eq(SessionCronTable.id, entry.id))
+                      .run()
+                      .pipe(Effect.orDie)
+                  }
                 }),
               ),
             ),
@@ -305,6 +399,6 @@ function toInfo(entry: Entry): Info {
   }
 }
 
-export const node = LayerNode.make({ service: Service, layer, deps: [] })
+export const node = LayerNode.make({ service: Service, layer, deps: [Database.node] })
 
 export * as SessionCronRuntime from "./cron-runtime"

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { createSessionMetrics, type JobInfo, type SessionMessage } from "@/cli/cmd/session"
+import { createSessionMetrics, type CronInfo, type JobInfo, type SessionMessage } from "@/cli/cmd/session"
 
 type ToolPart = Extract<SessionMessage["parts"][number], { type: "tool" }>
 type TextPart = Extract<SessionMessage["parts"][number], { type: "text" }>
@@ -490,6 +490,51 @@ describe("session metrics", () => {
       active: 2, // queued + running
       completed: 1, // completed
       failed: 2, // failed + timed_out
+    })
+  })
+
+  test("crons: defaults to all zeros when options.crons omitted", () => {
+    const metrics = createSessionMetrics("ses_no_crons", [])
+    expect(metrics.crons).toEqual({
+      total: 0,
+      recurring: 0,
+      one_shot: 0,
+    })
+  })
+
+  test("crons: correctly counts total, recurring, and one_shot crons", () => {
+    const crons: CronInfo[] = [
+      {
+        id: "cron_1",
+        sessionID: "ses_crons" as any,
+        cron: "*/5 * * * *",
+        prompt: "check 1",
+        recurring: true,
+        createdAt: 1000,
+      },
+      {
+        id: "cron_2",
+        sessionID: "ses_crons" as any,
+        cron: "0 * * * *",
+        prompt: "check 2",
+        recurring: false,
+        createdAt: 2000,
+      },
+      {
+        id: "cron_3",
+        sessionID: "ses_crons" as any,
+        cron: "0 0 * * *",
+        prompt: "check 3",
+        recurring: true,
+        createdAt: 3000,
+      },
+    ]
+
+    const metrics = createSessionMetrics("ses_crons", [], { crons })
+    expect(metrics.crons).toEqual({
+      total: 3,
+      recurring: 2,
+      one_shot: 1,
     })
   })
 })

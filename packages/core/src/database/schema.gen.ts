@@ -155,6 +155,19 @@ export default {
         );
       `)
       yield* tx.run(`
+        CREATE TABLE \`session_cron\` (
+          \`id\` text PRIMARY KEY,
+          \`session_id\` text NOT NULL,
+          \`cron\` text NOT NULL,
+          \`prompt\` text NOT NULL,
+          \`recurring\` integer DEFAULT true NOT NULL,
+          \`time_created\` integer NOT NULL,
+          \`time_expires\` integer,
+          \`time_last_fired\` integer,
+          CONSTRAINT \`fk_session_cron_session_id_session_id_fk\` FOREIGN KEY (\`session_id\`) REFERENCES \`session\`(\`id\`) ON DELETE CASCADE
+        );
+      `)
+      yield* tx.run(`
         CREATE TABLE \`session_input\` (
           \`id\` text PRIMARY KEY,
           \`session_id\` text NOT NULL,
@@ -299,6 +312,10 @@ export default {
       )
       yield* tx.run(`CREATE INDEX \`part_message_id_id_idx\` ON \`part\` (\`message_id\`,\`id\`);`)
       yield* tx.run(`CREATE INDEX \`part_session_idx\` ON \`part\` (\`session_id\`);`)
+      yield* tx.run(`CREATE INDEX \`session_cron_session_idx\` ON \`session_cron\` (\`session_id\`);`)
+      yield* tx.run(
+        `CREATE INDEX \`session_cron_session_time_created_idx\` ON \`session_cron\` (\`session_id\`,\`time_created\`);`,
+      )
       yield* tx.run(
         `CREATE INDEX \`session_input_session_pending_delivery_seq_idx\` ON \`session_input\` (\`session_id\`,\`promoted_seq\`,\`delivery\`,\`admitted_seq\`);`,
       )

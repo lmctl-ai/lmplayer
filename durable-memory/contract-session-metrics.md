@@ -58,6 +58,11 @@ Additive/backward-compatible: consumers must ignore unknown fields; new fields a
     "active": 0,
     "completed": 2,
     "failed": 1
+  },
+  "crons": {
+    "total": 2,
+    "recurring": 1,
+    "one_shot": 1
   }
 }
 ```
@@ -109,12 +114,16 @@ Additive/backward-compatible: consumers must ignore unknown fields; new fields a
   (`queued`, `starting`, `running`), `completed` (`completed`), and `failed` (`failed`,
   `timed_out`, `cancelled`, `interrupted`). Sourced from `SessionJobStore` / HTTP API; defaults to
   all 0s when no jobs exist or store is unreachable.
+- `crons`: cron schedule counts for the session: `total` (count of all active session crons),
+  `recurring` (count of recurring crons), and `one_shot` (count of non-recurring crons). Sourced
+  from `SessionCronRuntime`; defaults to all 0s when no crons exist or runtime is unreachable.
 
 ## Persisted vs derived (summary for the report)
 
 - PERSISTED (read straight from SQLite/store): token totals + model on the `session` row; and the
   messages/parts (which carry tool names, tool `time.start/end`, assistant `time.created/completed`,
-  and tool inputs/metadata used for file derivation).
+  and tool inputs/metadata used for file derivation); background jobs (`session_job` table); and
+  cron schedules (`session_cron` table).
 - DERIVED at query time: `cost_usd` (tokens × pricing), all `latency_ms` aggregates
   (p50/max/thinking-vs-tool), `tools` counts, and `files` created/modified/deleted bucketing.
 
@@ -158,4 +167,12 @@ persisted token totals lmctl already reads, PLUS a derived `cost_usd`, latency, 
 - Extended `session-metrics/v1` schema with additive `jobs: { total, active, completed, failed }` breakdown.
 - CLI subcommand added: `lmplayer session jobs <sessionID> [--json] [--output <jobID>] [--job <jobID>] [--status <status>]`.
 - Tested in `test/cli/session-metrics.test.ts`, `test/cli/session-jobs.test.ts`, and `test/cli/session-commands.test.ts`.
+
+## STATUS 2026-09-18 crons observability & durable persistence extension (delivered)
+
+- Extended `session-metrics/v1` schema with additive `crons: { total, recurring, one_shot }` breakdown.
+- CLI subcommand added: `lmplayer session crons <sessionID> [--json] [--cron <cronID>] [--delete <cronID>]`.
+- Durable SQLite persistence in `@opencode-ai/core` schema (`session_cron` table with foreign key cascade to `session.id`) and `SessionCronRuntime` SQLite storage & restart recovery.
+- Tested in `test/database-migration.test.ts`, `test/session/cron-runtime.test.ts`, `test/cli/session-metrics.test.ts`, `test/cli/session-crons.test.ts`, and `test/cli/session-commands.test.ts`.
+
 

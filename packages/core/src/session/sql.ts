@@ -241,3 +241,25 @@ export const SessionJobOutputReadTable = sqliteTable(
   },
   (table) => [index("session_job_output_read_job_idx").on(table.session_id, table.job_id, table.expires_at)],
 )
+
+export const SessionCronTable = sqliteTable(
+  "session_cron",
+  {
+    id: text().primaryKey(),
+    session_id: text()
+      .$type<SessionSchema.ID>()
+      .notNull()
+      .references(() => SessionTable.id, { onDelete: "cascade" }),
+    cron: text().notNull(),
+    prompt: text().notNull(),
+    recurring: integer({ mode: "boolean" }).notNull().default(true),
+    time_created: integer().notNull(),
+    time_expires: integer(),
+    time_last_fired: integer(),
+  },
+  (table) => [
+    index("session_cron_session_idx").on(table.session_id),
+    index("session_cron_session_time_created_idx").on(table.session_id, table.time_created),
+  ],
+)
+

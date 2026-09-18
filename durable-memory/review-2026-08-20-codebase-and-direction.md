@@ -206,10 +206,13 @@ not an existing component.
 3. **Unify shutdown (§4) — SHIPPED.** `gracefulShutdown` in `execution-gate.ts`
    executes bounded `SessionJobRuntime.shutdown()` and clears cron on SIGTERM/SIGINT
    (commit `c51e7ff0ed`).
-4. **Durable cron + `cron`/`job` permission governance (§5) — PARTIALLY SHIPPED.**
+4. **Durable cron + `cron`/`job` permission governance (§5) — SHIPPED.**
    `cron create` and `job stop` permission asks implemented in tools; documented
    in `design-permissions.md`; covered by dedicated unit test suites (`test/tool/cron.test.ts`
-   and `test/tool/job.test.ts`). Durable SQLite cron persistence remains open as future candidate.
+   and `test/tool/job.test.ts`). Durable SQLite cron persistence (`session_cron` table with FK cascade)
+   and startup recovery implemented in `SessionCronRuntime`. CLI observability added via
+   `lmplayer session crons <sessionID> [--json] [--cron <cronID>] [--delete <cronID>]` and
+   additive `crons: { total, recurring, one_shot }` metrics in `session-metrics/v1`.
 5. **Sequential-queue conformance test — SHIPPED.** Mock-harness integration test
    (`packages/opencode/test/session/prompt.test.ts`) asserting that the process-global
    execution gate strictly prevents any concurrent LLM turns process-wide across

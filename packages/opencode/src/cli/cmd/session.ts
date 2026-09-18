@@ -19,6 +19,7 @@ import { ModelV2 } from "@opencode-ai/core/model"
 import { Provider } from "@/provider/provider"
 import { SessionShare } from "@/share/session"
 import { SessionJob } from "@opencode-ai/schema/session-job"
+import { SessionCronRuntime } from "@/session/cron-runtime"
 
 export type SessionMessage = NonNullable<Awaited<ReturnType<OpencodeClient["session"]["messages"]>>["data"]>[number]
 
@@ -71,6 +72,7 @@ export const SessionCommand = cmd({
       .command(SessionUnshareCommand)
       .command(SessionCompactCommand)
       .command(SessionJobsCommand)
+      .command(SessionCronsCommand)
       .demandCommand(),
   async handler() {},
 })
@@ -235,8 +237,10 @@ export const SessionMetricsCommand = effectCmd({
     const jobs = yield* Effect.promise(() =>
       sdk.session.jobs({ sessionID: args.sessionID }).then((r) => r.data ?? []).catch(() => []),
     )
+    const cronRuntime = yield* SessionCronRuntime.Service
+    const crons = yield* cronRuntime.list(args.sessionID as SessionID).pipe(Effect.orElseSucceed(() => []))
     yield* Effect.promise(async () => {
-      const metrics = createSessionMetrics(args.sessionID, msgs, { session: info, pricing, jobs })
+      const metrics = createSessionMetrics(args.sessionID, msgs, { session: info, pricing, jobs, crons })
       if (args.json) {
         console.log(JSON.stringify(metrics, null, 2))
         return
@@ -670,6 +674,82 @@ export const SessionJobsCommand = effectCmd({
   }),
 })
 
+export const SessionCronsCommand = effectCmd({
+  command: "crons <sessionID>",
+  describe: "inspect scheduled cron jobs for a session",
+  builder: (yargs) =>
+    yargs
+      .positional("sessionID", {
+        describe: "session ID to inspect",
+        type: "string",
+        demandOption: true,
+      })
+      .option("cron", {
+        alias: "c",
+        describe: "specific cron ID to inspect",
+        type: "string",
+      })
+      .option("delete", {
+        alias: "d",
+        describe: "cron ID to delete/cancel",
+        type: "string",
+      })
+      .option("json", {
+        describe: "output JSON",
+        type: "boolean",
+      }),
+  handler: Effect.fn("Cli.session.crons")(function* (args) {
+    const sessionSvc = yield* Session.Service
+    yield* sessionSvc
+      .get(args.sessionID as SessionID)
+      .pipe(Effect.mapError(() => new CliError({ message: `Session not found: ${args.sessionID}` })))
+
+    const cronRuntime = yield* SessionCronRuntime.Service
+
+    if (args.delete) {
+      const removed = yield* cronRuntime
+        .remove(args.sessionID as SessionID, args.delete)
+        .pipe(
+          Effect.mapError(
+            (err) => new CliError({ message: (err as Error).message ?? `Cron not found: ${args.delete}` }),
+          ),
+        )
+
+      if (args.json) {
+        console.log(JSON.stringify(removed, null, 2))
+      } else {
+        UI.println(UI.Style.TEXT_SUCCESS_BOLD + `Cron ${args.delete} deleted` + UI.Style.TEXT_NORMAL)
+      }
+      return
+    }
+
+    const crons = yield* cronRuntime.list(args.sessionID as SessionID)
+
+    if (args.cron) {
+      const target = crons.find((c) => c.id === args.cron)
+      if (!target) {
+        return yield* fail(`Cron not found: ${args.cron}`)
+      }
+      if (args.json) {
+        console.log(JSON.stringify(target, null, 2))
+      } else {
+        console.log(formatCronDetail(target))
+      }
+      return
+    }
+
+    if (args.json) {
+      console.log(JSON.stringify(crons, null, 2))
+    } else {
+      if (crons.length === 0) {
+        console.log(`No scheduled cron jobs found for session ${args.sessionID}`)
+        return
+      }
+      console.log(formatCronsTable(crons))
+    }
+  }),
+})
+
 export const SessionListCommand = effectCmd({
   command: "list",
   describe: "list sessions",
@@ -818,6 +898,41 @@ function formatDuration(job: JobInfo): string {
   return `${min}m${remainingSec}s`
 }
 
+export type CronInfo = SessionCronRuntime.Info
+
+export function formatCronsTable(crons: CronInfo[]): string {
+  const lines: string[] = []
+  const maxIdWidth = Math.max(16, ...crons.map((c) => c.id.length))
+  const maxScheduleWidth = Math.max(12, ...crons.map((c) => c.cron.length))
+
+  const header = `Cron ID${" ".repeat(maxIdWidth - 7)}  Schedule${" ".repeat(maxScheduleWidth - 8)}  Recurring  Last Fired  Expires     Prompt`
+  lines.push(header)
+  lines.push("─".repeat(header.length + 10))
+  for (const cron of crons) {
+    const recurringStr = (cron.recurring ? "yes" : "no").padEnd(9)
+    const lastFiredStr = (cron.lastFiredAt ? Locale.todayTimeOrDateTime(cron.lastFiredAt) : "-").padEnd(10)
+    const expiresStr = (cron.expiresAt ? Locale.todayTimeOrDateTime(cron.expiresAt) : "-").padEnd(10)
+    const promptStr = Locale.truncate(cron.prompt.replace(/\s+/g, " "), 30)
+    const line = `${cron.id.padEnd(maxIdWidth)}  ${cron.cron.padEnd(maxScheduleWidth)}  ${recurringStr}  ${lastFiredStr}  ${expiresStr}  ${promptStr}`
+    lines.push(line)
+  }
+  return lines.join(EOL)
+}
+
+export function formatCronDetail(cron: CronInfo): string {
+  const lines: string[] = [
+    `Cron ID: ${cron.id}`,
+    `Session ID: ${cron.sessionID}`,
+    `Schedule: ${cron.cron}`,
+    `Recurring: ${cron.recurring ? "yes" : "no"}`,
+    `Prompt: ${cron.prompt}`,
+    `Created: ${Locale.todayTimeOrDateTime(cron.createdAt)}`,
+  ]
+  if (cron.expiresAt !== undefined) lines.push(`Expires: ${Locale.todayTimeOrDateTime(cron.expiresAt)}`)
+  lines.push(`Last fired: ${cron.lastFiredAt !== undefined ? Locale.todayTimeOrDateTime(cron.lastFiredAt) : "-"}`)
+  return lines.join(EOL)
+}
+
 export function createSessionReport(sessionID: string, messages: SessionMessage[]) {
   const text = messages
     .flatMap((message) => message.parts.flatMap((part) => (part.type === "text" && !part.synthetic ? [part.text] : [])))
@@ -903,7 +1018,7 @@ type Pricing = {
 export function createSessionMetrics(
   sessionID: string,
   messages: SessionMessage[],
-  options?: { session?: SessionInfo; pricing?: Pricing; jobs?: JobInfo[] },
+  options?: { session?: SessionInfo; pricing?: Pricing; jobs?: JobInfo[]; crons?: CronInfo[] },
 ) {
   const report = createSessionReport(sessionID, messages)
 
@@ -993,6 +1108,22 @@ export function createSessionMetrics(
     failed: jobsFailed,
   }
 
+  const rawCrons = options?.crons ?? []
+  let cronsRecurring = 0
+  let cronsOneShot = 0
+  for (const cron of rawCrons) {
+    if (cron.recurring) {
+      cronsRecurring++
+    } else {
+      cronsOneShot++
+    }
+  }
+  const crons = {
+    total: rawCrons.length,
+    recurring: cronsRecurring,
+    one_shot: cronsOneShot,
+  }
+
   return {
     schema: "session-metrics/v1" as const,
     sessionID,
@@ -1020,6 +1151,7 @@ export function createSessionMetrics(
     tools,
     files: deriveFileBuckets(messages, report.files.paths),
     jobs,
+    crons,
   }
 }
 
@@ -1040,6 +1172,11 @@ export function formatSessionMetrics(metrics: ReturnType<typeof createSessionMet
   if (metrics.jobs.total > 0) {
     lines.push(
       `Jobs: total ${metrics.jobs.total}, active ${metrics.jobs.active}, completed ${metrics.jobs.completed}, failed ${metrics.jobs.failed}`,
+    )
+  }
+  if (metrics.crons.total > 0) {
+    lines.push(
+      `Crons: total ${metrics.crons.total}, recurring ${metrics.crons.recurring}, one_shot ${metrics.crons.one_shot}`,
     )
   }
   return lines.join(EOL)
