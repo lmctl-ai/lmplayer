@@ -788,12 +788,18 @@ const layer = Layer.effect(
         const serialized = JSON.stringify(merged, null, 2)
         next = yield* decodeConfig(merged, file)
         changed = serialized !== before
-        if (changed) yield* fs.writeFileString(file, serialized).pipe(Effect.orDie)
+        if (changed) {
+          yield* fs.ensureDir(path.dirname(file)).pipe(Effect.orDie)
+          yield* fs.writeFileString(file, serialized).pipe(Effect.orDie)
+        }
       } else {
         const updated = patchJsonc(before, patch)
         next = yield* decodeConfig(ConfigParse.jsonc(updated, file), file)
         changed = updated !== before
-        if (changed) yield* fs.writeFileString(file, updated).pipe(Effect.orDie)
+        if (changed) {
+          yield* fs.ensureDir(path.dirname(file)).pipe(Effect.orDie)
+          yield* fs.writeFileString(file, updated).pipe(Effect.orDie)
+        }
       }
 
       if (changed) yield* invalidate()
@@ -814,14 +820,20 @@ const layer = Layer.effect(
         ConfigParse.schema(ConfigV1.Info, merged, file)
         const serialized = JSON.stringify(merged, null, 2)
         changed = serialized !== before
-        if (changed) yield* fs.writeFileString(file, serialized).pipe(Effect.orDie)
+        if (changed) {
+          yield* fs.ensureDir(path.dirname(file)).pipe(Effect.orDie)
+          yield* fs.writeFileString(file, serialized).pipe(Effect.orDie)
+        }
         next = merged
       } else {
         // patchJsonc with an undefined value deletes the key at pathSegments.
         const updated = patchJsonc(before, undefined, pathSegments)
         next = ConfigParse.schema(ConfigV1.Info, ConfigParse.jsonc(updated, file), file)
         changed = updated !== before
-        if (changed) yield* fs.writeFileString(file, updated).pipe(Effect.orDie)
+        if (changed) {
+          yield* fs.ensureDir(path.dirname(file)).pipe(Effect.orDie)
+          yield* fs.writeFileString(file, updated).pipe(Effect.orDie)
+        }
       }
 
       if (changed) yield* invalidate()

@@ -1,6 +1,7 @@
+import type { Argv } from "yargs"
 import { cmd } from "./cmd"
 import { ConfigV1 } from "@opencode-ai/core/v1/config/config"
-import { effectCmd } from "../effect-cmd"
+import { effectCmd, fail } from "../effect-cmd"
 import { Cause } from "effect"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
@@ -17,7 +18,7 @@ import { InstanceRef } from "@/effect/instance-ref"
 import { InstallationVersion } from "@opencode-ai/core/installation/version"
 import path from "path"
 import { Global } from "@opencode-ai/core/global"
-import { modify, applyEdits } from "jsonc-parser"
+import { modify, applyEdits, parse } from "jsonc-parser"
 import { Filesystem } from "@/util/filesystem"
 import { Effect } from "effect"
 
@@ -102,6 +103,8 @@ export const McpCommand = cmd({
       .command(McpAuthCommand)
       .command(McpLogoutCommand)
       .command(McpDebugCommand)
+      .command(McpEnableCommand)
+      .command(McpDisableCommand)
       .demandCommand(),
   async handler() {},
 })
@@ -870,3 +873,122 @@ export const McpDebugCommand = effectCmd({
     })
   }),
 })
+
+async function hasMcpServer(name: string, configPath: string): Promise<boolean> {
+  if (!(await Filesystem.exists(configPath))) return false
+  try {
+    const text = await Filesystem.readText(configPath)
+    const json = parse(text)
+    return (
+      typeof json === "object" &&
+      json !== null &&
+      "mcp" in json &&
+      typeof json.mcp === "object" &&
+      json.mcp !== null &&
+      name in json.mcp
+    )
+  } catch {
+    return false
+  }
+}
+
+async function setMcpEnabled(name: string, enabled: boolean, configPath: string) {
+  let text = "{}"
+  if (await Filesystem.exists(configPath)) {
+    text = await Filesystem.readText(configPath)
+  }
+  const edits = modify(text, ["mcp", name, "enabled"], enabled, {
+    formattingOptions: { tabSize: 2, insertSpaces: true },
+  })
+  const result = applyEdits(text, edits)
+  await Filesystem.write(configPath, result)
+  return configPath
+}
+
+const addMcpScopeOptions = (yargs: Argv) =>
+  yargs
+    .option("scope", {
+      describe: "configuration target scope (project or global)",
+      choices: ["project", "global"] as const,
+      type: "string",
+    })
+    .option("global", {
+      alias: ["g"],
+      describe: "target global config (equivalent to --scope global)",
+      type: "boolean",
+    })
+    .option("project", {
+      alias: ["p"],
+      describe: "target project config (equivalent to --scope project)",
+      type: "boolean",
+    })
+    .check((argv) => {
+      if (argv.project && argv.global) {
+        throw new Error("Cannot specify both global and project scope")
+      }
+      if (argv.scope && (argv.project || argv.global)) {
+        throw new Error("Cannot specify both --scope and --project/--global")
+      }
+      return true
+    })
+
+const makeMcpToggleCommand = (action: "enable" | "disable") =>
+  effectCmd({
+    command: `${action} <name>`,
+    describe: `${action} a configured MCP server`,
+    builder: (yargs) =>
+      addMcpScopeOptions(
+        yargs.positional("name", {
+          describe: `name of the MCP server to ${action}`,
+          type: "string",
+          demandOption: true,
+        }),
+      ),
+    handler: Effect.fn(`Cli.mcp.${action}`)(function* (args) {
+      const maybeCtx = yield* InstanceRef
+      if (!maybeCtx) return yield* Effect.die("InstanceRef not provided")
+      const ctx = maybeCtx
+      const projectDir = ctx.project.vcs === "git" && ctx.worktree !== "/" ? ctx.worktree : ctx.directory
+
+      const isGlobal = Boolean(args.global || args.scope === "global")
+      const isProject = Boolean(args.project || args.scope === "project")
+      const enabled = action === "enable"
+
+      const projectConfigPath = yield* Effect.promise(() => resolveConfigPath(projectDir, false))
+      const globalConfigPath = yield* Effect.promise(() => resolveConfigPath(Global.Path.config, true))
+
+      let targetPath: string
+      if (isProject) {
+        const has = yield* Effect.promise(() => hasMcpServer(args.name, projectConfigPath))
+        if (!has) {
+          return yield* fail(`MCP server "${args.name}" not found in project configuration (${projectConfigPath})`)
+        }
+        targetPath = projectConfigPath
+      } else if (isGlobal) {
+        const has = yield* Effect.promise(() => hasMcpServer(args.name, globalConfigPath))
+        if (!has) {
+          return yield* fail(`MCP server "${args.name}" not found in global configuration (${globalConfigPath})`)
+        }
+        targetPath = globalConfigPath
+      } else {
+        const hasProject = yield* Effect.promise(() => hasMcpServer(args.name, projectConfigPath))
+        if (hasProject) {
+          targetPath = projectConfigPath
+        } else {
+          const hasGlobal = yield* Effect.promise(() => hasMcpServer(args.name, globalConfigPath))
+          if (hasGlobal) {
+            targetPath = globalConfigPath
+          } else {
+            return yield* fail(`MCP server "${args.name}" not found in configuration`)
+          }
+        }
+      }
+
+      yield* Effect.promise(() => setMcpEnabled(args.name, enabled, targetPath))
+      prompts.log.success(`MCP server "${args.name}" ${enabled ? "enabled" : "disabled"} in ${targetPath}`)
+    }),
+  })
+
+export const McpEnableCommand = makeMcpToggleCommand("enable")
+export const McpDisableCommand = makeMcpToggleCommand("disable")
+

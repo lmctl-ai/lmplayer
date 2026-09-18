@@ -86,15 +86,16 @@ lmcode is for AGENT interaction, not humans. Make it a plain CLI:
 ### Phase 3 — CLI to cover remaining GUI settings (config get/set + targeted setters)
 - Add `lmcode config get <key>` / `set <key> <value>` / `unset <key>` / `list`, backed by
   `Config.updateGlobal`/`Config.update` (`--global`/`--project`). Covers model, small_model,
-  default_agent, autoupdate, share, compaction.*, disabled/enabled_providers, permission, etc.
+  default_agent, autoupdate, share, compaction.*, disabled/enabled_providers, permission, etc. [SHIPPED]
 - Targeted setters for gaps that are runtime/SDK-only today (recommend, in priority order):
-  - `mcp enable/disable <name>` (flip `mcp.<n>.enabled`).
-  - `provider enable/disable <id>` (edit disabled/enabled_providers).
-  - `session compact/share/unshare/rename/fork <id>` (SDK already supports).
+  - `mcp enable/disable <name>` (flip `mcp.<n>.enabled`) with `--scope <project|global>`, `--project`, `--global`. [SHIPPED]
+  - `provider enable/disable <id>` (edit disabled/enabled_providers) with `--scope <project|global>`, `--project`, `--global`, alias `provider`. [SHIPPED]
+  - `session compact/share/unshare/rename/fork <id>` (SDK already supports). [SHIPPED]
+- Fixed `Config.updateGlobal` and `unsetGlobal` in `packages/opencode/src/config/config.ts` to ensure parent directory exists (`fs.ensureDir`) before writing. [SHIPPED]
 - Drop TUI-only cosmetics (themes, keybinds, animations, diff styles, sounds) — irrelevant without a UI.
 - Make currently-interactive setup non-interactive: ensure `providers login`, `mcp add`, `agent create`
   all have complete non-interactive flag paths (most already do); auth API-key entry may stay interactive
-  but accept a flag/stdin/env for agent use.
+  but accept a flag/stdin/env for agent use. [SHIPPED]
 
 ## Reviewer findings (resolved + verified by Lead)
 - TIMEOUT (verified at time of writing; CORRECTED 2026-09-16 lmplayerAgy:Lead — stale since `baaabfff44`):

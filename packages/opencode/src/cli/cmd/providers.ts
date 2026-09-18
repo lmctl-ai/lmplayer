@@ -10,6 +10,7 @@ import { map, pipe, sortBy, values } from "remeda"
 import path from "path"
 import os from "os"
 import { Config } from "@/config/config"
+import { ConfigV1 } from "@opencode-ai/core/v1/config/config"
 import { Global } from "@opencode-ai/core/global"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { Plugin } from "../../plugin"
@@ -276,10 +277,16 @@ export function resolvePluginProviders(input: {
 
 export const ProvidersCommand = cmd({
   command: "providers",
-  aliases: ["auth"],
+  aliases: ["auth", "provider"],
   describe: "manage AI providers and credentials",
   builder: (yargs) =>
-    yargs.command(ProvidersListCommand).command(ProvidersLoginCommand).command(ProvidersLogoutCommand).demandCommand(),
+    yargs
+      .command(ProvidersListCommand)
+      .command(ProvidersLoginCommand)
+      .command(ProvidersLogoutCommand)
+      .command(ProvidersEnableCommand)
+      .command(ProvidersDisableCommand)
+      .demandCommand(),
   async handler() {},
 })
 
@@ -643,3 +650,102 @@ export const ProvidersLogoutCommand = effectCmd({
     yield* Prompt.outro("Logout successful")
   }),
 })
+
+const addProviderScopeOptions = (yargs: Argv) =>
+  yargs
+    .option("scope", {
+      describe: "configuration target scope (project or global)",
+      choices: ["project", "global"] as const,
+      type: "string",
+    })
+    .option("global", {
+      alias: ["g"],
+      describe: "target global configuration (equivalent to --scope global)",
+      type: "boolean",
+    })
+    .option("project", {
+      alias: ["p"],
+      describe: "target project configuration (equivalent to --scope project)",
+      type: "boolean",
+    })
+    .check((argv) => {
+      if (argv.project && argv.global) {
+        throw new Error("Cannot specify both global and project scope")
+      }
+      if (argv.scope && (argv.project || argv.global)) {
+        throw new Error("Cannot specify both --scope and --project/--global")
+      }
+      return true
+    })
+
+const makeProviderToggleCommand = (action: "enable" | "disable") =>
+  effectCmd({
+    command: `${action} <provider>`,
+    describe: `${action} an AI provider`,
+    builder: (yargs) =>
+      addProviderScopeOptions(
+        yargs.positional("provider", {
+          describe: `provider ID or name to ${action}`,
+          type: "string",
+          demandOption: true,
+        }),
+      ),
+    handler: Effect.fn(`Cli.providers.${action}`)(function* (args) {
+      const modelsDev = yield* ModelsDev.Service
+      const database = yield* modelsDev.get()
+      const isProject = Boolean(args.project || args.scope === "project")
+
+      let providerID = args.provider
+      if (!database[providerID]) {
+        const lower = providerID.toLowerCase()
+        for (const [id, entry] of Object.entries(database)) {
+          if (id.toLowerCase() === lower || entry.name?.toLowerCase() === lower) {
+            providerID = id
+            break
+          }
+        }
+      }
+
+      const current = yield* Config.Service.use((cfg) =>
+        isProject ? cfg.getProject() : cfg.getGlobal(),
+      )
+
+      let disabled = [...(current.disabled_providers ?? [])]
+      let enabled = current.enabled_providers !== undefined ? [...current.enabled_providers] : undefined
+
+      if (action === "disable") {
+        if (!disabled.includes(providerID)) {
+          disabled.push(providerID)
+        }
+        if (enabled !== undefined) {
+          enabled = enabled.filter((p) => p !== providerID)
+        }
+      } else {
+        disabled = disabled.filter((p) => p !== providerID)
+        if (enabled !== undefined && !enabled.includes(providerID)) {
+          enabled.push(providerID)
+        }
+      }
+
+      const patch: ConfigV1.Info = {
+        disabled_providers: disabled,
+        ...(enabled !== undefined ? { enabled_providers: enabled } : {}),
+      }
+
+      if (isProject) {
+        const res = yield* Config.Service.use((cfg) => cfg.updateProject(patch))
+        yield* Prompt.log.success(
+          `Provider "${providerID}" ${action}d in project configuration (${res.file})`,
+        )
+      } else {
+        yield* Config.Service.use((cfg) => cfg.updateGlobal(patch))
+        yield* Prompt.log.success(
+          `Provider "${providerID}" ${action}d in global configuration`,
+        )
+      }
+    }),
+  })
+
+export const ProvidersEnableCommand = makeProviderToggleCommand("enable")
+export const ProvidersDisableCommand = makeProviderToggleCommand("disable")
+
