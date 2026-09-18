@@ -110,14 +110,9 @@ const installLocalPluginTool = (opencode: string) =>
     )
     await Bun.write(
       path.join(plugin, "dist", "index.js"),
-      [
-        "import { z } from 'zod'",
-        "export function tool(input) {",
-        "  return input",
-        "}",
-        "tool.schema = z",
-        "",
-      ].join("\n"),
+      ["import { z } from 'zod'", "export function tool(input) {", "  return input", "}", "tool.schema = z", ""].join(
+        "\n",
+      ),
     )
   })
 
@@ -140,23 +135,18 @@ describe("tool.registry", () => {
       const registry = yield* ToolRegistry.Service
       const ids = yield* registry.ids()
 
-      for (const id of [
-        "mkdir",
-        "rm",
-        "mv",
-        "cp",
-        "touch",
-        "ls",
-        "gh",
-        "find",
-        "rg",
-        "tar",
-        "curl",
-        "wget",
-        "unzip",
-      ]) {
+      for (const id of ["mkdir", "rm", "mv", "cp", "touch", "ls", "gh", "find", "rg", "tar", "curl", "wget", "unzip"]) {
         expect(ids).toContain(id)
       }
+    }),
+  )
+
+  it.instance("registers durable_memory tool", () =>
+    Effect.gen(function* () {
+      const registry = yield* ToolRegistry.Service
+      const ids = yield* registry.ids()
+
+      expect(ids).toContain("durable_memory")
     }),
   )
 
@@ -225,13 +215,11 @@ describe("tool.registry", () => {
       const secured = yield* agent.get("secured")
       if (!secured) throw new Error("secured agent not found")
 
-      const ids = (
-        yield* registry.tools({
-          providerID: ProviderV2.ID.opencode,
-          modelID: ModelV2.ID.make("test"),
-          agent: secured,
-        })
-      ).map((tool) => tool.id)
+      const ids = (yield* registry.tools({
+        providerID: ProviderV2.ID.opencode,
+        modelID: ModelV2.ID.make("test"),
+        agent: secured,
+      })).map((tool) => tool.id)
 
       expect(ids).not.toContain("bash")
       expect(ids).not.toContain("question")
@@ -279,13 +267,11 @@ describe("tool.registry", () => {
         provision: ["bash"],
       }
 
-      const ids = (
-        yield* registry.tools({
-          providerID: ProviderV2.ID.opencode,
-          modelID: ModelV2.ID.make("test"),
-          agent,
-        })
-      ).map((tool) => tool.id)
+      const ids = (yield* registry.tools({
+        providerID: ProviderV2.ID.opencode,
+        modelID: ModelV2.ID.make("test"),
+        agent,
+      })).map((tool) => tool.id)
 
       expect(ids).toContain("bash")
       for (const id of [
