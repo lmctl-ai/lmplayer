@@ -94,6 +94,17 @@ describe("Config", () => {
     }),
   )
 
+  it.effect("accepts a positive turn timeout and an explicit opt-out", () =>
+    Effect.sync(() => {
+      // Milestone: aggregate turn deadline. `false` must survive decoding as the
+      // documented way to disable the deadline, not be coerced away.
+      expect(Schema.decodeUnknownSync(ConfigV1.Info)({ turn_timeout_ms: 2700000 }).turn_timeout_ms).toBe(2700000)
+      expect(Schema.decodeUnknownSync(ConfigV1.Info)({ turn_timeout_ms: false }).turn_timeout_ms).toBe(false)
+      expect(Schema.decodeUnknownSync(ConfigV1.Info)({}).turn_timeout_ms).toBeUndefined()
+      expect(() => Schema.decodeUnknownSync(ConfigV1.Info)({ turn_timeout_ms: 0 })).toThrow()
+    }),
+  )
+
   it.effect("rejects unsupported compaction mode values", () =>
     Effect.sync(() => {
       expect(() => Schema.decodeUnknownSync(ConfigV1.Info)({ compaction: { mode: "invalid" } })).toThrow()

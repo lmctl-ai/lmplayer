@@ -248,9 +248,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     // TODO(orchestrator/H-R): before adopting a session here, validate an
     // ownership claim / monotonic epoch-lease with the orchestrator and refuse a
     // stale-epoch import, to fence split-brain across containers. Not in this slice.
-    const importSession = Effect.fn("SessionHttpApi.import")(function* (ctx: {
-      payload: typeof ExportBundle.Type
-    }) {
+    const importSession = Effect.fn("SessionHttpApi.import")(function* (ctx: { payload: typeof ExportBundle.Type }) {
       const bundle = ctx.payload
       const adopted = yield* session.adopt({
         id: bundle.session.id,
@@ -390,6 +388,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
             arguments: "",
           })
           .pipe(Effect.mapError(() => new HttpApiError.BadRequest({}))),
+        { sessionID: ctx.params.sessionID, onDeadline: promptSvc.cancel(ctx.params.sessionID) },
       )
       return true
     })
@@ -435,6 +434,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
           })
           yield* promptSvc.loop({ sessionID: ctx.params.sessionID })
         }),
+        { sessionID: ctx.params.sessionID, onDeadline: promptSvc.cancel(ctx.params.sessionID) },
       )
       return true
     })
@@ -451,6 +451,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
             sessionID: ctx.params.sessionID,
           })
           .pipe(Effect.mapError(() => new HttpApiError.BadRequest({}))),
+        { sessionID: ctx.params.sessionID, onDeadline: promptSvc.cancel(ctx.params.sessionID) },
       )
       return HttpServerResponse.stream(Stream.make(JSON.stringify(message)).pipe(Stream.encodeText), {
         contentType: "application/json",
@@ -471,12 +472,31 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       // Acquire the permit INSIDE the forked effect so the queued run is what
       // serializes — not the immediately-returning handler (which would release
       // the permit instantly and break serialization).
-      yield* serialize(promptSvc.prompt({ ...ctx.payload, sessionID: ctx.params.sessionID })).pipe(
+      yield* serialize(promptSvc.prompt({ ...ctx.payload, sessionID: ctx.params.sessionID }), {
+        sessionID: ctx.params.sessionID,
+        onDeadline: promptSvc.cancel(ctx.params.sessionID),
+      }).pipe(
         // Drain rejection (503) must NOT be swallowed into a spurious error event.
         // Re-raise it so the forked fiber fails cleanly with ServiceUnavailable;
         // only genuine post-admission run failures fall through to be logged and
         // published (still a 204 to the original async caller).
         Effect.catchTag("ServiceUnavailable", (error) => Effect.fail(error)),
+        // An expired aggregate turn deadline is a first-class outcome for an
+        // async caller: publish it as the session error the caller will observe
+        // (prompt.ts already marked the assistant message) instead of degrading
+        // it into an UnknownError through the catch-all below.
+        Effect.catchTag("TurnTimeoutError", (error) =>
+          Effect.gen(function* () {
+            yield* Effect.logError("prompt_async timed out", { sessionID: ctx.params.sessionID, error })
+            yield* events.publish(Session.Event.Error, {
+              sessionID: ctx.params.sessionID,
+              error: new SessionV1.TurnTimeoutError({
+                message: error.message,
+                timeoutMs: error.timeoutMs,
+              }).toObject(),
+            })
+          }),
+        ),
         Effect.catchCause((cause) =>
           Effect.gen(function* () {
             yield* Effect.logError("prompt_async failed", { sessionID: ctx.params.sessionID, cause })
@@ -500,6 +520,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
         promptSvc
           .command({ ...ctx.payload, sessionID: ctx.params.sessionID })
           .pipe(Effect.mapError(() => new HttpApiError.BadRequest({}))),
+        { sessionID: ctx.params.sessionID, onDeadline: promptSvc.cancel(ctx.params.sessionID) },
       )
     })
 
@@ -508,7 +529,13 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       payload: typeof ShellPayload.Type
     }) {
       yield* requireSession(ctx.params.sessionID)
-      return yield* serialize(SessionError.mapBusy(promptSvc.shell({ ...ctx.payload, sessionID: ctx.params.sessionID })))
+      return yield* serialize(
+        SessionError.mapBusy(promptSvc.shell({ ...ctx.payload, sessionID: ctx.params.sessionID })),
+        {
+          sessionID: ctx.params.sessionID,
+          onDeadline: promptSvc.cancel(ctx.params.sessionID),
+        },
+      )
     })
 
     const revert = Effect.fn("SessionHttpApi.revert")(function* (ctx: {

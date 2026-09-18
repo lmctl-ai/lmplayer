@@ -1,5 +1,7 @@
-import { Duration, Effect, Semaphore } from "effect"
+import { Cause, Duration, Effect, Option, Semaphore } from "effect"
+import { Config } from "@/config/config"
 import { HttpApiError } from "effect/unstable/httpapi"
+import { TurnTimeoutError } from "./routes/instance/httpapi/errors"
 
 // Process-global FIFO execution gate. lmplayer is single-user + sequential: only
 // ONE agent run (prompt/command/init/summarize/shell/import) may execute at a
@@ -15,11 +17,85 @@ import { HttpApiError } from "effect/unstable/httpapi"
 // block behind a run.
 const executionGate = Semaphore.makeUnsafe(1)
 
+// Aggregate wall-clock deadline for one gated turn. The transport-level provider
+// bounds (header/chunk/total in provider/provider.ts) only cover time spent
+// waiting on the provider's HTTP response; a turn can also wedge in a tool loop,
+// a lock, a subagent, or a stalled event loop, and while it does it holds the
+// single gate permit — which wedges every other request and drain in the server.
+// This is the backstop for everything outside the provider stream.
+export const TURN_TIMEOUT_DEFAULT_MS = 45 * 60 * 1000
+
+// Turns that were cancelled by the deadline above, keyed by session. The prompt
+// loop reads this in finalizeInterruptedAssistant so an interrupted turn is
+// recorded as an explicit TurnTimeoutError instead of a bare abort. Entries are
+// removed by that read (or by clearSessionTurnTimeout).
+const timedOutSessions = new Map<string, number>()
+
+export function getSessionTurnTimeout(sessionID: string): number | undefined {
+  return timedOutSessions.get(sessionID)
+}
+
+export function clearSessionTurnTimeout(sessionID: string): void {
+  timedOutSessions.delete(sessionID)
+}
+
+export function setSessionTurnTimeout(sessionID: string, timeoutMs: number): void {
+  timedOutSessions.set(sessionID, timeoutMs)
+  // Auto-cleanup after 30s as a safety ceiling so an unconsumed entry
+  // can never leak onto an unrelated later abort of the same session.
+  const timer = setTimeout(() => timedOutSessions.delete(sessionID), 30_000)
+  timer.unref?.()
+}
+
 let draining = false
 
 export function isDraining() {
   return draining
 }
+
+export interface SerializeOptions {
+  readonly sessionID?: string
+  readonly timeoutMs?: number | false
+  /**
+   * Best-effort cleanup run after the deadline expires, before the caller sees
+   * `TurnTimeoutError`. This is where a caller aborts the underlying turn so its
+   * own cleanup (finalizing the assistant message, releasing run state) actually
+   * executes: interrupting the caller's fiber alone would leave the turn running
+   * in the background and never mark the message. Failures and defects here are
+   * ignored — the deadline still fails the turn either way.
+   */
+  readonly onDeadline?: Effect.Effect<unknown, unknown>
+}
+
+// Environment escape hatch, checked before config and after per-call options.
+// Accepts the same "off" spellings as an explicit `false` so an operator can
+// disable the deadline for a long-running deployment without editing config.
+const TIMEOUT_ENV_VARS = ["LMPLAYER_TURN_TIMEOUT_MS", "OPENCODE_TURN_TIMEOUT_MS"] as const
+const TIMEOUT_OFF = new Set(["false", "0", "none", "off"])
+
+function envTurnTimeout(): number | false | undefined {
+  for (const name of TIMEOUT_ENV_VARS) {
+    const value = process.env[name]?.trim().toLowerCase()
+    if (!value) continue
+    if (TIMEOUT_OFF.has(value)) return false
+    const parsed = Number.parseInt(value, 10)
+    if (!Number.isNaN(parsed)) return parsed
+  }
+  return undefined
+}
+
+// Resolve the deadline for one turn. Precedence: per-call option, then env, then
+// config (`turn_timeout_ms`), then the default. `false` (or a non-positive value)
+// disables the deadline entirely.
+const turnTimeout = Effect.fnUntraced(function* (options?: SerializeOptions) {
+  if (options?.timeoutMs !== undefined) return options.timeoutMs
+  const fromEnv = envTurnTimeout()
+  if (fromEnv !== undefined) return fromEnv
+  const configSvc = yield* Effect.serviceOption(Config.Service)
+  if (Option.isNone(configSvc)) return TURN_TIMEOUT_DEFAULT_MS
+  const configured = yield* configSvc.value.get().pipe(Effect.orElseSucceed(() => undefined))
+  return configured?.turn_timeout_ms ?? TURN_TIMEOUT_DEFAULT_MS
+})
 
 // Wrap an execution effect so it runs under the single global permit. Once a
 // drain has started, new wrapped requests fail fast with a 503 (the in-flight
@@ -33,17 +109,53 @@ export function isDraining() {
 // closes the race where a request passes the pre-check between drain flip and
 // permit acquisition. The single in-flight holder that already had the permit
 // when drain started is unaffected and finishes normally (beginDrain waits).
+//
+// The deadline is applied INSIDE the permit so the timer covers the actual run
+// and not the time spent queued behind another turn, and so expiry interrupts
+// the caller's fiber tree and releases the permit. The turn's session (when
+// known) is recorded before failing so prompt.ts can attribute the interruption,
+// and `onDeadline` (when provided) aborts the underlying turn so its cleanup
+// runs instead of leaving the work orphaned.
 export const serialize = <A, E, R>(
   effect: Effect.Effect<A, E, R>,
-): Effect.Effect<A, E | HttpApiError.ServiceUnavailable, R> =>
+  options?: SerializeOptions,
+): Effect.Effect<A, E | HttpApiError.ServiceUnavailable | TurnTimeoutError, R> =>
   Effect.suspend(
-    (): Effect.Effect<A, E | HttpApiError.ServiceUnavailable, R> =>
+    (): Effect.Effect<A, E | HttpApiError.ServiceUnavailable | TurnTimeoutError, R> =>
       draining
         ? Effect.fail(new HttpApiError.ServiceUnavailable())
         : executionGate.withPermits(1)(
             Effect.suspend(
-              (): Effect.Effect<A, E | HttpApiError.ServiceUnavailable, R> =>
-                draining ? Effect.fail(new HttpApiError.ServiceUnavailable()) : effect,
+              (): Effect.Effect<A, E | HttpApiError.ServiceUnavailable | TurnTimeoutError, R> =>
+                draining
+                  ? Effect.fail(new HttpApiError.ServiceUnavailable())
+                  : Effect.gen(function* () {
+                      const timeoutMs = yield* turnTimeout(options)
+                      if (timeoutMs === false || timeoutMs <= 0) return yield* effect
+                      return yield* effect.pipe(
+                        Effect.timeoutOrElse({
+                          duration: Duration.millis(timeoutMs),
+                          orElse: () =>
+                            Effect.gen(function* () {
+                              if (options?.sessionID) setSessionTurnTimeout(options.sessionID, timeoutMs)
+                              yield* Effect.logError("turn execution timed out", {
+                                sessionID: options?.sessionID,
+                                timeoutMs,
+                              })
+                              if (options?.onDeadline)
+                                yield* options.onDeadline.pipe(
+                                  Effect.catchCause((cause) =>
+                                    Effect.logError("turn deadline cleanup failed", { cause: Cause.pretty(cause) }),
+                                  ),
+                                )
+                              return yield* new TurnTimeoutError({
+                                message: `Turn execution exceeded aggregate deadline of ${timeoutMs}ms`,
+                                timeoutMs,
+                              })
+                            }),
+                        }),
+                      )
+                    }),
             ),
           ),
   )

@@ -6695,6 +6695,16 @@
                 }
               }
             }
+          },
+          "504": {
+            "description": "TurnTimeoutError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TurnTimeoutError1"
+                }
+              }
+            }
           }
         },
         "description": "Create and send a new message to a session, streaming the AI response.",
@@ -7282,6 +7292,16 @@
                 }
               }
             }
+          },
+          "504": {
+            "description": "TurnTimeoutError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TurnTimeoutError1"
+                }
+              }
+            }
           }
         },
         "description": "Reconstruct a session on this container from an exported bundle: ensure the session record (same id), durable-memory index, and tail messages. Idempotent by session id.",
@@ -7654,6 +7674,16 @@
                 }
               }
             }
+          },
+          "504": {
+            "description": "TurnTimeoutError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TurnTimeoutError1"
+                }
+              }
+            }
           }
         },
         "description": "Analyze the current application and create an AGENTS.md file with project-specific agent configurations.",
@@ -7932,6 +7962,16 @@
                 }
               }
             }
+          },
+          "504": {
+            "description": "TurnTimeoutError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TurnTimeoutError1"
+                }
+              }
+            }
           }
         },
         "description": "Generate a concise summary of the session using AI compaction to preserve key information.",
@@ -8034,6 +8074,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/effect_HttpApiError_ServiceUnavailable"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "TurnTimeoutError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TurnTimeoutError1"
                 }
               }
             }
@@ -8206,6 +8256,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/effect_HttpApiError_ServiceUnavailable"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "TurnTimeoutError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TurnTimeoutError1"
                 }
               }
             }
@@ -8382,6 +8442,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/effect_HttpApiError_ServiceUnavailable"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "TurnTimeoutError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TurnTimeoutError1"
                 }
               }
             }
@@ -17136,6 +17206,31 @@
         "required": ["name", "data"],
         "additionalProperties": false
       },
+      "TurnTimeoutError": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "enum": ["TurnTimeoutError"]
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "message": {
+                "type": "string"
+              },
+              "timeoutMs": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": ["message", "timeoutMs"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["name", "data"],
+        "additionalProperties": false
+      },
       "AssistantMessage": {
         "type": "object",
         "properties": {
@@ -17191,6 +17286,9 @@
               },
               {
                 "$ref": "#/components/schemas/APIError"
+              },
+              {
+                "$ref": "#/components/schemas/TurnTimeoutError"
               }
             ]
           },
@@ -20142,6 +20240,9 @@
                           },
                           {
                             "$ref": "#/components/schemas/APIError"
+                          },
+                          {
+                            "$ref": "#/components/schemas/TurnTimeoutError"
                           }
                         ]
                       }
@@ -22492,6 +22593,19 @@
             "type": "integer",
             "minimum": 0
           },
+          "turn_timeout_ms": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              {
+                "type": "boolean",
+                "enum": [false]
+              }
+            ],
+            "description": "Maximum wall-clock execution time in milliseconds for an aggregate turn (prompt/command/shell/notification/cron). When exceeded, the turn is cancelled with TurnTimeoutError. Defaults to 45 minutes (2700000 ms). Set to false to disable."
+          },
           "username": {
             "type": "string"
           },
@@ -24333,6 +24447,24 @@
           }
         },
         "required": ["_tag"],
+        "additionalProperties": false
+      },
+      "TurnTimeoutError1": {
+        "type": "object",
+        "properties": {
+          "_tag": {
+            "type": "string",
+            "enum": ["TurnTimeoutError"]
+          },
+          "message": {
+            "type": "string"
+          },
+          "timeoutMs": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": ["_tag", "message", "timeoutMs"],
         "additionalProperties": false
       },
       "TextPartInput": {
@@ -33304,6 +33436,9 @@
                   },
                   {
                     "$ref": "#/components/schemas/APIError"
+                  },
+                  {
+                    "$ref": "#/components/schemas/TurnTimeoutError"
                   }
                 ]
               }
@@ -37426,6 +37561,9 @@
                   },
                   {
                     "$ref": "#/components/schemas/APIError"
+                  },
+                  {
+                    "$ref": "#/components/schemas/TurnTimeoutError"
                   }
                 ]
               }

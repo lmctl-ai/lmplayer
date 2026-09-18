@@ -333,6 +333,14 @@ export type ApiError = {
   }
 }
 
+export type TurnTimeoutError = {
+  name: "TurnTimeoutError"
+  data: {
+    message: string
+    timeoutMs: number
+  }
+}
+
 export type AssistantMessage = {
   id: string
   sessionID: string
@@ -350,6 +358,7 @@ export type AssistantMessage = {
     | ContextOverflowError
     | ContentFilterError
     | ApiError
+    | TurnTimeoutError
   parentID: string
   modelID: string
   providerID: string
@@ -1242,6 +1251,7 @@ export type GlobalEvent = {
             | ContextOverflowError
             | ContentFilterError
             | ApiError
+            | TurnTimeoutError
         }
       }
     | {
@@ -1995,6 +2005,10 @@ export type Config = {
   small_model?: string
   default_agent?: string
   subagent_depth?: number
+  /**
+   * Maximum wall-clock execution time in milliseconds for an aggregate turn (prompt/command/shell/notification/cron). When exceeded, the turn is cancelled with TurnTimeoutError. Defaults to 45 minutes (2700000 ms). Set to false to disable.
+   */
+  turn_timeout_ms?: number | false
   username?: string
   mode?: {
     build?: AgentConfig
@@ -2618,6 +2632,12 @@ export type NotFoundError = {
 
 export type EffectHttpApiErrorServiceUnavailable = {
   _tag: "ServiceUnavailable"
+}
+
+export type TurnTimeoutError1 = {
+  _tag: "TurnTimeoutError"
+  message: string
+  timeoutMs: number
 }
 
 export type TextPartInput = {
@@ -5489,6 +5509,7 @@ export type SessionError = {
       | ContextOverflowError
       | ContentFilterError
       | ApiError
+      | TurnTimeoutError
   }
 }
 
@@ -6882,6 +6903,7 @@ export type EventSessionError = {
       | ContextOverflowError
       | ContentFilterError
       | ApiError
+      | TurnTimeoutError
   }
 }
 
@@ -10235,6 +10257,10 @@ export type SessionPromptErrors = {
    * ServiceUnavailable
    */
   503: EffectHttpApiErrorServiceUnavailable
+  /**
+   * TurnTimeoutError
+   */
+  504: TurnTimeoutError1
 }
 
 export type SessionPromptError = SessionPromptErrors[keyof SessionPromptErrors]
@@ -10422,6 +10448,10 @@ export type SessionImportErrors = {
    * ServiceUnavailable
    */
   503: EffectHttpApiErrorServiceUnavailable
+  /**
+   * TurnTimeoutError
+   */
+  504: TurnTimeoutError1
 }
 
 export type SessionImportError = SessionImportErrors[keyof SessionImportErrors]
@@ -10536,6 +10566,10 @@ export type SessionInitErrors = {
    * ServiceUnavailable
    */
   503: EffectHttpApiErrorServiceUnavailable
+  /**
+   * TurnTimeoutError
+   */
+  504: TurnTimeoutError1
 }
 
 export type SessionInitError = SessionInitErrors[keyof SessionInitErrors]
@@ -10654,6 +10688,10 @@ export type SessionSummarizeErrors = {
    * ServiceUnavailable
    */
   503: EffectHttpApiErrorServiceUnavailable
+  /**
+   * TurnTimeoutError
+   */
+  504: TurnTimeoutError1
 }
 
 export type SessionSummarizeError = SessionSummarizeErrors[keyof SessionSummarizeErrors]
@@ -10707,6 +10745,10 @@ export type SessionPromptAsyncErrors = {
    * ServiceUnavailable
    */
   503: EffectHttpApiErrorServiceUnavailable
+  /**
+   * TurnTimeoutError
+   */
+  504: TurnTimeoutError1
 }
 
 export type SessionPromptAsyncError = SessionPromptAsyncErrors[keyof SessionPromptAsyncErrors]
@@ -10760,6 +10802,10 @@ export type SessionCommandErrors = {
    * ServiceUnavailable
    */
   503: EffectHttpApiErrorServiceUnavailable
+  /**
+   * TurnTimeoutError
+   */
+  504: TurnTimeoutError1
 }
 
 export type SessionCommandError = SessionCommandErrors[keyof SessionCommandErrors]
@@ -10813,6 +10859,10 @@ export type SessionShellErrors = {
    * ServiceUnavailable
    */
   503: EffectHttpApiErrorServiceUnavailable
+  /**
+   * TurnTimeoutError
+   */
+  504: TurnTimeoutError1
 }
 
 export type SessionShellError = SessionShellErrors[keyof SessionShellErrors]

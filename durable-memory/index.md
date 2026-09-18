@@ -6,6 +6,7 @@ session. This directory is the "portal": it is committed to the repo so the memo
 externally persisted and survives any single agent's session.
 
 ## What lmcode is
+
 A Bun + TypeScript monorepo (Turborepo) for an AI coding agent: server, CLI, TUI, SDK,
 web/desktop frontends. Runtime built heavily on Effect v4 / effect-smol. Default branch: `dev`.
 Direction: lmcode is for AGENTS, not humans — a plain CLI where everything GUI/TUI does is
@@ -13,6 +14,7 @@ reachable via commands + editable config (with a verify step). The TUI is kept b
 the default.
 
 ## Docs in this portal (each a focused, LLM-friendly file)
+
 - `notification-output-limit.md` — NOTIFICATION-OUTPUT-LIMIT: mandatory Codex OAuth cap omission for unattended turns without re-enabling plugin hooks.
 - `filesystem-default-access.md` — FS-DEFAULT-ACCESS: default cross-directory access in both runtimes, explicit restriction precedence, and structured Linux workdir handling.
 - `provider-openai-astra.md` — verified `openai/gpt-6-astra` via Codex OAuth, exact-name filter fix, older-binary declaration workaround, published example, and clean diagram lint.
@@ -35,18 +37,21 @@ the default.
 - `finding-tui-resize.md` — TUI is NON-DEFAULT not disabled (launch `lmplayer tui`/`attach`, PTY-verified). SHIPPED FIX (commit `f1d158f51`): `@opentui@0.4.3` `processResize` (alt-screen) never forces a full repaint (private `forceFullRepaintRequested`/`this.ln`), so a real-terminal resize leaves content cut off; lmplayer's own resize handler (`app.tsx` + `util/renderer.ts forceFullRepaint`) clears `currentRenderBuffer` to a sentinel baseline so every cell repaints regardless of theme. Also: sidebar hidden by default (`routes/session/index.tsx:249` "auto"→"hide"; toggle `<leader> b`). Read for the @opentui render-loop internals + how to test the TUI headlessly.
 
 ## How to use / extend this memory
+
 - Start here; open the focused doc for your area.
 - After finishing a task, record durable facts (commands, file:line, invariants, gotchas) in the
   relevant doc and update this index. Avoid transient chat state.
 - Keep it terse and accurate; verify claims against code before writing.
 
 ## Team workflow rules (operator-set)
+
 - ALWAYS commit after a completed, reviewed change. Conventional messages: `type(scope): summary`.
 - Process: Lead breaks work into tasks -> Coder implements -> a Reviewer reviews -> fix loop -> Lead commits.
   For complicated design, ask all reviewers; Lead is the technical arbiter and final sanity reviewer.
 - Do NOT stage team/harness files: `lmcode.lmctl`, `.mcp.json`, `.opencode/opencode.json`, `.opencode/opencode.jsonc`.
 
 ## Build toolchain note (gotcha)
+
 This workspace ships with no `node_modules` and no `bun` on PATH by default. Bootstrap: run `which bun` or
 check `$PATH`/`$HOME/.bun/bin` first — the exact install path has been observed to vary by host/VM (seen at
 both `/tmp/opencode/.bun/bin/bun` and `~/.bun/bin/bun`); don't hardcode one. Once found, `bun install` at
@@ -55,9 +60,11 @@ repo root. Typecheck per package: `bun run typecheck`
 A dev `lmcode` command is installed at `~/.local/bin/lmcode` (runs from source).
 
 ## Authoritative source files to cross-check
+
 - `AGENTS.md` (house rules/style), `CONTEXT.md` (V2 session runtime language), `CONTRIBUTING.md`, `package.json`, `turbo.json`.
 
 ## Task log (delivered, committed)
+
 - `fix(core)`: XDG app dir `opencode` -> `lmcode` (global.ts:10) so lmcode doesn't collide with a real opencode install.
 - `fix(copilot)`: device-flow auth keeps polling on HTTP 400 authorization_pending (was aborting login instantly).
 - `feat(cli)`: `models --json` with per-model effort variants.
@@ -79,10 +86,12 @@ A dev `lmcode` command is installed at `~/.local/bin/lmcode` (runs from source).
 - `feat(session)`: ported the session-scoped background-job + cron-scheduler subsystem and a run of concurrency/reliability fixes from a sibling opencode fork (cherry-picked and merged straight to `dev`, no branch — `8b2b7c250`/`9d098f4e8`). Adds persisted background shell jobs (`SessionJobStore`/`SessionJobRuntime`, restart-durable, cross-turn notification delivery), an in-memory cron scheduler (`tool/cron.ts`), SQLite WAL/lock-contention resilience (`sqlite-retry.ts`, periodic WAL checkpoint), ACP event-subscription resubscribe-with-cap, message-ID recency comparison (fixes a ~2.2-year ID-wraparound bug), and bounded compaction-boundary pagination. lmplayer's own pre-existing `BackgroundJob` (in-memory task tracking, `packages/core/src/background-job.ts`) is untouched — different feature, no collision. New integration test (`test/session/prompt.test.ts`, "launches a background job from a real LLM bash tool call...") exercises the full mock-LLM path end to end; full suite green (`packages/core` 1109/1109, `packages/opencode` 3623/3623 modulo pre-existing order-dependent TUI-plugin/attention flake, confirmed 0-fail in isolation).
 - `fix(session)`: closed 3 real gaps an external review (Fable, `review-2026-08-20-codebase-and-direction.md`) found in the above port — (1) notification/cron-fired turns now go through the same process-global sequential gate as HTTP turns (`gateSerialize` wrap in `prompt.ts`'s two wake callers; direction pillar 3 was silently broken by the port), (2) cherry-picked the missing `eaa7ccbf6` notification-claim-liveness fix that the original 19-commit port dropped despite the CHANGELOG claiming it landed, (3) `serve`'s SIGTERM path now runs `SessionJobRuntime.shutdown()` before exit, matching the one-shot CLI path (previously orphaned detached job processes). Also: `cron create` now asks permission (was ungated, unlike `job stop`), new `test/server/execution-gate.test.ts` unit-covers the gate mechanism itself. Full findings + prioritized next-direction list in the review doc.
 - `fix(provider)`: universal provider timeout defaults + terminal header timeout (commit `cd5f5a932b`; Coder=dsh, Reviewer=kimi APPROVE-WITH-NITS, Lead=agy). Generalized the OpenAI stall bounds across ALL providers at the `resolveSDK` fetch wrapper (header 300s, SSE idle chunk 300s, total 1800s); explicit numeric overrides and `false` opt-outs preserved. Made `HeaderTimeoutError` terminal in `retry.ts` to halt 5x retry cascades. Widened `chunkTimeout` config schema to allow `false` opt-out and regenerated OpenAPI/SDK artifacts. Documented the non-provider turn deadline gap in `backlog/design-universal-provider-timeouts.md`. Tests: 71 pass in header-timeout and retry suites; clean typecheck.
+- `fix(server)`: Tier 1 in-process aggregate turn deadline on execution gate (Coder=dsh, Reviewer=kimi APPROVE-WITH-NITS, Lead=agy). Enforced a default 45-minute (2,700,000 ms) wall-clock execution deadline inside `executionGate.serialize`, covering `prompt`, `promptAsync`, `command`, `shell`, `summarize`, `init`, `import`, and background notification/cron turns. Added `TurnTimeoutError` (HTTP 504) schema across `schema`, `core`, `opencode`, and SDK. Precedence: per-call `options.timeoutMs` -> env (`LMPLAYER_TURN_TIMEOUT_MS` / `OPENCODE_TURN_TIMEOUT_MS`) -> `config.turn_timeout_ms` -> default (45m); accepts `false`/`0`/`"off"` to disable. Expiry interrupts the turn fiber, releases permit, runs `onDeadline` to abort prompt runner and finalize assistant message, and cleans up tracked session timeout. Tests: 10/10 `execution-gate.test.ts` unit and `prompt-timeout.test.ts` integration pass; 18 `config.test.ts` pass; clean turbo typecheck.
 
 ## Open / TODO (not done)
-- Non-provider aggregate turn deadline: provider HTTP response stalls are bounded, but non-provider turn execution (tool loops, native deadlocks) remains unbounded. Tier 1 (in-process Effect deadline, ~1-2d) and Tier 2 (external supervisor watchdog in lmctl/lmauto, ~1d) are designed and sized in `backlog/design-universal-provider-timeouts.md`.
-- claude-* via github-copilot: RESOLVED in the current build — `claude-sonnet-5` and `claude-opus-4.8`
+
+- Tier 2 External Watchdog: Tier 1 in-process turn deadline is delivered. Tier 2 (external supervisor watchdog in lmctl/lmauto, ~1d) remains to backstop native kernel lockups (e.g. futex deadlocks that stall the JS event loop).
+- claude-\* via github-copilot: RESOLVED in the current build — `claude-sonnet-5` and `claude-opus-4.8`
   both return OK via github-copilot (re-smoked 2026-07-08 from source, `run --format json` exit 0), alongside
   gpt-5.5 and gemini-2.5-pro. The old 404 (anthropic /v1/messages shim) note is stale. See models-and-effort.md.
 - Portal "external location": currently = committed to this repo. If a separate external location is wanted, TBD.

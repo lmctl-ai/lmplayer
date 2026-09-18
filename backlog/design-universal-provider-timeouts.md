@@ -148,8 +148,8 @@ To bound turns outside the provider stream, work must happen at two distinct lay
 
 ### Recommendation on Sequencing
 
-1. **Ship the Universal Provider Timeouts first** (~10 lines provider fetch wrapper + 1 line `retry.ts` for `HeaderTimeoutError` + tests). This is small, clean, and closes the verified HTTP response stall gap for all providers.
-2. **Take Tier 1 (In-process Turn Deadline) as the immediate next task** for lmplayer. Sized at ~1–2 days.
+1. **Ship the Universal Provider Timeouts first** (Delivered in `cd5f5a932b`). Universal provider timeout defaults (header 300s, SSE idle chunk 300s, total 1800s) + terminal `HeaderTimeoutError`.
+2. **Take Tier 1 (In-process Turn Deadline) as the immediate next task** (Delivered). 45m aggregate execution gate deadline, `TurnTimeoutError` (504), cleanup on deadline.
 3. **Ensure Tier 2 (External watchdog)** is active in the lmctl harness to backstop native runtime deadlocks.
 
 ---
