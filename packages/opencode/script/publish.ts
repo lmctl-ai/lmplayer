@@ -31,6 +31,13 @@ for (const filepath of new Bun.Glob("*/package.json").scanSync({ cwd: "./dist" }
 console.log("binaries", binaries)
 const version = Object.values(binaries)[0]
 
+const lmplayerBinaries = Object.fromEntries(
+  Object.entries(binaries).filter(([name]) => name.startsWith("lmplayer-")),
+)
+const opencodeBinaries = Object.fromEntries(
+  Object.entries(binaries).filter(([name]) => name.startsWith("opencode-")),
+)
+
 await $`mkdir -p ./dist/${pkg.name}`
 await $`mkdir -p ./dist/${pkg.name}/bin`
 await $`cp ./script/postinstall.mjs ./dist/${pkg.name}/postinstall.mjs`
@@ -72,7 +79,55 @@ await Bun.file(`./dist/${pkg.name}/package.json`).write(
       license: pkg.license,
       os: ["darwin", "linux", "win32"],
       cpu: ["arm64", "x64"],
-      optionalDependencies: binaries,
+      optionalDependencies: Object.keys(opencodeBinaries).length > 0 ? opencodeBinaries : binaries,
+    },
+    null,
+    2,
+  ),
+)
+
+await $`mkdir -p ./dist/lmplayer`
+await $`mkdir -p ./dist/lmplayer/bin`
+await $`cp ./script/postinstall.mjs ./dist/lmplayer/postinstall.mjs`
+await Bun.file(`./dist/lmplayer/LICENSE`).write(await Bun.file("../../LICENSE").text())
+const lmplayerStubScript = [
+  `echo "Error: lmplayer's postinstall script was not run." >&2`,
+  'echo "" >&2',
+  'echo "This occurs when using --ignore-scripts during installation, or when using a" >&2',
+  'echo "package manager like pnpm that does not run postinstall scripts by default." >&2',
+  'echo "" >&2',
+  'echo "To fix this, run the postinstall script manually:" >&2',
+  'echo "  cd node_modules/lmplayer && node postinstall.mjs" >&2',
+  'echo "" >&2',
+  'echo "Or reinstall lmplayer without the --ignore-scripts flag." >&2',
+  'exit 1',
+  "",
+].join("\n")
+
+await Bun.file(`./dist/lmplayer/bin/lmplayer.exe`).write(lmplayerStubScript)
+await Bun.file(`./dist/lmplayer/bin/lmplayer`).write(lmplayerStubScript)
+await Bun.file(`./dist/lmplayer/bin/lmcode.exe`).write(lmplayerStubScript)
+await Bun.file(`./dist/lmplayer/bin/lmcode`).write(lmplayerStubScript)
+await Bun.file(`./dist/lmplayer/bin/${pkg.name}.exe`).write(lmplayerStubScript)
+await Bun.file(`./dist/lmplayer/bin/${pkg.name}`).write(lmplayerStubScript)
+
+await Bun.file(`./dist/lmplayer/package.json`).write(
+  JSON.stringify(
+    {
+      name: "lmplayer",
+      bin: {
+        lmplayer: "./bin/lmplayer",
+        lmcode: "./bin/lmcode",
+        [pkg.name]: `./bin/${pkg.name}.exe`,
+      },
+      scripts: {
+        postinstall: "node ./postinstall.mjs",
+      },
+      version: version,
+      license: pkg.license,
+      os: ["darwin", "linux", "win32"],
+      cpu: ["arm64", "x64"],
+      optionalDependencies: Object.keys(lmplayerBinaries).length > 0 ? lmplayerBinaries : binaries,
     },
     null,
     2,
@@ -84,6 +139,7 @@ const tasks = Object.entries(binaries).map(async ([name]) => {
 })
 await Promise.all(tasks)
 await publish(`./dist/${pkg.name}`, `${pkg.name}-ai`, version)
+await publish(`./dist/lmplayer`, "lmplayer", version)
 
 const image = "ghcr.io/anomalyco/opencode"
 const platforms = "linux/amd64,linux/arm64"

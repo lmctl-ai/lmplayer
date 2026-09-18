@@ -240,6 +240,32 @@ for (const item of targets) {
     ),
   )
   binaries[name] = Script.version
+
+  const lmplayerName = name.replace(new RegExp(`^${pkg.name}`), "lmplayer")
+  const lmplayerBinDir = `dist/${lmplayerName}/bin`
+  await $`mkdir -p ${lmplayerBinDir}`
+  for (const binName of ["lmplayer", "lmcode", "opencode"]) {
+    const src = `${binDir}/${binName}${ext}`
+    const dest = `${lmplayerBinDir}/${binName}${ext}`
+    if (await Bun.file(src).exists()) {
+      await $`cp ${src} ${dest}`.nothrow()
+    }
+  }
+  await Bun.file(`dist/${lmplayerName}/package.json`).write(
+    JSON.stringify(
+      {
+        name: lmplayerName,
+        version: Script.version,
+        preferUnplugged: true,
+        os: [item.os],
+        cpu: [item.arch],
+        ...(item.abi ? { libc: [item.abi] } : {}),
+      },
+      null,
+      2,
+    ),
+  )
+  binaries[lmplayerName] = Script.version
 }
 
 if (Script.release) {

@@ -25,6 +25,7 @@ const archMap = {
 const platform = platformMap[os.platform()] ?? os.platform()
 const arch = archMap[os.arch()] ?? os.arch()
 const base = `opencode-${platform}-${arch}`
+const lmplayerBase = `lmplayer-${platform}-${arch}`
 const sourceBinary = platform === "windows" ? "lmplayer.exe" : "lmplayer"
 const targetBinary = path.join(__dirname, "bin", platform === "windows" ? "lmplayer.exe" : "lmplayer")
 const legacyTarget = path.join(__dirname, "bin", platform === "windows" ? "opencode.exe" : "opencode")
@@ -98,24 +99,28 @@ function isMusl() {
 function packageNames() {
   const baseline = arch === "x64" && !supportsAvx2()
 
-  if (platform === "linux") {
-    if (isMusl()) {
+  const candidatesFor = (prefix) => {
+    if (platform === "linux") {
+      if (isMusl()) {
+        if (arch === "x64")
+          return baseline
+            ? [`${prefix}-baseline-musl`, `${prefix}-musl`, `${prefix}-baseline`, prefix]
+            : [`${prefix}-musl`, `${prefix}-baseline-musl`, prefix, `${prefix}-baseline`]
+        return [`${prefix}-musl`, prefix]
+      }
+
       if (arch === "x64")
         return baseline
-          ? [`${base}-baseline-musl`, `${base}-musl`, `${base}-baseline`, base]
-          : [`${base}-musl`, `${base}-baseline-musl`, base, `${base}-baseline`]
-      return [`${base}-musl`, base]
+          ? [`${prefix}-baseline`, prefix, `${prefix}-baseline-musl`, `${prefix}-musl`]
+          : [prefix, `${prefix}-baseline`, `${prefix}-musl`, `${prefix}-baseline-musl`]
+      return [prefix, `${prefix}-musl`]
     }
 
-    if (arch === "x64")
-      return baseline
-        ? [`${base}-baseline`, base, `${base}-baseline-musl`, `${base}-musl`]
-        : [base, `${base}-baseline`, `${base}-musl`, `${base}-baseline-musl`]
-    return [base, `${base}-musl`]
+    if (arch === "x64") return baseline ? [`${prefix}-baseline`, prefix] : [prefix, `${prefix}-baseline`]
+    return [prefix]
   }
 
-  if (arch === "x64") return baseline ? [`${base}-baseline`, base] : [base, `${base}-baseline`]
-  return [base]
+  return [...candidatesFor(lmplayerBase), ...candidatesFor(base)]
 }
 
 function resolveBinary(name) {
