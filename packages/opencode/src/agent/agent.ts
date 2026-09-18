@@ -68,11 +68,73 @@ const GeneratedAgent = Schema.Struct({
   systemPrompt: Schema.String,
 })
 
+export function isWeakModel(model: { providerID: string; modelID: string }): boolean {
+  const provider = model.providerID.toLowerCase()
+  const modelID = model.modelID.toLowerCase()
+  if (provider === "qwen") return true
+  if (provider === "alibaba" && (modelID.startsWith("qwen") || modelID.includes("qwen"))) return true
+  if (
+    modelID.startsWith("qwen") ||
+    modelID.includes("/qwen") ||
+    modelID.includes("qwen2.5") ||
+    modelID.includes("qwen-")
+  )
+    return true
+  if (modelID.includes("qwen")) return true
+  return false
+}
+
+export function isModelMatch(
+  configured: { providerID: string; modelID: string },
+  candidate: { providerID: string; modelID: string },
+): boolean {
+  const cfgProv = configured.providerID.toLowerCase()
+  const cfgModel = configured.modelID.toLowerCase()
+  const candProv = candidate.providerID.toLowerCase()
+  const candModel = candidate.modelID.toLowerCase()
+
+  // If no modelID in configured (e.g. parsed from "qwen2.5" without slash)
+  if (!cfgModel) {
+    return (
+      candProv === cfgProv ||
+      candModel === cfgProv ||
+      candModel.startsWith(`${cfgProv}:`) ||
+      candModel.startsWith(`${cfgProv}-`)
+    )
+  }
+
+  // Provider must match (unless wildcard "*")
+  if (cfgProv !== "*" && cfgProv !== candProv) return false
+
+  // Exact match
+  if (cfgModel === candModel) return true
+
+  // Wildcard match (e.g. "qwen*" or "gpt-4*")
+  if (cfgModel.includes("*")) {
+    const escaped = cfgModel.replace(/[-[\]{}()+?.,\\^$|#\s]/g, "\\$&").replace(/\*/g, ".*")
+    const regex = new RegExp(`^${escaped}$`)
+    return regex.test(candModel)
+  }
+
+  // Tag match: "qwen2.5" matches "qwen2.5:7b", "qwen2.5:latest", etc.
+  const candBase = candModel.split(":")[0]
+  const cfgBase = cfgModel.split(":")[0]
+  if (candBase === cfgModel || cfgBase === candModel || candBase === cfgBase) {
+    if (candModel.startsWith(`${cfgModel}:`) || cfgModel.startsWith(`${candModel}:`)) {
+      return true
+    }
+  }
+
+  return false
+}
+
 export interface Interface {
   readonly get: (agent: string) => Effect.Effect<Info>
   readonly list: () => Effect.Effect<Info[]>
   readonly defaultInfo: () => Effect.Effect<Info>
   readonly defaultAgent: () => Effect.Effect<string>
+  readonly defaultForModel: (model?: { providerID: string; modelID: string }) => Effect.Effect<Info>
+  readonly defaultAgentForModel: (model?: { providerID: string; modelID: string }) => Effect.Effect<string>
   readonly generate: (input: {
     description: string
     model?: { providerID: ProviderV2.ID; modelID: ModelV2.ID }
@@ -447,11 +509,40 @@ const layer = Layer.effect(
           return (yield* defaultInfo()).name
         })
 
+        const defaultForModel = Effect.fnUntraced(function* (model?: { providerID: string; modelID: string }) {
+          if (!model) return yield* defaultInfo()
+
+          // 1. Check configured agents for explicit model match (primary/all only, non-hidden)
+          for (const agent of Object.values(agents)) {
+            if (agent.mode === "subagent" || agent.hidden === true) continue
+            if (agent.model && isModelMatch(agent.model, model)) {
+              return agent
+            }
+          }
+
+          // 2. Built-in weak model auto-selection (qwen* -> lean)
+          if (isWeakModel(model)) {
+            const lean = agents["lean"]
+            if (lean && lean.mode !== "subagent" && lean.hidden !== true) {
+              return lean
+            }
+          }
+
+          // 3. Fall back to standard defaultInfo
+          return yield* defaultInfo()
+        })
+
+        const defaultAgentForModel = Effect.fnUntraced(function* (model?: { providerID: string; modelID: string }) {
+          return (yield* defaultForModel(model)).name
+        })
+
         return {
           get,
           list,
           defaultInfo,
           defaultAgent,
+          defaultForModel,
+          defaultAgentForModel,
         } satisfies State
       }),
     )
@@ -468,6 +559,18 @@ const layer = Layer.effect(
       }),
       defaultAgent: Effect.fn("Agent.defaultAgent")(function* () {
         return yield* InstanceState.useEffect(state, (s) => s.defaultAgent())
+      }),
+      defaultForModel: Effect.fn("Agent.defaultForModel")(function* (model?: {
+        providerID: string
+        modelID: string
+      }) {
+        return yield* InstanceState.useEffect(state, (s) => s.defaultForModel(model))
+      }),
+      defaultAgentForModel: Effect.fn("Agent.defaultAgentForModel")(function* (model?: {
+        providerID: string
+        modelID: string
+      }) {
+        return yield* InstanceState.useEffect(state, (s) => s.defaultAgentForModel(model))
       }),
       generate: Effect.fn("Agent.generate")(function* (input: {
         description: string

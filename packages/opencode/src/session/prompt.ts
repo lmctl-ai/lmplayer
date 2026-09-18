@@ -657,16 +657,29 @@ const layer = Layer.effect(
 
     const createUserMessage = Effect.fn("SessionPrompt.createUserMessage")(function* (input: PromptInput) {
       const agentName = input.agent
-      const ag = agentName ? yield* agents.get(agentName) : yield* agents.defaultInfo()
-      if (!ag) {
-        const available = (yield* agents.list()).filter((a) => !a.hidden).map((a) => a.name)
-        const hint = available.length ? ` Available agents: ${available.join(", ")}` : ""
-        const error = new NamedError.Unknown({ message: `Agent not found: "${agentName}".${hint}` })
-        yield* events.publish(Session.Event.Error, { sessionID: input.sessionID, error: error.toObject() })
-        throw error
-      }
+      let ag: Agent.Info | undefined
+      let model: { providerID: ProviderV2.ID; modelID: ModelV2.ID; variant?: string }
 
-      const model = input.model ?? ag.model ?? (yield* currentModel(input.sessionID))
+      if (agentName) {
+        ag = yield* agents.get(agentName)
+        if (!ag) {
+          const available = (yield* agents.list()).filter((a) => !a.hidden).map((a) => a.name)
+          const hint = available.length ? ` Available agents: ${available.join(", ")}` : ""
+          const error = new NamedError.Unknown({ message: `Agent not found: "${agentName}".${hint}` })
+          yield* events.publish(Session.Event.Error, { sessionID: input.sessionID, error: error.toObject() })
+          throw error
+        }
+        model = input.model ?? ag.model ?? (yield* currentModel(input.sessionID))
+      } else {
+        const candidateModel = input.model ?? (yield* currentModel(input.sessionID))
+        ag = yield* agents.defaultForModel(candidateModel)
+        if (!ag) {
+          const error = new NamedError.Unknown({ message: "No default agent available" })
+          yield* events.publish(Session.Event.Error, { sessionID: input.sessionID, error: error.toObject() })
+          throw error
+        }
+        model = input.model ?? ag.model ?? candidateModel
+      }
       const same = ag.model && model.providerID === ag.model.providerID && model.modelID === ag.model.modelID
       const full =
         !input.variant && ag.variant && same
@@ -1500,7 +1513,7 @@ const layer = Layer.effect(
 
       yield* getModel(taskModel.providerID, taskModel.modelID, input.sessionID)
 
-      const agent = agentName ? yield* agents.get(agentName) : yield* agents.defaultInfo()
+      const agent = agentName ? yield* agents.get(agentName) : yield* agents.defaultForModel(taskModel)
       if (!agent) {
         const available = (yield* agents.list()).filter((a) => !a.hidden).map((a) => a.name)
         const hint = available.length ? ` Available agents: ${available.join(", ")}` : ""
@@ -1530,12 +1543,12 @@ const layer = Layer.effect(
           ]
         : [...uniqueTemplateParts, ...(input.parts ?? [])]
 
-      const userAgent = isSubtask ? (input.agent ?? (yield* agents.defaultInfo()).name) : agent.name
       const userModel = isSubtask
         ? input.model
           ? Provider.parseModel(input.model)
           : yield* currentModel(input.sessionID)
         : taskModel
+      const userAgent = isSubtask ? (input.agent ?? (yield* agents.defaultForModel(userModel)).name) : agent.name
 
       yield* plugin.trigger(
         "command.execute.before",

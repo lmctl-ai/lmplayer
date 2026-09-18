@@ -83,8 +83,22 @@ Built-in `lean` agent (`--agent lean`, `mode:"primary" native:true`), added next
   `bun test test/tool/registry.test.ts test/session/llm.test.ts test/agent/agent.test.ts` = 97 pass / 0 fail.
 
 ## Decisions / follow-ups (flagged)
-- SELECTION = PER-AGENT (`--agent lean`) for this slice (reviewer agreed). Per-model auto-select (qwen* → lean)
-  and config-defined user profiles are wired through the schema but left as follow-ups.
+- SELECTION = PER-AGENT (`--agent lean`) for phase 1 slice.
+- PROFILES PHASE 2 (SHIPPED): Per-model auto-select (`qwen*` → `lean`) + config-defined provision (`agent.<name>.model` + `provision`).
+  - Implemented in `Agent.Service`:
+    - `defaultForModel(model)`:
+      1. Inspects configured primary/all non-hidden agents for explicit model match via `isModelMatch` (exact, tag prefix e.g. `qwen2.5:7b` to `qwen2.5`, wildcard `*`).
+      2. Weak model detection via `isWeakModel` (qwen family): auto-selects `lean` (positive provisioning `["bash"]`, `PROMPT_LEAN`).
+      3. Fallback to `defaultInfo()` (`build` or `c.default_agent`).
+    - `defaultAgentForModel(model)`: returns agent name string.
+  - Wired into active path:
+    - `SessionPrompt.createUserMessage` (`session/prompt.ts`): resolves model first when `input.agent` is omitted, then selects profile via `agents.defaultForModel(candidateModel)`.
+    - Explicit `--agent` override takes absolute precedence (bypasses auto-selection).
+    - `executeCommand` (`session/prompt.ts`) and HTTP session handlers (`handlers/session.ts` summarize, `handlers/experimental.ts` tool query) wired to `defaultForModel` / `defaultAgentForModel`.
+  - Tests:
+    - `test/agent/agent.test.ts`: `isWeakModel`, `isModelMatch`, and `defaultForModel` suite (standard fallback, weak auto-select, disabled fallback, custom config match).
+    - `test/session/prompt.test.ts`: end-to-end prompt resolution (omitted agent on weak model resolves to `lean`, explicit `--agent build` preserved on weak model, non-weak model defaults to `build`, custom configured profile matching model auto-selected).
 - ACTIVE PATH ONLY: legacy `packages/opencode` (run → client.session.prompt → server handlers/session.ts:61 →
   SessionPrompt.Service). V2 `packages/core` is NOT on the active path; its analogous choke point
   `ToolRegistry.materialize()` (`core/src/tool/registry.ts:106`) + `runner/llm.ts:203` is the documented follow-up.
+

@@ -1,4 +1,4 @@
-import { afterEach, expect } from "bun:test"
+import { afterEach, expect, test } from "bun:test"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Cause, Effect, Exit, Layer } from "effect"
 import path from "path"
@@ -896,6 +896,127 @@ it.instance(
         plan: { disable: true },
         secured: { disable: true },
         lean: { disable: true },
+      },
+    },
+  },
+)
+
+test("isWeakModel correctly identifies qwen model families", () => {
+  expect(Agent.isWeakModel({ providerID: "ollama", modelID: "qwen2.5" })).toBe(true)
+  expect(Agent.isWeakModel({ providerID: "ollama", modelID: "qwen2.5:7b" })).toBe(true)
+  expect(Agent.isWeakModel({ providerID: "ollama", modelID: "qwen2.5-coder:14b" })).toBe(true)
+  expect(Agent.isWeakModel({ providerID: "alibaba", modelID: "qwen-plus" })).toBe(true)
+  expect(Agent.isWeakModel({ providerID: "qwen", modelID: "qwen-max" })).toBe(true)
+  expect(Agent.isWeakModel({ providerID: "openrouter", modelID: "qwen/qwen-2.5-coder-32b-instruct" })).toBe(true)
+  expect(Agent.isWeakModel({ providerID: "openai", modelID: "gpt-5.5" })).toBe(false)
+  expect(Agent.isWeakModel({ providerID: "anthropic", modelID: "claude-3-7-sonnet" })).toBe(false)
+})
+
+test("isModelMatch supports exact, wildcard, and tag matching", () => {
+  expect(
+    Agent.isModelMatch(
+      { providerID: "ollama", modelID: "qwen2.5" },
+      { providerID: "ollama", modelID: "qwen2.5" },
+    ),
+  ).toBe(true)
+  expect(
+    Agent.isModelMatch(
+      { providerID: "ollama", modelID: "qwen2.5" },
+      { providerID: "ollama", modelID: "qwen2.5:7b" },
+    ),
+  ).toBe(true)
+  expect(
+    Agent.isModelMatch(
+      { providerID: "ollama", modelID: "qwen*" },
+      { providerID: "ollama", modelID: "qwen2.5-coder:14b" },
+    ),
+  ).toBe(true)
+  expect(
+    Agent.isModelMatch(
+      { providerID: "ollama", modelID: "qwen2.5" },
+      { providerID: "openai", modelID: "qwen2.5" },
+    ),
+  ).toBe(false)
+  expect(
+    Agent.isModelMatch(
+      { providerID: "ollama", modelID: "llama3.2" },
+      { providerID: "ollama", modelID: "qwen2.5" },
+    ),
+  ).toBe(false)
+})
+
+it.instance("defaultForModel returns build when model is undefined or non-weak", () =>
+  Effect.gen(function* () {
+    const defaultAgent = yield* load((svc) => svc.defaultForModel())
+    expect(defaultAgent.name).toBe("build")
+
+    const gptAgent = yield* load((svc) =>
+      svc.defaultForModel({ providerID: "openai", modelID: "gpt-5.5" }),
+    )
+    expect(gptAgent.name).toBe("build")
+  }),
+)
+
+it.instance("defaultForModel auto-selects lean for weak qwen models", () =>
+  Effect.gen(function* () {
+    const lean1 = yield* load((svc) =>
+      svc.defaultForModel({ providerID: "ollama", modelID: "qwen2.5" }),
+    )
+    expect(lean1.name).toBe("lean")
+    expect(lean1.provision).toEqual(["bash"])
+
+    const lean2 = yield* load((svc) =>
+      svc.defaultForModel({ providerID: "ollama", modelID: "qwen2.5:7b" }),
+    )
+    expect(lean2.name).toBe("lean")
+
+    const lean3 = yield* load((svc) =>
+      svc.defaultForModel({ providerID: "alibaba", modelID: "qwen-plus" }),
+    )
+    expect(lean3.name).toBe("lean")
+  }),
+)
+
+it.instance(
+  "defaultForModel falls back to build when lean is disabled",
+  () =>
+    Effect.gen(function* () {
+      const agent = yield* load((svc) =>
+        svc.defaultForModel({ providerID: "ollama", modelID: "qwen2.5" }),
+      )
+      expect(agent.name).toBe("build")
+    }),
+  {
+    config: {
+      agent: {
+        lean: { disable: true },
+      },
+    },
+  },
+)
+
+it.instance(
+  "defaultForModel selects user-configured agent with matching model over lean",
+  () =>
+    Effect.gen(function* () {
+      const qwenAgent = yield* load((svc) =>
+        svc.defaultForModel({ providerID: "ollama", modelID: "qwen2.5" }),
+      )
+      expect(qwenAgent.name).toBe("custom-qwen")
+      expect(qwenAgent.provision).toEqual(["bash", "read"])
+
+      const gptAgent = yield* load((svc) =>
+        svc.defaultForModel({ providerID: "openai", modelID: "gpt-5.5" }),
+      )
+      expect(gptAgent.name).toBe("build")
+    }),
+  {
+    config: {
+      agent: {
+        "custom-qwen": {
+          model: "ollama/qwen2.5",
+          provision: ["bash", "read"],
+        },
       },
     },
   },

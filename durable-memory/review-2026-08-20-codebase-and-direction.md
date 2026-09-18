@@ -177,8 +177,9 @@ Fix: `gracefulShutdown` should run the same bounded `SessionJobRuntime.shutdown(
 2. Live-ollama handoff BUILT-BUT-UNTESTED (provider-ollama.md:6,89 — needs a host
    with ollama; the whole config-free provider + chat-only path has never made a
    real HTTP round-trip).
-3. Profiles follow-ups (model-profiles.md:85-90): per-model auto-select (qwen* →
-   lean) and config-defined `provision` are schema-wired but inert; V2
+3. Profiles follow-ups (model-profiles.md:85-90): Profiles Phase 2 SHIPPED (per-model
+   auto-select `qwen*` → `lean`, config-defined `provision` + `model` matching wired via
+   `Agent.Service.defaultForModel` and `SessionPrompt.createUserMessage`); V2
    `ToolRegistry.materialize()` seam untouched.
 4. Non-interactive API-key login for `providers login` (index.md:85, config-cli.md).
 5. Branding leftovers: ASCII logo, `opencode-<plat>` package names, publish.ts,
@@ -227,10 +228,10 @@ not an existing component.
    `session-metrics/v1` (contract-session-metrics.md is explicitly versioned for
    extension). Fits the agent-drives-CLI purpose: today jobs are visible only to
    the LLM via the `job` tool, not to the operator/lmctl. Small-medium.
-8. **Profiles phase 2 (§7.3).** Per-model auto-select + config-defined provision:
-   makes weak-model support config-driven instead of flag-driven; schema is already
-   wired. Medium. Risk: silent tool loss if auto-select misfires — keep explicit
-   `--agent` override precedence.
+8. **Profiles phase 2 (§7.3) — SHIPPED.** Per-model auto-select + config-defined provision:
+   makes weak-model support (`qwen*`) config-driven instead of flag-driven while
+   strictly preserving explicit `--agent` override precedence. Wired via
+   `Agent.Service.defaultForModel` and `SessionPrompt.createUserMessage`. Tested.
 9. **app-host design conversation (§8).** Don't build; schedule the operator
    discussion the doc asks for. The §2/§4 fixes are prerequisites anyway (a
    multi-app host multiplies sessions, which multiplies today's cross-session gate
