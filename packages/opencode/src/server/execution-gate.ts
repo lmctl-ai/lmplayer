@@ -195,17 +195,23 @@ export function gracefulShutdown(reason: string) {
   draining = true
   console.log(`draining (${reason}); waiting for in-flight run to finish (timeout ${Duration.format(DRAIN_TIMEOUT)})`)
   Effect.runPromise(Effect.sleep("100 millis").pipe(Effect.andThen(beginDrain()), Effect.timeout(DRAIN_TIMEOUT)))
-    .then(() => console.log("drain complete; shutting down background jobs"))
-    .catch(() => console.log("drain timeout exceeded; shutting down background jobs anyway"))
-    .then(shutdownJobs)
+    .then(() => console.log("drain complete; shutting down background tasks"))
+    .catch(() => console.log("drain timeout exceeded; shutting down background tasks anyway"))
+    .then(shutdownBackgroundTasks)
     .finally(() => process.exit(0))
 }
 
-async function shutdownJobs() {
+async function shutdownBackgroundTasks() {
   const { AppRuntime } = await import("@/effect/app-runtime")
   const { SessionJobRuntime } = await import("@/session/job-runtime")
+  const { SessionCronRuntime } = await import("@/session/cron-runtime")
   const result = await Promise.race([
-    AppRuntime.runPromise(SessionJobRuntime.Service.pipe(Effect.flatMap((service) => service.shutdown()))).then(
+    AppRuntime.runPromise(
+      Effect.all([
+        SessionJobRuntime.Service.pipe(Effect.flatMap((service) => service.shutdown())),
+        SessionCronRuntime.Service.pipe(Effect.flatMap((service) => service.shutdown())),
+      ]),
+    ).then(
       () => ({ type: "complete" as const }),
       (error: unknown) => ({ type: "failed" as const, error }),
     ),
@@ -213,6 +219,6 @@ async function shutdownJobs() {
       setTimeout(() => resolve({ type: "timeout" }), Duration.toMillis(JOB_SHUTDOWN_TIMEOUT)),
     ),
   ])
-  if (result.type === "failed") console.log(`background job shutdown failed: ${String(result.error)}`)
-  if (result.type === "timeout") console.log("background job shutdown exceeded 10 seconds; exiting anyway")
+  if (result.type === "failed") console.log(`background tasks shutdown failed: ${String(result.error)}`)
+  if (result.type === "timeout") console.log("background tasks shutdown exceeded 10 seconds; exiting anyway")
 }

@@ -76,6 +76,7 @@ export interface Interface {
   readonly removeSession: (sessionID: SessionID) => Effect.Effect<void>
   readonly setWake: (callback: (sessionID: SessionID, prompt: string) => Effect.Effect<boolean>) => Effect.Effect<void>
   readonly tick: (now?: number) => Effect.Effect<void>
+  readonly shutdown: () => Effect.Effect<void>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/SessionCronRuntime") {}
@@ -89,6 +90,7 @@ const layer = Layer.effect(
     const entries = new Map<string, Entry>()
     const databaseOption = yield* Effect.serviceOption(Database.Service)
     let wake: ((sessionID: SessionID, prompt: string) => Effect.Effect<boolean>) | undefined
+    let isShutdown = false
 
     if (Option.isSome(databaseOption)) {
       const db = databaseOption.value.db
@@ -141,6 +143,9 @@ const layer = Layer.effect(
       }
       return yield* lock.withPermit(
         Effect.gen(function* () {
+          if (isShutdown) {
+            return yield* Effect.fail(new LimitExceeded(0))
+          }
           const count = [...entries.values()].filter((item) => item.sessionID === sessionID).length
           if (count >= MAX_CRON_JOBS_PER_SESSION) {
             return yield* Effect.fail(new LimitExceeded(MAX_CRON_JOBS_PER_SESSION))
@@ -178,12 +183,13 @@ const layer = Layer.effect(
 
     const list: Interface["list"] = Effect.fn("SessionCronRuntime.list")((sessionID) =>
       lock.withPermit(
-        Effect.sync(() =>
-          [...entries.values()]
+        Effect.sync(() => {
+          if (isShutdown) return []
+          return [...entries.values()]
             .filter((entry) => entry.sessionID === sessionID)
             .toSorted((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))
-            .map(toInfo),
-        ),
+            .map(toInfo)
+        }),
       ),
     )
 
@@ -223,6 +229,7 @@ const layer = Layer.effect(
     )
 
     const tick: Interface["tick"] = Effect.fn("SessionCronRuntime.tick")(function* (inputNow) {
+      if (isShutdown) return
       const now = inputNow ?? (yield* clock.currentTimeMillis)
       const minute = Math.floor(now / 60_000)
       const callback = wake
@@ -316,17 +323,20 @@ const layer = Layer.effect(
         }),
       )
 
-    yield* Effect.forever(Effect.sleep(TICK_INTERVAL).pipe(Effect.andThen(tick()))).pipe(Effect.forkIn(scope))
-    yield* Effect.addFinalizer(() =>
+    const shutdown: Interface["shutdown"] = Effect.fn("SessionCronRuntime.shutdown")(() =>
       lock.withPermit(
         Effect.sync(() => {
+          isShutdown = true
           entries.clear()
           wake = undefined
         }),
       ),
     )
 
-    return Service.of({ create, list, remove, removeSession, setWake, tick })
+    yield* Effect.forever(Effect.sleep(TICK_INTERVAL).pipe(Effect.andThen(tick()))).pipe(Effect.forkIn(scope))
+    yield* Effect.addFinalizer(() => shutdown())
+
+    return Service.of({ create, list, remove, removeSession, setWake, tick, shutdown })
   }),
 )
 

@@ -279,4 +279,28 @@ describe("SessionCronRuntime", () => {
       await rm(tmpDir, { recursive: true, force: true })
     }
   })
+
+  it.effect(
+    "shutdown clears all in-memory cron entries and stops subsequent ticks",
+    Effect.gen(function* () {
+      const runtime = yield* SessionCronRuntime.Service
+      const sessionID = SessionID.make("ses_cron_shutdown")
+      const fired = yield* Ref.make(0)
+      yield* runtime.setWake(() => Ref.update(fired, (c) => c + 1).pipe(Effect.as(true)))
+      const job = yield* runtime.create(sessionID, { cron: "* * * * *", prompt: "shutdown check" })
+
+      expect(yield* runtime.list(sessionID)).toHaveLength(1)
+
+      yield* runtime.shutdown()
+      expect(yield* runtime.list(sessionID)).toHaveLength(0)
+
+      // Subsequent tick is a no-op
+      yield* runtime.tick(job.createdAt)
+      expect(yield* Ref.get(fired)).toBe(0)
+
+      // Subsequent create fails
+      const exit = yield* Effect.exit(runtime.create(sessionID, { cron: "* * * * *", prompt: "after shutdown" }))
+      expect(Exit.isFailure(exit)).toBe(true)
+    }),
+  )
 })
