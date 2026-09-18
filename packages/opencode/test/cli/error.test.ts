@@ -29,7 +29,7 @@ describe("cli.error", () => {
           message: "schema mismatch",
           issues: [{ message: "Expected string", path: ["provider", "id"] }],
         },
-        expected: "Configuration is invalid at /tmp/opencode.jsonc: schema mismatch\n↳ Expected string provider.id",
+        expected: "Configuration is invalid at /tmp/opencode.jsonc: schema mismatch\n  provider.id: Expected string",
       },
     ]
 
