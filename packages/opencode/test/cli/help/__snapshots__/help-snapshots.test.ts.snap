@@ -429,6 +429,8 @@ Commands:
   lmplayer session diff <sessionID>            show file diffs for a session
   lmplayer session export [sessionID]          export session data as JSON
   lmplayer session import <file>               import session data from JSON file or URL
+  lmplayer session memory <sessionID>          view or update durable memory for a session
+                                                                                    [aliases: brain]
 
 Options:
   -h, --help        show help                                                              [boolean]
