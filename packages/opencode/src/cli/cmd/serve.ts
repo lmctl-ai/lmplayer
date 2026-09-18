@@ -18,7 +18,7 @@ export const ServeCommand = effectCmd({
     }
     const opts = yield* resolveNetworkOptions(args)
     const server = yield* Effect.promise(() => Server.listen(opts))
-    console.log(`opencode server listening on http://${server.hostname}:${server.port}`)
+    console.log(`lmplayer server listening on http://${server.hostname}:${server.port}`)
 
     // Graceful drain-then-exit: finish the in-flight run, then exit. Do NOT
     // interrupt the run (that path aborts it). process.once guards double-fire.

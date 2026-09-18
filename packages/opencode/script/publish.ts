@@ -50,7 +50,11 @@ const stubScript = [
 ].join("\n")
 
 await Bun.file(`./dist/${pkg.name}/bin/${pkg.name}.exe`).write(stubScript)
+await Bun.file(`./dist/${pkg.name}/bin/${pkg.name}`).write(stubScript)
 await Bun.file(`./dist/${pkg.name}/bin/lmplayer`).write(stubScript)
+await Bun.file(`./dist/${pkg.name}/bin/lmplayer.exe`).write(stubScript)
+await Bun.file(`./dist/${pkg.name}/bin/lmcode`).write(stubScript)
+await Bun.file(`./dist/${pkg.name}/bin/lmcode.exe`).write(stubScript)
 
 await Bun.file(`./dist/${pkg.name}/package.json`).write(
   JSON.stringify(
@@ -58,6 +62,7 @@ await Bun.file(`./dist/${pkg.name}/package.json`).write(
       name: pkg.name + "-ai",
       bin: {
         lmplayer: "./bin/lmplayer",
+        lmcode: "./bin/lmcode",
         [pkg.name]: `./bin/${pkg.name}.exe`,
       },
       scripts: {
@@ -121,7 +126,9 @@ if (!Script.preview) {
     `sha256sums_x86_64=('${x64Sha}')`,
     "",
     "package() {",
-    '  install -Dm755 ./opencode "${pkgdir}/usr/bin/opencode"',
+    '  install -Dm755 ./lmplayer "${pkgdir}/usr/bin/lmplayer"',
+    '  ln -sf lmplayer "${pkgdir}/usr/bin/lmcode"',
+    '  ln -sf lmplayer "${pkgdir}/usr/bin/opencode"',
     "}",
     "",
   ].join("\n")
@@ -164,7 +171,9 @@ if (!Script.preview) {
     `      sha256 "${macX64Sha}"`,
     "",
     "      def install",
-    '        bin.install "opencode"',
+    '        bin.install "lmplayer"',
+    '        bin.install_symlink "lmplayer" => "lmcode"',
+    '        bin.install_symlink "lmplayer" => "opencode"',
     "      end",
     "    end",
     "    if Hardware::CPU.arm?",
@@ -172,7 +181,9 @@ if (!Script.preview) {
     `      sha256 "${macArm64Sha}"`,
     "",
     "      def install",
-    '        bin.install "opencode"',
+    '        bin.install "lmplayer"',
+    '        bin.install_symlink "lmplayer" => "lmcode"',
+    '        bin.install_symlink "lmplayer" => "opencode"',
     "      end",
     "    end",
     "  end",
@@ -182,14 +193,18 @@ if (!Script.preview) {
     `      url "https://github.com/anomalyco/opencode/releases/download/v${Script.version}/opencode-linux-x64.tar.gz"`,
     `      sha256 "${x64Sha}"`,
     "      def install",
-    '        bin.install "opencode"',
+    '        bin.install "lmplayer"',
+    '        bin.install_symlink "lmplayer" => "lmcode"',
+    '        bin.install_symlink "lmplayer" => "opencode"',
     "      end",
     "    end",
     "    if Hardware::CPU.arm? and Hardware::CPU.is_64_bit?",
     `      url "https://github.com/anomalyco/opencode/releases/download/v${Script.version}/opencode-linux-arm64.tar.gz"`,
     `      sha256 "${arm64Sha}"`,
     "      def install",
-    '        bin.install "opencode"',
+    '        bin.install "lmplayer"',
+    '        bin.install_symlink "lmplayer" => "lmcode"',
+    '        bin.install_symlink "lmplayer" => "opencode"',
     "      end",
     "    end",
     "  end",

@@ -26,8 +26,41 @@ describe("packaging and postinstall", () => {
     const content = fs.readFileSync(publishPath, "utf8")
 
     expect(content).toContain('lmplayer: "./bin/lmplayer"')
+    expect(content).toContain('lmcode: "./bin/lmcode"')
     expect(content).toContain('[pkg.name]: `./bin/${pkg.name}.exe`')
     expect(content).toContain('await Bun.file(`./dist/${pkg.name}/bin/lmplayer`).write(stubScript)')
+    expect(content).toContain('await Bun.file(`./dist/${pkg.name}/bin/lmplayer.exe`).write(stubScript)')
+    expect(content).toContain('await Bun.file(`./dist/${pkg.name}/bin/lmcode`).write(stubScript)')
+
+    // PKGBUILD recipe installs lmplayer and symlinks lmcode/opencode
+    expect(content).toContain('install -Dm755 ./lmplayer "${pkgdir}/usr/bin/lmplayer"')
+    expect(content).toContain('ln -sf lmplayer "${pkgdir}/usr/bin/opencode"')
+    expect(content).toContain('ln -sf lmplayer "${pkgdir}/usr/bin/lmcode"')
+
+    // Homebrew formula installs lmplayer and symlinks lmcode/opencode
+    expect(content).toContain('bin.install "lmplayer"')
+    expect(content).toContain('bin.install_symlink "lmplayer" => "opencode"')
+    expect(content).toContain('bin.install_symlink "lmplayer" => "lmcode"')
+  })
+
+  test("build.ts provisions lmcode and opencode aliases alongside lmplayer", () => {
+    const buildPath = path.resolve(import.meta.dir, "../../script/build.ts")
+    const content = fs.readFileSync(buildPath, "utf8")
+
+    expect(content).toContain('outfile: `dist/${name}/bin/lmplayer`')
+    expect(content).toContain('for (const alias of ["lmcode", "opencode"])')
+    expect(content).toContain('await $`cp ${primaryBin} ${aliasBin}`.nothrow()')
+  })
+
+  test("Dockerfile targets lmplayer binary and entrypoint with alias symlinks", () => {
+    const dockerPath = path.resolve(import.meta.dir, "../../Dockerfile")
+    const content = fs.readFileSync(dockerPath, "utf8")
+
+    expect(content).toContain("COPY dist/opencode-linux-x64-baseline-musl/bin/lmplayer /usr/local/bin/lmplayer")
+    expect(content).toContain("COPY dist/opencode-linux-arm64-musl/bin/lmplayer /usr/local/bin/lmplayer")
+    expect(content).toContain("ENTRYPOINT [\"lmplayer\"]")
+    expect(content).toContain("ln -s /usr/local/bin/lmplayer /usr/local/bin/lmcode")
+    expect(content).toContain("ln -s /usr/local/bin/lmplayer /usr/local/bin/opencode")
   })
 
   test("binary resolution logic resolves lmplayer and falls back to opencode", () => {
