@@ -19,6 +19,7 @@ export const ConfigCommand = cmd({
       .command(ConfigSetCommand)
       .command(ConfigUnsetCommand)
       .command(ConfigListCommand)
+      .command(ConfigPathCommand)
       .demandCommand(),
   async handler() {},
 })
@@ -269,6 +270,51 @@ export const ConfigVerifyCommand = effectCmd({
     process.stdout.write(`  small_model: ${config.small_model ?? "(default)"}${EOL}`)
     process.stdout.write(`  default_agent: ${config.default_agent ?? "(default)"}${EOL}`)
     process.stdout.write(`  default_variant: ${config.default_variant ?? config.variant ?? "(default)"}${EOL}`)
+  }),
+})
+
+export const ConfigPathCommand = effectCmd({
+  command: "path",
+  describe: "print configuration file path",
+  builder: (yargs) =>
+    addScopeOptions(yargs).option("json", {
+      describe: "output JSON",
+      type: "boolean",
+    }),
+  handler: Effect.fn("Cli.config.path")(function* (args) {
+    const { globalConfigFile, projectConfigFile } = yield* Effect.promise(() => import("@/config/config"))
+    const isProject = args.project || args.scope === "project"
+    const isGlobal = args.global || args.scope === "global"
+
+    const projectFile = projectConfigFile(process.cwd())
+    const globalFile = globalConfigFile()
+
+    if (args.json) {
+      const sources = configSources(process.cwd())
+      const result = {
+        project: projectFile,
+        global: globalFile,
+        sources,
+        selected: isProject ? projectFile : isGlobal ? globalFile : undefined,
+      }
+      process.stdout.write(JSON.stringify(result, null, 2) + EOL)
+      return
+    }
+
+    if (isProject) {
+      process.stdout.write(projectFile + EOL)
+      return
+    }
+
+    if (isGlobal) {
+      process.stdout.write(globalFile + EOL)
+      return
+    }
+
+    const sources = configSources(process.cwd())
+    for (const source of sources) {
+      process.stdout.write(source + EOL)
+    }
   }),
 })
 

@@ -32,6 +32,7 @@ Arrays `disabled_providers`/`enabled_providers` are REPLACED by merge (need add/
   not a pure file parse. `configSources()` reports both global and project candidate provenance.
 - DONE: `config get/set/unset` with full `--scope <project|global>`, `--project` (`-p`), and `--global` (`-g`) support.
   Preserves JSONC comments, validates against schema before writing, warns on `stderr` when keys are shadowed, and invalidates in-memory instance caches. Full test suite in `packages/opencode/test/cli/config.test.ts`.
+- DONE: `config list` (alias `ls`) and `config path` commands. `config path` resolves project config in cwd, global config in `~/.config/lmplayer`, or active provenance sources (`--project`, `--global`, `--json`).
 
 ## Effort default (decision)
 No clean top-level config field for default effort exists. Primary mechanism = per-run `--effort/--variant`

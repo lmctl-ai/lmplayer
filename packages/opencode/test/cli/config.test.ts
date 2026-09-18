@@ -303,5 +303,30 @@ describe("opencode config (cli command)", () => {
       }),
     60_000,
   )
+
+  cliIt.concurrent(
+    "resolves config paths via config path subcommand",
+    ({ home, opencode }) =>
+      Effect.gen(function* () {
+        // 1. Path for global config
+        const globalPathRes = yield* run(opencode, ["config", "path", "--global"])
+        opencode.expectExit(globalPathRes, 0)
+        expect(globalPathRes.stdout.trim()).toContain(path.join(home, ".config", "lmplayer"))
+
+        // 2. Path for project config
+        const projectPathRes = yield* run(opencode, ["config", "path", "--project"])
+        opencode.expectExit(projectPathRes, 0)
+        expect(projectPathRes.stdout.trim()).toContain("opencode.json")
+
+        // 3. Path with --json output
+        const jsonPathRes = yield* run(opencode, ["config", "path", "--json"])
+        opencode.expectExit(jsonPathRes, 0)
+        const parsed = JSON.parse(jsonPathRes.stdout)
+        expect(parsed.global).toBeDefined()
+        expect(parsed.project).toBeDefined()
+        expect(Array.isArray(parsed.sources)).toBe(true)
+      }),
+    60_000,
+  )
 })
 
