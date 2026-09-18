@@ -61,6 +61,7 @@ import { SessionJobRuntime } from "@/session/job-runtime"
 import { SessionJobStore } from "@/session/job-store"
 import { SessionJobNotificationRetry } from "@/session/notification-retry"
 import { SessionCronRuntime } from "@/session/cron-runtime"
+import { serialize as gateSerialize } from "@/server/execution-gate"
 
 const summary = Layer.succeed(
   SessionSummary.Service,
@@ -741,6 +742,158 @@ jobNotifications.instance(
           message.info.finish === "stop",
       )
       expect(replies).toHaveLength(1)
+    }),
+)
+
+jobNotifications.instance(
+  "sequential execution gate prevents any concurrent LLM turns process-wide across prompt, job notification, and cron",
+  () =>
+    Effect.gen(function* () {
+      const { dir, llm } = yield* useServerConfig(providerCfg)
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const runtime = yield* SessionJobRuntime.Service
+      const store = yield* SessionJobStore.Service
+      const crons = yield* SessionCronRuntime.Service
+
+      // 1. Create three separate sessions representing three distinct sources:
+      // Session A: HTTP/User Prompt turn
+      // Session B: Background Job completion notification turn
+      // Session C: Cron-scheduled prompt turn
+      const chatPrompt = yield* sessions.create({ title: "Session A - Prompt" })
+      const chatJob = yield* sessions.create({ title: "Session B - Job" })
+      const chatCron = yield* sessions.create({ title: "Session C - Cron" })
+
+      // Setup chatJob with an initial message to provide assistantMessageID
+      const initialJob = yield* prompt.prompt({
+        sessionID: chatJob.id,
+        agent: "build",
+        noReply: true,
+        parts: [{ type: "text", text: "run the background task" }],
+      })
+
+      // Setup chatCron with completed history so cron can fire
+      yield* llm.push(reply().text("Cron baseline ready.").stop())
+      yield* prompt.prompt({
+        sessionID: chatCron.id,
+        agent: "build",
+        parts: [{ type: "text", text: "initialize cron session" }],
+      })
+      expect((yield* llm.hits).length).toBe(1)
+
+      // Create cron schedule on Session C
+      const cron = yield* crons.create(chatCron.id, {
+        cron: "* * * * *",
+        prompt: "Cron turn verification",
+        recurring: false,
+      })
+
+      // Prepare LLM responses:
+      // Turn 1 (Session A prompt): will be held in-flight via Deferred
+      const releaseTurn1 = yield* Deferred.make<void>()
+      yield* llm.hold("Prompt turn finished.", deferredAsPromise(releaseTurn1))
+
+      // Turn 2 (Session B job notification):
+      yield* llm.push(reply().text("Job notification turn finished.").stop())
+
+      // Turn 3 (Session C cron):
+      yield* llm.push(reply().text("Cron turn finished.").stop())
+
+      // 2. Launch Turn 1 (Prompt turn on Session A) in a background fiber
+      // Wrapped in gateSerialize matching HTTP handler entry (SessionHttpApi.prompt)
+      const fiberPrompt = yield* gateSerialize(
+        prompt.prompt({
+          sessionID: chatPrompt.id,
+          agent: "build",
+          parts: [{ type: "text", text: "Execute long-running prompt turn" }],
+        }),
+        { sessionID: chatPrompt.id },
+      ).pipe(Effect.forkChild)
+
+      // Wait until Turn 1 reaches the LLM and begins streaming
+      // (Total hits so far = 1 from cron setup + 1 from Turn 1 = 2)
+      yield* llm.wait(2)
+      expect((yield* llm.hits).length).toBe(2)
+
+      // Turn 1 is now actively in-flight holding the process-global execution gate permit!
+
+      // 3. While Turn 1 is actively holding the gate permit, trigger Turn 2:
+      // Submit a fast background job on Session B.
+      // Its completion will schedule a notification turn via gateSerialize.
+      const submitted = yield* runtime.submit({
+        sessionID: chatJob.id,
+        assistantMessageID: initialJob.info.id,
+        toolCallID: "conformance-job",
+        command: "printf done",
+        cwd: dir,
+        shell: "/bin/sh",
+        timeout: 10_000,
+        env: process.env,
+      })
+
+      // 4. Also while Turn 1 is actively holding the gate permit, trigger Turn 3:
+      // Trigger cron tick for Session C in a background fiber.
+      const fiberCron = yield* crons.tick(cron.createdAt).pipe(Effect.forkChild)
+
+      // Sleep briefly to ensure background fibers (job completion + cron tick) have executed
+      // and attempted to acquire the execution gate permit.
+      yield* Effect.sleep("100 millis")
+
+      // Conformance assertion:
+      // Because the execution gate permit is held by Turn 1 (Session A),
+      // NEITHER Session B's notification turn NOR Session C's cron turn could enter the LLM!
+      // llm.hits must remain exactly 2.
+      expect((yield* llm.hits).length).toBe(2)
+
+      // The job notification state on Session B must NOT be delivered yet
+      const jobRowWhileBlocked = yield* store.get(chatJob.id, submitted.job.id)
+      expect(jobRowWhileBlocked.notification_state).not.toBe("delivered")
+
+      // 5. Release Turn 1 so it can complete its LLM stream and release the gate permit
+      yield* Deferred.succeed(releaseTurn1, undefined)
+      const promptResult = yield* Fiber.join(fiberPrompt)
+      expect(promptResult.info.role).toBe("assistant")
+
+      // 6. Now that the gate permit is released, Turn 2 (Session B's job notification)
+      // acquires the permit, executes its LLM turn, and delivers.
+      const delivered = yield* pollWithTimeout(
+        store
+          .get(chatJob.id, submitted.job.id)
+          .pipe(Effect.map((row) => (row.notification_state === "delivered" ? row : undefined))),
+        "job notification was not delivered after gate released",
+      )
+      expect(delivered.notification_message_id).toStartWith("msg_")
+
+      // 7. Join cron fiber or tick if deferred by gate busy
+      yield* Fiber.join(fiberCron)
+      const remainingCron = yield* crons.list(chatCron.id)
+      if (remainingCron.length > 0) {
+        yield* crons.tick(cron.createdAt + 60_000)
+      }
+
+      const cronResult = yield* pollWithTimeout(
+        sessions.messages({ sessionID: chatCron.id }).pipe(
+          Effect.map((messages) => {
+            const scheduled = messages.find(
+              (m) =>
+                m.info.role === "user" &&
+                m.parts.some((p) => p.type === "text" && p.text === "Cron turn verification"),
+            )
+            const assistant = messages.find(
+              (m) => m.info.role === "assistant" && m.info.parentID === scheduled?.info.id,
+            )
+            return scheduled && assistant?.info.role === "assistant" && assistant.info.time.completed
+              ? { messages, scheduled }
+              : undefined
+          }),
+        ),
+        "cron turn did not complete after gate released",
+      )
+      expect(cronResult.scheduled).toBeDefined()
+
+      // 8. Invariant verified: all 3 turns executed sequentially with zero concurrency.
+      // Total hits = 1 (cron setup) + 1 (Session A) + 1 (Session B) + 1 (Session C) = 4.
+      expect((yield* llm.hits).length).toBe(4)
     }),
 )
 

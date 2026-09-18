@@ -217,9 +217,10 @@ not an existing component.
    deny scheduling. Medium. Risk: multi-process double-fire — needs the same
    claim/fence discipline jobs already have; do it as a port-quality slice, not a
    quick hack.
-5. **Sequential-queue conformance test.** Mock-harness integration test asserting no
-   two LLM turns ever overlap process-wide (HTTP × notification × cron). Cheap
-   insurance for every future port from the (gate-less) sibling fork. Small.
+5. **Sequential-queue conformance test — SHIPPED.** Mock-harness integration test
+   (`packages/opencode/test/session/prompt.test.ts`) asserting that the process-global
+   execution gate strictly prevents any concurrent LLM turns process-wide across
+   prompt (HTTP), job notification, and cron. Verified with in-flight held prompt turn.
 6. **Live-ollama validation (§7.2).** Close the oldest BUILT-BUT-UNTESTED flag;
    unlocks the lean-profile/weak-model story end-to-end (lean profile exists
    precisely for qwen2.5-class models). Small, but requires an ollama host.
@@ -236,9 +237,9 @@ not an existing component.
    discussion the doc asks for. The §2/§4 fixes are prerequisites anyway (a
    multi-app host multiplies sessions, which multiplies today's cross-session gate
    bypass).
-10. **Doc hygiene pass on durable-memory.** Fix the four §5 stale claims; memory is
-    the team's boot context — false claims there compound (this review found two
-    doc-vs-code lies, §3 and index.md:73).
+10. **Doc hygiene pass on durable-memory — SHIPPED.** Fixed §5 stale claims
+    in `durable-memory/lmctl-polling-findings.md` and `durable-memory/index.md` regarding
+    cron scheduling, background job notification delivery, and execution gate serialization.
 
 ## Uncertainties / second-opinion requests
 
