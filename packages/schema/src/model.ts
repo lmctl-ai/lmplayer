@@ -40,7 +40,46 @@ export const Cost = Schema.Struct({
     read: Schema.Finite,
     write: Schema.Finite,
   }),
-}).annotate({ identifier: "Model.Cost" })
+})
+  .annotate({ identifier: "Model.Cost" })
+  .pipe(
+    statics((_schema) => ({
+      calculate: (
+        costs: readonly Cost[] | undefined,
+        tokens: {
+          readonly input: number
+          readonly output: number
+          readonly reasoning: number
+          readonly cache: {
+            readonly read: number
+            readonly write: number
+          }
+        },
+      ): number => {
+        if (!costs || costs.length === 0) return 0
+        const contextTokens = tokens.input + tokens.cache.read + tokens.cache.write
+        const matchingTier = costs
+          .filter((item) => item.tier?.type === "context" && contextTokens > item.tier.size)
+          .sort((a, b) => (b.tier?.size ?? 0) - (a.tier?.size ?? 0))[0]
+        const costItem = matchingTier ?? costs.find((item) => !item.tier) ?? costs[0]
+        if (!costItem) return 0
+        const inputRate = Number.isFinite(costItem.input) ? costItem.input : 0
+        const outputRate = Number.isFinite(costItem.output) ? costItem.output : 0
+        const cacheReadRate = Number.isFinite(costItem.cache.read) ? costItem.cache.read : 0
+        const cacheWriteRate = Number.isFinite(costItem.cache.write) ? costItem.cache.write : 0
+
+        const total =
+          (tokens.input * inputRate +
+            tokens.output * outputRate +
+            tokens.reasoning * outputRate +
+            tokens.cache.read * cacheReadRate +
+            tokens.cache.write * cacheWriteRate) /
+          1_000_000
+
+        return Math.max(0, Number.isFinite(total) ? Math.round(total * 100_000_000) / 100_000_000 : 0)
+      },
+    })),
+  )
 
 export const Api = Schema.Union([
   Schema.Struct({

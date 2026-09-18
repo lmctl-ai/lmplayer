@@ -132,5 +132,107 @@ test("step finish records settlement without publishing step ended", async () =>
   await Effect.runPromise(publisher.publish(LLMEvent.stepFinish({ index: 0, reason: "stop" })))
 
   expect(published.some((event) => event.type === "session.next.step.ended.2")).toBe(false)
-  expect(publisher.stepSettlement()).toMatchObject({ finish: "stop" })
+  expect(publisher.stepSettlement()).toMatchObject({ finish: "stop", cost: 0 })
+})
+
+test("step finish calculates write-time cost from model cost rates", async () => {
+  const events = EventV2.Service.of({
+    publish: (definition, data) => Effect.succeed({ id: EventV2.ID.create(), type: definition.type, data } as any),
+    subscribe: () => Stream.empty,
+    all: () => Stream.empty,
+    durable: () => Stream.empty,
+    listen: () => Effect.succeed(Effect.void),
+    project: () => Effect.void,
+    replay: () => Effect.void,
+    replayAll: () => Effect.succeed(undefined),
+    remove: () => Effect.void,
+    claim: () => Effect.void,
+  })
+
+  const publisher = createLLMEventPublisher(events, {
+    sessionID,
+    agent: "build",
+    model: {
+      id: ModelV2.ID.make("model"),
+      providerID: ProviderV2.ID.make("provider"),
+    },
+    cost: [
+      {
+        input: 3.0,
+        output: 15.0,
+        cache: { read: 0.3, write: 3.75 },
+      },
+    ],
+  })
+
+  await Effect.runPromise(publisher.publish(LLMEvent.stepStart({ index: 0 })))
+  await Effect.runPromise(
+    publisher.publish(
+      LLMEvent.stepFinish({
+        index: 0,
+        reason: "stop",
+        usage: {
+          inputTokens: 10_000,
+          outputTokens: 2_000,
+          reasoningTokens: 500,
+          cacheReadInputTokens: 5_000,
+          cacheWriteInputTokens: 1_000,
+        },
+      }),
+    ),
+  )
+
+  const settlement = publisher.stepSettlement()
+  expect(settlement).toBeDefined()
+  expect(settlement?.finish).toBe("stop")
+  expect(settlement?.tokens).toEqual({
+    input: 4_000,
+    output: 1_500,
+    reasoning: 500,
+    cache: { read: 5_000, write: 1_000 },
+  })
+  // Cost breakdown:
+  // input: 4,000 * 3.0 / 1M = 0.012
+  // output: 1,500 * 15.0 / 1M = 0.0225
+  // reasoning: 500 * 15.0 / 1M = 0.0075
+  // cache read: 5,000 * 0.3 / 1M = 0.0015
+  // cache write: 1,000 * 3.75 / 1M = 0.00375
+  // total = 0.012 + 0.0225 + 0.0075 + 0.0015 + 0.00375 = 0.04725
+  expect(settlement?.cost).toBe(0.04725)
+})
+
+test("Model.Cost.calculate selects higher tier when context exceeds threshold", () => {
+  const costs = [
+    {
+      input: 3.0,
+      output: 15.0,
+      cache: { read: 0.3, write: 3.75 },
+    },
+    {
+      tier: { type: "context" as const, size: 200_000 },
+      input: 6.0,
+      output: 30.0,
+      cache: { read: 0.6, write: 7.5 },
+    },
+  ]
+
+  // Context under 200k (e.g. 50k input): uses base rates
+  const underTokens = {
+    input: 50_000,
+    output: 10_000,
+    reasoning: 0,
+    cache: { read: 0, write: 0 },
+  }
+  // 50k * 3 / 1M = 0.15; 10k * 15 / 1M = 0.15 => 0.30
+  expect(ModelV2.Cost.calculate(costs, underTokens)).toBe(0.3)
+
+  // Context over 200k (e.g. 250k input): uses 200k tier rates
+  const overTokens = {
+    input: 250_000,
+    output: 10_000,
+    reasoning: 0,
+    cache: { read: 0, write: 0 },
+  }
+  // 250k * 6 / 1M = 1.5; 10k * 30 / 1M = 0.3 => 1.80
+  expect(ModelV2.Cost.calculate(costs, overTokens)).toBe(1.8)
 })

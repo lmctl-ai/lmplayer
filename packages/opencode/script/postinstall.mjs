@@ -28,6 +28,7 @@ const base = `opencode-${platform}-${arch}`
 const sourceBinary = platform === "windows" ? "lmplayer.exe" : "lmplayer"
 const targetBinary = path.join(__dirname, "bin", platform === "windows" ? "lmplayer.exe" : "lmplayer")
 const legacyTarget = path.join(__dirname, "bin", platform === "windows" ? "opencode.exe" : "opencode")
+const aliasTarget = path.join(__dirname, "bin", platform === "windows" ? "lmcode.exe" : "lmcode")
 
 function supportsAvx2() {
   if (arch !== "x64") return false
@@ -151,6 +152,9 @@ function installPackage(name) {
     try {
       copyBinary(src, legacyTarget)
     } catch {}
+    try {
+      copyBinary(src, aliasTarget)
+    } catch {}
     return true
   } finally {
     fs.rmSync(temp, { recursive: true, force: true })
@@ -185,6 +189,9 @@ function main() {
       copyBinary(src, targetBinary)
       try {
         copyBinary(src, legacyTarget)
+      } catch {}
+      try {
+        copyBinary(src, aliasTarget)
       } catch {}
       if (verifyBinary()) return
     } catch {

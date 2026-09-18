@@ -158,9 +158,12 @@ persisted token totals lmctl already reads, PLUS a derived `cost_usd`, latency, 
   test/cli/session-health.test.ts` = 23 pass / 0 fail (from `packages/opencode`). Real offline e2e against a
   persisted dev-DB session produced correct tokens (7.9M total), `cost_usd` $4.22 (derived), tool counts,
   and created/modified files; absent session exits 1 with "Session not found".
-- Follow-up (not done, out of scope): persist real `cost` at write-time in
-  `packages/core/src/session/runner/llm.ts` (currently emits `cost: 0` at `Step.Ended`). Deriving at
-  read-time is sufficient and works retroactively, so this is optional.
+- Write-time cost persistence (DELIVERED 2026-09-18): `Model.Cost.calculate` computes
+  real write-time cost from model pricing rates and token counts (accounting for context tiers,
+  input, output, reasoning, and cache read/write); `SessionRunnerModel` exposes `resolveInfo`;
+  `createLLMEventPublisher` computes and records `cost` in `stepSettlement`; and
+  `packages/core/src/session/runner/llm.ts` publishes `cost: stepSettlement.cost` in
+  `SessionEvent.Step.Ended`, projecting real cost into `SessionTable.cost` and assistant messages.
 
 ## STATUS 2026-09-18 jobs observability extension (delivered)
 
