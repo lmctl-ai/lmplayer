@@ -214,6 +214,16 @@ for (const item of targets) {
     }
   }
 
+  const binDir = `dist/${name}/bin`
+  const ext = item.os === "win32" ? ".exe" : ""
+  const primaryBin = `${binDir}/lmplayer${ext}`
+  for (const alias of ["lmcode", "opencode"]) {
+    const aliasBin = `${binDir}/${alias}${ext}`
+    if (await Bun.file(primaryBin).exists()) {
+      await $`cp ${primaryBin} ${aliasBin}`.nothrow()
+    }
+  }
+
   await $`rm -rf ./dist/${name}/bin/tui`
   await Bun.file(`dist/${name}/package.json`).write(
     JSON.stringify(

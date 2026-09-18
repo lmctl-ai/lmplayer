@@ -7,12 +7,14 @@ ENV BUN_RUNTIME_TRANSPILER_CACHE_PATH=${BUN_RUNTIME_TRANSPILER_CACHE_PATH}
 RUN apk add libgcc libstdc++ ripgrep
 
 FROM base AS build-amd64
-COPY dist/opencode-linux-x64-baseline-musl/bin/lmcode /usr/local/bin/lmcode
+COPY dist/opencode-linux-x64-baseline-musl/bin/lmplayer /usr/local/bin/lmplayer
 
 FROM base AS build-arm64
-COPY dist/opencode-linux-arm64-musl/bin/lmcode /usr/local/bin/lmcode
+COPY dist/opencode-linux-arm64-musl/bin/lmplayer /usr/local/bin/lmplayer
 
 ARG TARGETARCH
 FROM build-${TARGETARCH}
-RUN lmcode --version
-ENTRYPOINT ["lmcode"]
+RUN ln -s /usr/local/bin/lmplayer /usr/local/bin/lmcode && \
+    ln -s /usr/local/bin/lmplayer /usr/local/bin/opencode && \
+    lmplayer --version
+ENTRYPOINT ["lmplayer"]
