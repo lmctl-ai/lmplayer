@@ -8,6 +8,8 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
 - `models [provider] --json` — machine-readable array: {id, provider, name, limit, capabilities, variants[]}.
   `variants[]` are the reasoning-EFFORT choices for that model (low/medium/high/xhigh/max).
 - `models [provider] --refresh` — refresh models.dev cache.
+- `models verify <model>` — verify a model is known and available (format, provider, auth, effort).
+- `models test [provider] [--json] [--timeout ms] [--concurrency n]` — probe each entitled model with a single turn prompt, reporting OK/FAIL (exit non-zero on any fail). Also accepts `--test` flag on `models`.
 - `auth list` (alias `providers list`) — authed providers, each with its entitled model ids indented.
 - `auth list --json` — {credentials_path, providers:[{id,name,type,source,models:[{id,variants}]}]}.
   "Authed" = credentials in auth.json + active provider env vars (auth wins on overlap). Needs an instance.
@@ -41,6 +43,6 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
   postinstall.mjs, ASCII logo + "opencode" describe strings remain (branding follow-up).
 
 ## Known gaps / TODO (not yet built)
-- `models test` (probe each entitled model) — IN PROGRESS. Claude-via-copilot 404s in dev build.
+- `models test [provider]` (probe each entitled model) — SHIPPED (with `--json`, `--timeout`, `--concurrency`).
 - Persistent default effort relies on per-run `--effort` (persisted to model.json state), no config field.
 - Portal memory (external exposure of durable-memory) — pending.

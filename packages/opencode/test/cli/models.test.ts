@@ -167,3 +167,12 @@ describe("resolveVerify – effort/variant validation", () => {
     if (!r.ok) expect(r.reason).toMatch(/none/)
   })
 })
+
+describe("ModelsTestCommand definition", () => {
+  test("ModelsTestCommand has command test [provider]", async () => {
+    const { ModelsTestCommand } = await import("../../src/cli/cmd/models")
+    expect(ModelsTestCommand).toBeDefined()
+    expect(ModelsTestCommand.command).toBe("test [provider]")
+  })
+})
+
