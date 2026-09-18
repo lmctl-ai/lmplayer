@@ -39,17 +39,53 @@ const mapConfigError = <A, R>(effect: Effect.Effect<A, never, R>) =>
     }),
   )
 
+const addScopeOptions = (yargs: Argv) =>
+  yargs
+    .option("scope", {
+      describe: "configuration target scope (project or global)",
+      choices: ["project", "global"] as const,
+      type: "string",
+    })
+    .option("project", {
+      alias: "p",
+      describe: "target project configuration",
+      type: "boolean",
+    })
+    .option("global", {
+      alias: "g",
+      describe: "target global configuration",
+      type: "boolean",
+    })
+    .check((argv) => {
+      if (argv.project && argv.global) {
+        throw new Error("Cannot specify both --project and --global")
+      }
+      if (argv.scope && (argv.project || argv.global)) {
+        throw new Error("Cannot specify both --scope and --project/--global")
+      }
+      return true
+    })
+
 export const ConfigGetCommand = effectCmd({
   command: "get [key]",
-  describe: "read the effective config, optionally a single dotted key",
+  describe: "read config value(s), optionally a single dotted key",
   builder: (yargs) =>
-    yargs.positional("key", {
+    addScopeOptions(yargs).positional("key", {
       describe: "dotted config key (e.g. compaction.auto); omit to print the whole config",
       type: "string",
     }),
   handler: Effect.fn("Cli.config.get")(function* (args) {
     const { Config } = yield* Effect.promise(() => import("@/config/config"))
-    const config = yield* mapConfigError(Config.Service.use((cfg) => cfg.get()))
+    const isProject = args.project || args.scope === "project"
+    const isGlobal = args.global || args.scope === "global"
+
+    const config = yield* mapConfigError(
+      Config.Service.use((cfg) => {
+        if (isProject) return cfg.getProject()
+        if (isGlobal) return cfg.getGlobal()
+        return cfg.get()
+      }),
+    )
 
     if (!args.key) {
       process.stdout.write(JSON.stringify(config, null, 2) + EOL)
@@ -71,9 +107,9 @@ export const ConfigGetCommand = effectCmd({
 
 export const ConfigSetCommand = effectCmd({
   command: "set <key> <value>",
-  describe: "set a global config value (dotted key)",
+  describe: "set a config value (dotted key)",
   builder: (yargs) =>
-    yargs
+    addScopeOptions(yargs)
       .positional("key", { describe: "dotted config key (e.g. model)", type: "string", demandOption: true })
       .positional("value", { describe: "value to set", type: "string", demandOption: true })
       .option("json", { describe: "parse <value> as JSON", type: "boolean" }),
@@ -93,24 +129,78 @@ export const ConfigSetCommand = effectCmd({
       coerced = coerceValue(args.value)
     }
 
+    const isProject = args.project || args.scope === "project"
+
     // Build a nested partial Info from the dotted path (model -> {model}, ...).
     const segments = splitKey(args.key)
     const partial = segments.reduceRight<unknown>((acc, segment) => ({ [segment]: acc }), coerced)
 
-    yield* mapConfigError(Config.Service.use((cfg) => cfg.updateGlobal(partial as never)))
+    if (isProject) {
+      yield* mapConfigError(Config.Service.use((cfg) => cfg.updateProject(partial as never)))
+    } else {
+      yield* mapConfigError(Config.Service.use((cfg) => cfg.updateGlobal(partial as never)))
+    }
     process.stdout.write(`set ${args.key} = ${JSON.stringify(coerced)}${EOL}`)
+
+    // Check if effective config is shadowed by higher precedence configuration
+    const effective = yield* mapConfigError(Config.Service.use((cfg) => cfg.get()))
+    let effectiveValue: unknown = effective
+    let found = true
+    for (const segment of segments) {
+      if (effectiveValue === null || typeof effectiveValue !== "object" || !(segment in effectiveValue)) {
+        found = false
+        break
+      }
+      effectiveValue = (effectiveValue as Record<string, unknown>)[segment]
+    }
+    if (!found || JSON.stringify(effectiveValue) !== JSON.stringify(coerced)) {
+      UI.println(
+        UI.Style.TEXT_WARNING +
+          `! Warning: ${args.key} is shadowed by higher-precedence configuration (effective: ${JSON.stringify(effectiveValue)})` +
+          UI.Style.TEXT_NORMAL,
+      )
+    }
   }),
 })
 
 export const ConfigUnsetCommand = effectCmd({
   command: "unset <key>",
-  describe: "remove a global config value (dotted key)",
+  describe: "remove a config value (dotted key)",
   builder: (yargs) =>
-    yargs.positional("key", { describe: "dotted config key to remove", type: "string", demandOption: true }),
+    addScopeOptions(yargs).positional("key", {
+      describe: "dotted config key to remove",
+      type: "string",
+      demandOption: true,
+    }),
   handler: Effect.fn("Cli.config.unset")(function* (args) {
     const { Config } = yield* Effect.promise(() => import("@/config/config"))
-    const result = yield* mapConfigError(Config.Service.use((cfg) => cfg.unsetGlobal(splitKey(args.key))))
+    const isProject = args.project || args.scope === "project"
+    const segments = splitKey(args.key)
+
+    const result = yield* mapConfigError(
+      Config.Service.use((cfg) => (isProject ? cfg.unsetProject(segments) : cfg.unsetGlobal(segments))),
+    )
     process.stdout.write(`${result.changed ? "unset" : "unchanged"} ${args.key}${EOL}`)
+
+    if (result.changed && !isProject) {
+      const effective = yield* mapConfigError(Config.Service.use((cfg) => cfg.get()))
+      let effectiveValue: unknown = effective
+      let found = true
+      for (const segment of segments) {
+        if (effectiveValue === null || typeof effectiveValue !== "object" || !(segment in effectiveValue)) {
+          found = false
+          break
+        }
+        effectiveValue = (effectiveValue as Record<string, unknown>)[segment]
+      }
+      if (found && effectiveValue !== undefined) {
+        UI.println(
+          UI.Style.TEXT_WARNING +
+            `! Notice: ${args.key} is still set in higher-precedence configuration (effective: ${JSON.stringify(effectiveValue)})` +
+            UI.Style.TEXT_NORMAL,
+        )
+      }
+    }
   }),
 })
 
@@ -149,7 +239,7 @@ export const ConfigVerifyCommand = effectCmd({
       }),
     )
 
-    const sources = configSources()
+    const sources = configSources(process.cwd())
     UI.println(UI.Style.TEXT_SUCCESS_BOLD + "Config OK" + UI.Style.TEXT_NORMAL)
     for (const source of sources) process.stdout.write(`  ${source}${EOL}`)
     process.stdout.write(`  model: ${config.model ?? "(default)"}${EOL}`)
@@ -158,14 +248,26 @@ export const ConfigVerifyCommand = effectCmd({
   }),
 })
 
-function configSources() {
+function configSources(projectDir?: string) {
   const sources: string[] = []
   for (const file of ["opencode.jsonc", "opencode.json", "config.json"]) {
     const candidate = path.join(Global.Path.config, file)
     if (Filesystem.stat(candidate)?.size !== undefined) sources.push(candidate)
   }
+  if (projectDir && projectDir !== Global.Path.config) {
+    const projectCandidates = [
+      path.join(projectDir, "opencode.jsonc"),
+      path.join(projectDir, "opencode.json"),
+      path.join(projectDir, ".opencode", "opencode.jsonc"),
+      path.join(projectDir, ".opencode", "opencode.json"),
+      path.join(projectDir, "config.json"),
+    ]
+    for (const candidate of projectCandidates) {
+      if (Filesystem.stat(candidate)?.size !== undefined) sources.push(candidate)
+    }
+  }
   if (process.env.OPENCODE_CONFIG) sources.push(process.env.OPENCODE_CONFIG)
   if (process.env.OPENCODE_CONFIG_CONTENT) sources.push("OPENCODE_CONFIG_CONTENT (env)")
   if (sources.length === 0) sources.push(Global.Path.config)
-  return sources
+  return Array.from(new Set(sources))
 }

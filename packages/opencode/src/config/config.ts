@@ -12,12 +12,13 @@ import { Auth } from "../auth"
 import { Env } from "../env"
 import { applyEdits, modify } from "jsonc-parser"
 import { InstallationLocal, InstallationVersion } from "@opencode-ai/core/installation/version"
-import { existsSync } from "fs"
+import { existsSync, statSync } from "fs"
 import { Account } from "@/account/account"
 import { isRecord } from "@/util/record"
 import type { ConsoleState } from "@opencode-ai/core/v1/config/console-state"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { InstanceState } from "@/effect/instance-state"
+import { InstanceRef } from "@/effect/instance-ref"
 import { Context, Duration, Effect, Exit, Fiber, Layer, Option, Schema } from "effect"
 import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/unstable/http"
 import { EffectFlock } from "@opencode-ai/core/util/effect-flock"
@@ -125,10 +126,13 @@ type State = {
 export interface Interface {
   readonly get: () => Effect.Effect<Info>
   readonly getGlobal: () => Effect.Effect<Info>
+  readonly getProject: () => Effect.Effect<Info>
   readonly getConsoleState: () => Effect.Effect<ConsoleState>
   readonly update: (config: Info) => Effect.Effect<void>
   readonly updateGlobal: (config: Info) => Effect.Effect<{ info: Info; changed: boolean }>
   readonly unsetGlobal: (pathSegments: string[]) => Effect.Effect<{ info: Info; changed: boolean }>
+  readonly updateProject: (config: Info) => Effect.Effect<{ info: Info; changed: boolean; file: string }>
+  readonly unsetProject: (pathSegments: string[]) => Effect.Effect<{ info: Info; changed: boolean; file: string }>
   readonly invalidate: () => Effect.Effect<void>
   readonly directories: () => Effect.Effect<string[]>
   readonly waitForDependencies: () => Effect.Effect<void>
@@ -146,6 +150,30 @@ function globalConfigFile() {
     if (existsSync(file)) return file
   }
   return candidates[0]
+}
+
+function projectConfigFile(dir: string, fallback = "opencode.json") {
+  const candidates = [
+    path.join(dir, "opencode.jsonc"),
+    path.join(dir, "opencode.json"),
+    path.join(dir, ".opencode", "opencode.jsonc"),
+    path.join(dir, ".opencode", "opencode.json"),
+    path.join(dir, "config.json"),
+  ]
+  for (const file of candidates) {
+    if (existsSync(file)) return file
+  }
+
+  const dotOpencode = path.join(dir, ".opencode")
+  if (existsSync(dotOpencode)) {
+    try {
+      if (statSync(dotOpencode).isDirectory()) {
+        return path.join(dotOpencode, "opencode.json")
+      }
+    } catch {}
+  }
+
+  return path.join(dir, fallback)
 }
 
 function patchJsonc(input: string, patch: unknown, path: string[] = []): string {
@@ -648,21 +676,102 @@ const layer = Layer.effect(
     })
 
     const update = Effect.fn("Config.update")(function* (config: Info) {
-      const dir = yield* InstanceState.directory
-      const file = path.join(dir, "config.json")
-      const existing = yield* loadFile(file)
-      const text = yield* readConfigFile(file)
-      const original = text ? ConfigParse.jsonc(text, file) : writable(existing)
-      yield* fs
-        .writeFileString(
-          file,
-          JSON.stringify(mergeDeep(isRecord(original) ? original : writable(existing), writable(config)), null, 2),
-        )
-        .pipe(Effect.orDie)
+      yield* updateProject(config, "config.json")
     })
 
     const invalidate = Effect.fn("Config.invalidate")(function* () {
       yield* invalidateGlobal
+      const ctx = yield* InstanceRef
+      if (ctx) {
+        yield* InstanceState.invalidate(state).pipe(Effect.ignore)
+      }
+    })
+
+    const getProject = Effect.fn("Config.getProject")(function* () {
+      const dir = yield* InstanceState.directory
+      let result: Info = {}
+      const candidates = [
+        path.join(dir, "config.json"),
+        path.join(dir, "opencode.json"),
+        path.join(dir, "opencode.jsonc"),
+        path.join(dir, ".opencode", "opencode.json"),
+        path.join(dir, ".opencode", "opencode.jsonc"),
+      ]
+      for (const file of candidates) {
+        if (existsSync(file)) {
+          const loaded = yield* loadFile(file)
+          result = mergeConfig(result, loaded)
+        }
+      }
+      return result
+    })
+
+    const updateProject = Effect.fn("Config.updateProject")(function* (config: Info, fallback = "opencode.json") {
+      const dir = yield* InstanceState.directory
+      const file = projectConfigFile(dir, fallback)
+      const before = (yield* readConfigFile(file)) ?? "{}"
+      const patch = writable(config)
+
+      let next: Info
+      let changed: boolean
+      if (!file.endsWith(".jsonc")) {
+        const existing = ConfigParse.jsonc(before, file)
+        ConfigParse.schema(ConfigV1.Info, ConfigV2Compat.lower(normalizeLoadedConfig(existing), file).value, file)
+        const merged = mergeDeep(isRecord(existing) ? existing : {}, patch)
+        const serialized = JSON.stringify(merged, null, 2)
+        next = yield* decodeConfig(merged, file)
+        changed = serialized !== before
+        if (changed) {
+          yield* fs.ensureDir(path.dirname(file)).pipe(Effect.orDie)
+          yield* fs.writeFileString(file, serialized).pipe(Effect.orDie)
+        }
+      } else {
+        const updated = patchJsonc(before, patch)
+        next = yield* decodeConfig(ConfigParse.jsonc(updated, file), file)
+        changed = updated !== before
+        if (changed) {
+          yield* fs.ensureDir(path.dirname(file)).pipe(Effect.orDie)
+          yield* fs.writeFileString(file, updated).pipe(Effect.orDie)
+        }
+      }
+
+      if (changed) yield* invalidate()
+      return { info: next, changed, file }
+    })
+
+    const unsetProject = Effect.fn("Config.unsetProject")(function* (pathSegments: string[]) {
+      const dir = yield* InstanceState.directory
+      const file = projectConfigFile(dir)
+      const before = yield* readConfigFile(file)
+      if (before === undefined) {
+        return { info: {}, changed: false, file }
+      }
+
+      let next: Info
+      let changed: boolean
+      if (!file.endsWith(".jsonc")) {
+        const existing = ConfigParse.schema(ConfigV1.Info, ConfigParse.jsonc(before, file), file)
+        const merged = deletePath(writable(existing), pathSegments)
+        ConfigParse.schema(ConfigV1.Info, merged, file)
+        const serialized = JSON.stringify(merged, null, 2)
+        changed = serialized !== before
+        if (changed) {
+          yield* fs.ensureDir(path.dirname(file)).pipe(Effect.orDie)
+          yield* fs.writeFileString(file, serialized).pipe(Effect.orDie)
+        }
+        next = merged
+      } else {
+        const updated = patchJsonc(before, undefined, pathSegments)
+        next = ConfigParse.schema(ConfigV1.Info, ConfigParse.jsonc(updated, file), file)
+        changed = updated !== before
+        if (changed) {
+          yield* fs.ensureDir(path.dirname(file)).pipe(Effect.orDie)
+          yield* fs.writeFileString(file, updated).pipe(Effect.orDie)
+        }
+      }
+
+      if (changed) yield* invalidate()
+      return { info: next, changed, file }
     })
 
     const updateGlobal = Effect.fn("Config.updateGlobal")(function* (config: Info) {
@@ -722,10 +831,13 @@ const layer = Layer.effect(
     return Service.of({
       get,
       getGlobal,
+      getProject,
       getConsoleState,
       update,
       updateGlobal,
       unsetGlobal,
+      updateProject,
+      unsetProject,
       invalidate,
       directories,
       waitForDependencies,

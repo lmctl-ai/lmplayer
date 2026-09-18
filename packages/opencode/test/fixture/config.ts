@@ -6,10 +6,13 @@ export function make(overrides: Partial<Config.Interface> = {}) {
   return Config.Service.of({
     get: () => Effect.succeed({}),
     getGlobal: () => Effect.succeed({}),
+    getProject: () => Effect.succeed({}),
     getConsoleState: () => Effect.succeed(emptyConsoleState),
     update: () => Effect.void,
     updateGlobal: (config) => Effect.succeed({ info: config, changed: false }),
     unsetGlobal: () => Effect.succeed({ info: {}, changed: false }),
+    updateProject: (config) => Effect.succeed({ info: config, changed: false, file: "opencode.json" }),
+    unsetProject: () => Effect.succeed({ info: {}, changed: false, file: "opencode.json" }),
     invalidate: () => Effect.void,
     directories: () => Effect.succeed([]),
     waitForDependencies: () => Effect.void,

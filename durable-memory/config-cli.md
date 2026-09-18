@@ -12,26 +12,26 @@ Goal: an LLM/agent configures lmcode via CLI commands AND editable config files,
 - Loader validates via `ConfigParse.schema(ConfigV1.Info, ...)` -> throws structured InvalidError/JsonError.
 
 ## Writers (existing machinery)
-- `Config.updateGlobal()` (config.ts:636): jsonc-preserving (uses `patchJsonc`, config.ts:149) + schema-validated.
-  USE THIS for global set. For `.json` it deep-merges + re-validates.
-- `patchJsonc(text, path[], value)` (config.ts:149): jsonc-parser `modify`; value `undefined` DELETES (use for unset).
-- `Config.update()` (project, config.ts:623) is BROKEN for our use (writes config.json not opencode.json(c),
-  no jsonc preservation). Do NOT use for `--project` until fixed.
+- `Config.updateGlobal()` (config.ts): jsonc-preserving (uses `patchJsonc`) + schema-validated.
+  Writes global config; for `.json` it deep-merges + re-validates.
+- `Config.updateProject()` (config.ts): jsonc-preserving + schema-validated.
+  Writes project config (`opencode.json`, `opencode.jsonc`, `.opencode/opencode.json`); auto-creates directory if needed and invalidates instance cache.
+- `Config.unsetGlobal()` / `Config.unsetProject()` (config.ts): dotted path segment removal via `patchJsonc(input, undefined, segments)` in jsonc and deletePath in json, re-validating before writing.
+- `patchJsonc(text, path[], value)` (config.ts): jsonc-parser `modify`; value `undefined` DELETES.
 
 ## Precedence / shadowing (Reviewer3)
 `get()` returns the fully merged effective config: global -> remote well-known -> console/org -> project ->
 managed dir -> macOS managed prefs (override all) -> env flags. So a `set` to the global file can be shadowed.
-`get`/`list` should read effective config; `set`/`unset` should warn when the target key is shadowed.
+`get` reads effective config by default, or project/global with `--project`/`--global`; `set`/`unset` warn on `stderr` when the target key is shadowed by higher-precedence configuration.
 Arrays `disabled_providers`/`enabled_providers` are REPLACED by merge (need add/remove ops, not scalar set);
 `instructions` is concatenated.
 
 ## Status / done
 - DONE (commit 44046cee0): `config verify` command + shared `FormatConfigError` (readable errors at verify
   AND launch). Note: `verify` validates the EFFECTIVE post-bootstrap config (heavier; triggers instance init),
-  not a pure file parse. `configSources()` currently reports GLOBAL candidates only (under-reports project/
-  managed/remote provenance) — follow-up to derive from actually-loaded files.
-- DONE (commit be1fa5385b): `config get/set/unset` (global, jsonc-safe, schema-validated). Enables `config set model <id>` to
-  switch model via CLI. `--project` deferred (writer broken).
+  not a pure file parse. `configSources()` reports both global and project candidate provenance.
+- DONE: `config get/set/unset` with full `--scope <project|global>`, `--project` (`-p`), and `--global` (`-g`) support.
+  Preserves JSONC comments, validates against schema before writing, warns on `stderr` when keys are shadowed, and invalidates in-memory instance caches. Full test suite in `packages/opencode/test/cli/config.test.ts`.
 
 ## Effort default (decision)
 No clean top-level config field for default effort exists. Primary mechanism = per-run `--effort/--variant`
