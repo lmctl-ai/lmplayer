@@ -10,7 +10,7 @@ import { Flag } from "@opencode-ai/core/flag/flag"
 import { Filesystem } from "@/util/filesystem"
 import { Process } from "@/util/process"
 import { NotFoundError } from "@/storage/storage"
-import { createOpencodeClient, type OpencodeClient } from "@opencode-ai/sdk/v2"
+import { createOpencodeClient, type OpencodeClient, type SessionJobInfo } from "@opencode-ai/sdk/v2"
 import { EOL } from "os"
 import path from "path"
 import { which } from "@opencode-ai/core/util/which"
@@ -18,6 +18,7 @@ import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { Provider } from "@/provider/provider"
 import { SessionShare } from "@/share/session"
+import { SessionJob } from "@opencode-ai/schema/session-job"
 
 export type SessionMessage = NonNullable<Awaited<ReturnType<OpencodeClient["session"]["messages"]>>["data"]>[number]
 
@@ -69,6 +70,7 @@ export const SessionCommand = cmd({
       .command(SessionShareCommand)
       .command(SessionUnshareCommand)
       .command(SessionCompactCommand)
+      .command(SessionJobsCommand)
       .demandCommand(),
   async handler() {},
 })
@@ -230,8 +232,11 @@ export const SessionMetricsCommand = effectCmd({
           )
         : Effect.succeed(undefined)
     const pricing = yield* resolvePricing
+    const jobs = yield* Effect.promise(() =>
+      sdk.session.jobs({ sessionID: args.sessionID }).then((r) => r.data ?? []).catch(() => []),
+    )
     yield* Effect.promise(async () => {
-      const metrics = createSessionMetrics(args.sessionID, msgs, { session: info, pricing })
+      const metrics = createSessionMetrics(args.sessionID, msgs, { session: info, pricing, jobs })
       if (args.json) {
         console.log(JSON.stringify(metrics, null, 2))
         return
@@ -556,6 +561,115 @@ export const SessionCompactCommand = effectCmd({
   }),
 })
 
+export const SessionJobsCommand = effectCmd({
+  command: "jobs <sessionID>",
+  describe: "inspect background jobs for a session",
+  builder: (yargs) =>
+    yargs
+      .positional("sessionID", {
+        describe: "session ID to inspect",
+        type: "string",
+        demandOption: true,
+      })
+      .option("output", {
+        alias: "o",
+        describe: "print output for a specific job ID",
+        type: "string",
+      })
+      .option("job", {
+        alias: "j",
+        describe: "specific job ID to inspect",
+        type: "string",
+      })
+      .option("status", {
+        alias: "s",
+        describe: "filter jobs by status",
+        type: "string",
+      })
+      .option("json", {
+        describe: "output JSON",
+        type: "boolean",
+      }),
+  handler: Effect.fn("Cli.session.jobs")(function* (args) {
+    const sdk = yield* localSdk()
+
+    if (args.output) {
+      const result = yield* Effect.promise(async () => {
+        return sdk.session.job2.output({
+          sessionID: args.sessionID,
+          jobID: args.output!,
+        })
+      })
+      if (result.error || !result.data) {
+        const msg = (result.error as { message?: string } | undefined)?.message ?? `Job not found: ${args.output}`
+        return yield* fail(msg)
+      }
+      if (args.json) {
+        console.log(JSON.stringify(result.data, null, 2))
+      } else {
+        if (result.data.untrustedOutput) {
+          process.stdout.write(
+            result.data.untrustedOutput.endsWith("\n")
+              ? result.data.untrustedOutput
+              : result.data.untrustedOutput + "\n",
+          )
+        } else if (result.data.outputExpired) {
+          console.log(`Job ${args.output} output has expired`)
+        } else {
+          console.log(`Job ${args.output} has no output`)
+        }
+      }
+      return
+    }
+
+    if (args.job) {
+      const result = yield* Effect.promise(async () => {
+        return sdk.session.job({
+          sessionID: args.sessionID,
+          jobID: args.job!,
+        })
+      })
+      if (result.error || !result.data) {
+        const msg = (result.error as { message?: string } | undefined)?.message ?? `Job not found: ${args.job}`
+        return yield* fail(msg)
+      }
+      if (args.json) {
+        console.log(JSON.stringify(result.data, null, 2))
+      } else {
+        console.log(formatJobDetail(result.data))
+      }
+      return
+    }
+
+    const result = yield* Effect.promise(async () => {
+      return sdk.session.jobs({ sessionID: args.sessionID })
+    })
+    if (result.error || !result.data) {
+      const msg = (result.error as { message?: string } | undefined)?.message ?? `Session not found: ${args.sessionID}`
+      return yield* fail(msg)
+    }
+
+    let jobs = result.data
+    if (args.status) {
+      jobs = jobs.filter((j) => j.status === args.status)
+    }
+
+    if (args.json) {
+      console.log(JSON.stringify(jobs, null, 2))
+    } else {
+      if (jobs.length === 0) {
+        if (args.status) {
+          console.log(`No background jobs found with status "${args.status}" for session ${args.sessionID}`)
+        } else {
+          console.log(`No background jobs found for session ${args.sessionID}`)
+        }
+        return
+      }
+      console.log(formatJobsTable(jobs))
+    }
+  }),
+})
+
 export const SessionListCommand = effectCmd({
   command: "list",
   describe: "list sessions",
@@ -633,6 +747,75 @@ function formatSessionJSON(sessions: Session.Info[]): string {
     directory: session.directory,
   }))
   return JSON.stringify(jsonData, null, 2)
+}
+
+export type JobInfo = SessionJobInfo
+
+export function formatJobsTable(jobs: JobInfo[]): string {
+  const lines: string[] = []
+  const maxIdWidth = Math.max(16, ...jobs.map((j) => j.id.length))
+  const maxStatusWidth = Math.max(10, ...jobs.map((j) => j.status.length))
+
+  const header = `Job ID${" ".repeat(maxIdWidth - 6)}  Status${" ".repeat(maxStatusWidth - 6)}  Exit  Output     Duration  Created`
+  lines.push(header)
+  lines.push("─".repeat(header.length))
+  for (const job of jobs) {
+    const exitStr = (job.exitCode !== undefined ? String(job.exitCode) : "-").padEnd(4)
+    const outputStr = formatBytes(job.outputBytes).padEnd(9)
+    const durationStr = formatDuration(job).padEnd(8)
+    const ts = parseTimestamp(job.time.started) ?? parseTimestamp(job.time.created) ?? Date.now()
+    const timeStr = Locale.todayTimeOrDateTime(ts)
+    const line = `${job.id.padEnd(maxIdWidth)}  ${job.status.padEnd(maxStatusWidth)}  ${exitStr}  ${outputStr}  ${durationStr}  ${timeStr}`
+    lines.push(line)
+  }
+  return lines.join(EOL)
+}
+
+export function formatJobDetail(job: JobInfo): string {
+  const lines: string[] = [
+    `Job ID: ${job.id}`,
+    `Session ID: ${job.sessionID}`,
+    `Status: ${job.status}`,
+    `Output size: ${formatBytes(job.outputBytes)} (${job.outputBytes} bytes)`,
+    `Exit code: ${job.exitCode !== undefined ? job.exitCode : "-"}`,
+  ]
+  if (job.signal !== undefined) lines.push(`Signal: ${job.signal}`)
+  if (job.errorCode !== undefined) lines.push(`Error code: ${job.errorCode}`)
+  if (job.timeout !== undefined) lines.push(`Timeout: ${job.timeout}ms`)
+  const createdTs = parseTimestamp(job.time.created)
+  if (createdTs !== undefined) lines.push(`Created: ${Locale.todayTimeOrDateTime(createdTs)}`)
+  const startedTs = parseTimestamp(job.time.started)
+  if (startedTs !== undefined) lines.push(`Started: ${Locale.todayTimeOrDateTime(startedTs)}`)
+  const completedTs = parseTimestamp(job.time.completed)
+  if (completedTs !== undefined) lines.push(`Completed: ${Locale.todayTimeOrDateTime(completedTs)}`)
+  return lines.join(EOL)
+}
+
+function parseTimestamp(val: number | string | undefined): number | undefined {
+  if (val === undefined) return undefined
+  const n = typeof val === "number" ? val : Number(val)
+  return Number.isNaN(n) ? undefined : n
+}
+
+function formatBytes(bytes: number | string): string {
+  const n = typeof bytes === "number" ? bytes : Number(bytes)
+  if (Number.isNaN(n)) return "0 B"
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function formatDuration(job: JobInfo): string {
+  const start = parseTimestamp(job.time.started)
+  if (!start) return "-"
+  const end = parseTimestamp(job.time.completed) ?? Date.now()
+  const ms = Math.max(0, end - start)
+  if (ms < 1000) return `${ms}ms`
+  const sec = Math.floor(ms / 1000)
+  if (sec < 60) return `${sec}s`
+  const min = Math.floor(sec / 60)
+  const remainingSec = sec % 60
+  return `${min}m${remainingSec}s`
 }
 
 export function createSessionReport(sessionID: string, messages: SessionMessage[]) {
@@ -720,7 +903,7 @@ type Pricing = {
 export function createSessionMetrics(
   sessionID: string,
   messages: SessionMessage[],
-  options?: { session?: SessionInfo; pricing?: Pricing },
+  options?: { session?: SessionInfo; pricing?: Pricing; jobs?: JobInfo[] },
 ) {
   const report = createSessionReport(sessionID, messages)
 
@@ -790,6 +973,26 @@ export function createSessionMetrics(
       return acc
     }, {})
 
+  const rawJobs = options?.jobs ?? []
+  let jobsActive = 0
+  let jobsCompleted = 0
+  let jobsFailed = 0
+  for (const job of rawJobs) {
+    if (job.status === "queued" || job.status === "starting" || job.status === "running") {
+      jobsActive++
+    } else if (job.status === "completed") {
+      jobsCompleted++
+    } else {
+      jobsFailed++
+    }
+  }
+  const jobs = {
+    total: rawJobs.length,
+    active: jobsActive,
+    completed: jobsCompleted,
+    failed: jobsFailed,
+  }
+
   return {
     schema: "session-metrics/v1" as const,
     sessionID,
@@ -816,6 +1019,7 @@ export function createSessionMetrics(
     },
     tools,
     files: deriveFileBuckets(messages, report.files.paths),
+    jobs,
   }
 }
 
@@ -833,6 +1037,11 @@ export function formatSessionMetrics(metrics: ReturnType<typeof createSessionMet
   lines.push(
     `Files: created ${metrics.files.created.length}, modified ${metrics.files.modified.length}, deleted ${metrics.files.deleted.length}`,
   )
+  if (metrics.jobs.total > 0) {
+    lines.push(
+      `Jobs: total ${metrics.jobs.total}, active ${metrics.jobs.active}, completed ${metrics.jobs.completed}, failed ${metrics.jobs.failed}`,
+    )
+  }
   return lines.join(EOL)
 }
 

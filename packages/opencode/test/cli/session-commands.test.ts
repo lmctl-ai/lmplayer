@@ -28,6 +28,10 @@ describe("opencode session commands (CLI)", () => {
         const compactRes = yield* opencode.spawn(["session", "compact", notFound])
         opencode.expectExit(compactRes, 1)
         expect(compactRes.stderr).toContain(`Session not found: ${notFound}`)
+
+        const jobsRes = yield* opencode.spawn(["session", "jobs", notFound])
+        opencode.expectExit(jobsRes, 1)
+        expect(jobsRes.stderr).toContain(`Session not found: ${notFound}`)
       }),
     60_000,
   )
@@ -101,6 +105,18 @@ describe("opencode session commands (CLI)", () => {
         const compactData = JSON.parse(compactRes.stdout)
         expect(compactData.id).toBe(sessionID)
         expect(compactData.compacted).toBe(true)
+
+        // 9. Inspect session jobs
+        const jobsRes = yield* opencode.spawn(["session", "jobs", sessionID])
+        opencode.expectExit(jobsRes, 0)
+        expect(jobsRes.stdout).toContain(`No background jobs found for session ${sessionID}`)
+
+        // 10. Inspect session jobs with --json
+        const jobsJsonRes = yield* opencode.spawn(["session", "jobs", sessionID, "--json"])
+        opencode.expectExit(jobsJsonRes, 0)
+        const jobsData = JSON.parse(jobsJsonRes.stdout)
+        expect(Array.isArray(jobsData)).toBe(true)
+        expect(jobsData.length).toBe(0)
       }),
     60_000,
   )
