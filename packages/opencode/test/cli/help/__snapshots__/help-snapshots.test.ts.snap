@@ -1,9 +1,7 @@
 // Bun Snapshot v1, https://bun.sh/docs/test/snapshots
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode acp --help 1`] = `
-"lmplayer
-
-lmplayer acp
+"lmplayer acp
 
 start ACP (Agent Client Protocol) server
 
@@ -20,20 +18,18 @@ Options:
       --mdns-domain  custom domain name for mDNS service (default: opencode.local)
                                                                 [string] [default: "opencode.local"]
       --cors         additional domains to allow for CORS                      [array] [default: []]
-      --cwd          working directory [string] [default: "<HOME>"]
-"
+      --cwd          working directory [string] [default: "<HOME>"]"
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode mcp --help 1`] = `
-"lmplayer
-
-lmplayer mcp
+"lmplayer mcp
 
 manage MCP (Model Context Protocol) servers
 
 Commands:
   lmplayer mcp add [name]      add an MCP server
   lmplayer mcp list            list MCP servers and their status                       [aliases: ls]
+  lmplayer mcp show <name>     show MCP server details                                [aliases: get]
   lmplayer mcp auth [name]     authenticate with an OAuth-enabled MCP server
   lmplayer mcp logout [name]   remove OAuth credentials for an MCP server
   lmplayer mcp debug <name>    debug OAuth connection for an MCP server
@@ -46,14 +42,11 @@ Options:
   -v, --version     show version number                                                    [boolean]
       --print-logs  print logs to stderr                                                   [boolean]
       --log-level   log level                   [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
-      --pure        run without external plugins                                           [boolean]
-"
+      --pure        run without external plugins                                           [boolean]"
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode tui --help 1`] = `
-"lmplayer
-
-lmplayer tui [project]
+"lmplayer tui [project]
 
 start lmplayer tui
 
@@ -83,14 +76,11 @@ Options:
                                                                           [boolean] [default: false]
       --mini          start the minimal interactive interface             [boolean] [default: false]
       --no-replay     disable mini session history replay on resume and after resize       [boolean]
-      --replay-limit  cap visible mini replay to the newest N messages                      [number]
-"
+      --replay-limit  cap visible mini replay to the newest N messages                      [number]"
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode attach --help 1`] = `
-"lmplayer
-
-lmplayer attach <url>
+"lmplayer attach <url>
 
 attach to a running lmplayer server
 
@@ -112,14 +102,11 @@ Options:
                                                                                             [string]
       --mini          start the minimal interactive interface             [boolean] [default: false]
       --no-replay     disable mini session history replay on resume and after resize       [boolean]
-      --replay-limit  cap visible mini replay to the newest N messages                      [number]
-"
+      --replay-limit  cap visible mini replay to the newest N messages                      [number]"
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode run --help 1`] = `
-"lmplayer
-
-lmplayer run [message..]
+"lmplayer run [message..]
 
 run lmplayer with a message
 
@@ -157,14 +144,11 @@ Options:
       --thinking           show thinking blocks                                            [boolean]
   -i, --interactive        run in direct interactive split-footer mode    [boolean] [default: false]
       --auto               auto-approve permissions that are not explicitly denied (dangerous!)
-                                                                          [boolean] [default: false]
-"
+                                                                          [boolean] [default: false]"
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode debug --help 1`] = `
-"lmplayer
-
-lmplayer debug
+"lmplayer debug
 
 debugging and troubleshooting tools
 
@@ -188,14 +172,11 @@ Options:
   -v, --version     show version number                                                    [boolean]
       --print-logs  print logs to stderr                                                   [boolean]
       --log-level   log level                   [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
-      --pure        run without external plugins                                           [boolean]
-"
+      --pure        run without external plugins                                           [boolean]"
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode providers --help 1`] = `
-"lmplayer
-
-lmplayer providers
+"lmplayer providers
 
 manage AI providers and credentials
 
@@ -211,34 +192,30 @@ Options:
   -v, --version     show version number                                                    [boolean]
       --print-logs  print logs to stderr                                                   [boolean]
       --log-level   log level                   [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
-      --pure        run without external plugins                                           [boolean]
-"
+      --pure        run without external plugins                                           [boolean]"
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode agent --help 1`] = `
-"lmplayer
-
-lmplayer agent
+"lmplayer agent
 
 manage agents
 
 Commands:
-  lmplayer agent create  create a new agent
-  lmplayer agent list    list all available agents
+  lmplayer agent create         create a new agent
+  lmplayer agent list           list all available agents                              [aliases: ls]
+  lmplayer agent show <name>    show agent details                                    [aliases: get]
+  lmplayer agent delete <name>  delete a custom agent                                  [aliases: rm]
 
 Options:
   -h, --help        show help                                                              [boolean]
   -v, --version     show version number                                                    [boolean]
       --print-logs  print logs to stderr                                                   [boolean]
       --log-level   log level                   [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
-      --pure        run without external plugins                                           [boolean]
-"
+      --pure        run without external plugins                                           [boolean]"
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode upgrade --help 1`] = `
-"lmplayer
-
-lmplayer upgrade [target]
+"lmplayer upgrade [target]
 
 upgrade lmplayer to the latest or a specific version
 
@@ -252,14 +229,11 @@ Options:
       --log-level   log level                   [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
       --pure        run without external plugins                                           [boolean]
   -m, --method      installation method to use
-                          [string] [choices: "curl", "npm", "pnpm", "bun", "brew", "choco", "scoop"]
-"
+                          [string] [choices: "curl", "npm", "pnpm", "bun", "brew", "choco", "scoop"]"
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode uninstall --help 1`] = `
-"lmplayer
-
-lmplayer uninstall
+"lmplayer uninstall
 
 uninstall lmplayer and remove all related files
 
@@ -272,14 +246,11 @@ Options:
   -c, --keep-config  keep configuration files                             [boolean] [default: false]
   -d, --keep-data    keep session data and snapshots                      [boolean] [default: false]
       --dry-run      show what would be removed without removing          [boolean] [default: false]
-  -f, --force        skip confirmation prompts                            [boolean] [default: false]
-"
+  -f, --force        skip confirmation prompts                            [boolean] [default: false]"
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode serve --help 1`] = `
-"lmplayer
-
-lmplayer serve
+"lmplayer serve
 
 starts a headless lmplayer server
 
@@ -295,14 +266,11 @@ Options:
                                                                           [boolean] [default: false]
       --mdns-domain  custom domain name for mDNS service (default: opencode.local)
                                                                 [string] [default: "opencode.local"]
-      --cors         additional domains to allow for CORS                      [array] [default: []]
-"
+      --cors         additional domains to allow for CORS                      [array] [default: []]"
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode web --help 1`] = `
-"lmplayer
-
-lmplayer web
+"lmplayer web
 
 start lmplayer server and open web interface
 
@@ -318,14 +286,11 @@ Options:
                                                                           [boolean] [default: false]
       --mdns-domain  custom domain name for mDNS service (default: opencode.local)
                                                                 [string] [default: "opencode.local"]
-      --cors         additional domains to allow for CORS                      [array] [default: []]
-"
+      --cors         additional domains to allow for CORS                      [array] [default: []]"
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode models --help 1`] = `
-"lmplayer
-
-lmplayer models [provider]
+"lmplayer models [provider]
 
 list all available models
 
@@ -352,14 +317,11 @@ Options:
                                                                                            [boolean]
       --timeout      per-model timeout in milliseconds when using --test   [number] [default: 60000]
       --concurrency  number of models to probe in parallel when using --test (default 1, sequential)
-                                                                               [number] [default: 1]
-"
+                                                                               [number] [default: 1]"
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode stats --help 1`] = `
-"lmplayer
-
-lmplayer stats
+"lmplayer stats
 
 show token usage and cost statistics
 
@@ -373,14 +335,11 @@ Options:
       --tools       number of tools to show (default: all)                                  [number]
       --models      show model statistics (default: hidden). Pass a number to show top N, otherwise
                     shows all
-      --project     filter by project (default: all projects, empty string: current project)[string]
-"
+      --project     filter by project (default: all projects, empty string: current project)[string]"
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode export --help 1`] = `
-"lmplayer
-
-lmplayer export [sessionID]
+"lmplayer export [sessionID]
 
 export session data as JSON
 
@@ -393,14 +352,11 @@ Options:
       --print-logs  print logs to stderr                                                   [boolean]
       --log-level   log level                   [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
       --pure        run without external plugins                                           [boolean]
-      --sanitize    redact sensitive transcript and file data                              [boolean]
-"
+      --sanitize    redact sensitive transcript and file data                              [boolean]"
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode import --help 1`] = `
-"lmplayer
-
-lmplayer import <file>
+"lmplayer import <file>
 
 import session data from JSON file or URL
 
@@ -412,14 +368,11 @@ Options:
   -v, --version     show version number                                                    [boolean]
       --print-logs  print logs to stderr                                                   [boolean]
       --log-level   log level                   [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
-      --pure        run without external plugins                                           [boolean]
-"
+      --pure        run without external plugins                                           [boolean]"
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode github --help 1`] = `
-"lmplayer
-
-lmplayer github
+"lmplayer github
 
 manage GitHub agent
 
@@ -432,14 +385,11 @@ Options:
   -v, --version     show version number                                                    [boolean]
       --print-logs  print logs to stderr                                                   [boolean]
       --log-level   log level                   [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
-      --pure        run without external plugins                                           [boolean]
-"
+      --pure        run without external plugins                                           [boolean]"
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode pr --help 1`] = `
-"lmplayer
-
-lmplayer pr <number>
+"lmplayer pr <number>
 
 fetch and checkout a GitHub PR branch, then run lmplayer
 
@@ -451,14 +401,11 @@ Options:
   -v, --version     show version number                                                    [boolean]
       --print-logs  print logs to stderr                                                   [boolean]
       --log-level   log level                   [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
-      --pure        run without external plugins                                           [boolean]
-"
+      --pure        run without external plugins                                           [boolean]"
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode session --help 1`] = `
-"lmplayer
-
-lmplayer session
+"lmplayer session
 
 manage sessions
 
@@ -478,20 +425,21 @@ Commands:
   lmplayer session compact <sessionID>         compact/summarize a session      [aliases: summarize]
   lmplayer session jobs <sessionID>            inspect background jobs for a session
   lmplayer session crons <sessionID>           inspect scheduled cron jobs for a session
+  lmplayer session todo <sessionID>            list todo tasks for a session
+  lmplayer session diff <sessionID>            show file diffs for a session
+  lmplayer session export [sessionID]          export session data as JSON
+  lmplayer session import <file>               import session data from JSON file or URL
 
 Options:
   -h, --help        show help                                                              [boolean]
   -v, --version     show version number                                                    [boolean]
       --print-logs  print logs to stderr                                                   [boolean]
       --log-level   log level                   [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
-      --pure        run without external plugins                                           [boolean]
-"
+      --pure        run without external plugins                                           [boolean]"
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode plugin --help 1`] = `
-"lmplayer
-
-lmplayer plugin <module>
+"lmplayer plugin <module>
 
 install plugin and update config
 
@@ -505,14 +453,11 @@ Options:
       --log-level   log level                   [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
       --pure        run without external plugins                                           [boolean]
   -g, --global      install in global config                              [boolean] [default: false]
-  -f, --force       replace existing plugin version                       [boolean] [default: false]
-"
+  -f, --force       replace existing plugin version                       [boolean] [default: false]"
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode db --help 1`] = `
-"lmplayer
-
-lmplayer db
+"lmplayer db
 
 database tools
 
@@ -529,14 +474,11 @@ Options:
       --print-logs  print logs to stderr                                                   [boolean]
       --log-level   log level                   [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
       --pure        run without external plugins                                           [boolean]
-      --format      Output format                 [string] [choices: "json", "tsv"] [default: "tsv"]
-"
+      --format      Output format                 [string] [choices: "json", "tsv"] [default: "tsv"]"
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode mcp list --help 1`] = `
-"lmplayer
-
-lmplayer mcp list
+"lmplayer mcp list
 
 list MCP servers and their status
 
@@ -546,13 +488,28 @@ Options:
       --print-logs  print logs to stderr                                                   [boolean]
       --log-level   log level                   [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
       --pure        run without external plugins                                           [boolean]
-"
+      --json        output JSON                                                            [boolean]"
+`;
+
+exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode mcp show --help 1`] = `
+"lmplayer mcp show <name>
+
+show MCP server details
+
+Positionals:
+  name  name of the MCP server                                                   [string] [required]
+
+Options:
+  -h, --help        show help                                                              [boolean]
+  -v, --version     show version number                                                    [boolean]
+      --print-logs  print logs to stderr                                                   [boolean]
+      --log-level   log level                   [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
+      --pure        run without external plugins                                           [boolean]
+      --json        output JSON                                                            [boolean]"
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode mcp add --help 1`] = `
-"lmplayer
-
-lmplayer mcp add [name]
+"lmplayer mcp add [name]
 
 add an MCP server
 
@@ -571,14 +528,11 @@ Options:
       --scope       configuration target scope (project or global)
                                                              [string] [choices: "project", "global"]
   -g, --global      add to global config (equivalent to --scope global)                    [boolean]
-  -p, --project     add to project config (equivalent to --scope project)                  [boolean]
-"
+  -p, --project     add to project config (equivalent to --scope project)                  [boolean]"
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode mcp auth --help 1`] = `
-"lmplayer
-
-lmplayer mcp auth [name]
+"lmplayer mcp auth [name]
 
 authenticate with an OAuth-enabled MCP server
 
@@ -593,14 +547,11 @@ Options:
   -v, --version     show version number                                                    [boolean]
       --print-logs  print logs to stderr                                                   [boolean]
       --log-level   log level                   [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
-      --pure        run without external plugins                                           [boolean]
-"
+      --pure        run without external plugins                                           [boolean]"
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode mcp logout --help 1`] = `
-"lmplayer
-
-lmplayer mcp logout [name]
+"lmplayer mcp logout [name]
 
 remove OAuth credentials for an MCP server
 
@@ -612,14 +563,11 @@ Options:
   -v, --version     show version number                                                    [boolean]
       --print-logs  print logs to stderr                                                   [boolean]
       --log-level   log level                   [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
-      --pure        run without external plugins                                           [boolean]
-"
+      --pure        run without external plugins                                           [boolean]"
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode providers list --help 1`] = `
-"lmplayer
-
-lmplayer providers list
+"lmplayer providers list
 
 list providers and credentials
 
@@ -629,14 +577,11 @@ Options:
       --print-logs  print logs to stderr                                                   [boolean]
       --log-level   log level                   [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
       --pure        run without external plugins                                           [boolean]
-      --json        output as JSON (machine-readable; suppresses human output)             [boolean]
-"
+      --json        output as JSON (machine-readable; suppresses human output)             [boolean]"
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode providers login --help 1`] = `
-"lmplayer
-
-lmplayer providers login [url]
+"lmplayer providers login [url]
 
 log in to a provider
 
@@ -651,14 +596,11 @@ Options:
       --pure            run without external plugins                                       [boolean]
   -p, --provider        provider id or name to log in to (skips provider selection)         [string]
   -m, --method          login method label (skips method selection)                         [string]
-  -k, --key, --api-key  API key (non-interactive; use '-' to read from stdin)               [string]
-"
+  -k, --key, --api-key  API key (non-interactive; use '-' to read from stdin)               [string]"
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode providers logout --help 1`] = `
-"lmplayer
-
-lmplayer providers logout [provider]
+"lmplayer providers logout [provider]
 
 log out from a configured provider
 
@@ -670,14 +612,11 @@ Options:
   -v, --version     show version number                                                    [boolean]
       --print-logs  print logs to stderr                                                   [boolean]
       --log-level   log level                   [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
-      --pure        run without external plugins                                           [boolean]
-"
+      --pure        run without external plugins                                           [boolean]"
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode agent create --help 1`] = `
-"lmplayer
-
-lmplayer agent create
+"lmplayer agent create
 
 create a new agent
 
@@ -699,14 +638,11 @@ Options:
                                     todowrite, websearch, lsp, skill"                       [string]
       --provision                   comma-separated list of tools to provision (profile tool
                                     allowlist)                                              [string]
-  -m, --model                       model to use in the format of provider/model            [string]
-"
+  -m, --model                       model to use in the format of provider/model            [string]"
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode agent list --help 1`] = `
-"lmplayer
-
-lmplayer agent list
+"lmplayer agent list
 
 list all available agents
 
@@ -716,31 +652,29 @@ Options:
       --print-logs  print logs to stderr                                                   [boolean]
       --log-level   log level                   [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
       --pure        run without external plugins                                           [boolean]
-"
+      --json        output JSON                                                            [boolean]
+      --mode        filter by agent mode            [string] [choices: "all", "primary", "subagent"]"
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode session list --help 1`] = `
-"lmplayer
-
-lmplayer session list
+"lmplayer session list
 
 list sessions
 
 Options:
-  -h, --help        show help                                                              [boolean]
-  -v, --version     show version number                                                    [boolean]
-      --print-logs  print logs to stderr                                                   [boolean]
-      --log-level   log level                   [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
-      --pure        run without external plugins                                           [boolean]
-  -n, --max-count   limit to N most recent sessions                                         [number]
-      --format      output format             [string] [choices: "table", "json"] [default: "table"]
-"
+  -h, --help                show help                                                      [boolean]
+  -v, --version             show version number                                            [boolean]
+      --print-logs          print logs to stderr                                           [boolean]
+      --log-level           log level           [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
+      --pure                run without external plugins                                   [boolean]
+  -n, --max-count, --limit  limit to N most recent sessions                                 [number]
+      --roots               only show root sessions                        [boolean] [default: true]
+  -q, --search              filter sessions by title                                        [string]
+      --format              output format              [choices: "table", "json"] [default: "table"]"
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode session delete --help 1`] = `
-"lmplayer
-
-lmplayer session delete <sessionID>
+"lmplayer session delete <sessionID>
 
 delete a session
 
@@ -752,14 +686,11 @@ Options:
   -v, --version     show version number                                                    [boolean]
       --print-logs  print logs to stderr                                                   [boolean]
       --log-level   log level                   [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
-      --pure        run without external plugins                                           [boolean]
-"
+      --pure        run without external plugins                                           [boolean]"
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode github install --help 1`] = `
-"lmplayer
-
-lmplayer github install
+"lmplayer github install
 
 install the GitHub agent
 
@@ -768,14 +699,11 @@ Options:
   -v, --version     show version number                                                    [boolean]
       --print-logs  print logs to stderr                                                   [boolean]
       --log-level   log level                   [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
-      --pure        run without external plugins                                           [boolean]
-"
+      --pure        run without external plugins                                           [boolean]"
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode github run --help 1`] = `
-"lmplayer
-
-lmplayer github run
+"lmplayer github run
 
 run the GitHub agent
 
@@ -786,14 +714,11 @@ Options:
       --log-level   log level                   [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
       --pure        run without external plugins                                           [boolean]
       --event       GitHub mock event to run the agent for                                  [string]
-      --token       GitHub personal access token (github_pat_********)                      [string]
-"
+      --token       GitHub personal access token (github_pat_********)                      [string]"
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode db path --help 1`] = `
-"lmplayer
-
-lmplayer db path
+"lmplayer db path
 
 print the database path
 
@@ -802,6 +727,5 @@ Options:
   -v, --version     show version number                                                    [boolean]
       --print-logs  print logs to stderr                                                   [boolean]
       --log-level   log level                   [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
-      --pure        run without external plugins                                           [boolean]
-"
+      --pure        run without external plugins                                           [boolean]"
 `;

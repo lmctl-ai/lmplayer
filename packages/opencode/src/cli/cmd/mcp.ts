@@ -21,6 +21,7 @@ import { Global } from "@opencode-ai/core/global"
 import { modify, applyEdits, parse } from "jsonc-parser"
 import { Filesystem } from "@/util/filesystem"
 import { Effect } from "effect"
+import { EOL } from "os"
 
 function getAuthStatusIcon(status: MCP.AuthStatus): string {
   switch (status) {
@@ -93,6 +94,205 @@ function authState() {
   })
 }
 
+export type McpListArgs = {
+  json?: boolean
+}
+
+export const listMcp = Effect.fn("Cli.mcp.list")(function* (args: McpListArgs = {}) {
+  const { config, statuses, stored } = yield* listState()
+  const servers = configuredServers(config)
+
+  if (args.json) {
+    process.stdout.write(
+      JSON.stringify(
+        servers.map(([name, serverConfig]) => {
+          const status = statuses[name]
+          const hasOAuth = isMcpRemote(serverConfig) && !!serverConfig.oauth
+          const hasStoredTokens = stored[name]
+          return {
+            name,
+            type: serverConfig.type,
+            enabled: serverConfig.enabled ?? true,
+            status: status?.status ?? "not_initialized",
+            error: status && "error" in status ? status.error : undefined,
+            oauth: hasOAuth,
+            hasStoredTokens: Boolean(hasStoredTokens),
+            ...(serverConfig.type === "remote"
+              ? {
+                  url: serverConfig.url,
+                  headers: serverConfig.headers,
+                }
+              : {
+                  command: serverConfig.command,
+                  cwd: serverConfig.cwd,
+                  environment: serverConfig.environment,
+                }),
+            timeout: serverConfig.timeout,
+          }
+        }),
+        null,
+        2,
+      ) + EOL,
+    )
+    return
+  }
+
+  UI.empty()
+  prompts.intro("MCP Servers")
+
+  if (servers.length === 0) {
+    prompts.log.warn("No MCP servers configured")
+    prompts.outro("Add servers with: lmplayer mcp add")
+    return
+  }
+
+  for (const [name, serverConfig] of servers) {
+    const status = statuses[name]
+    const hasOAuth = isMcpRemote(serverConfig) && !!serverConfig.oauth
+    const hasStoredTokens = stored[name]
+
+    let statusIcon: string
+    let statusText: string
+    let hint = ""
+
+    if (!status) {
+      statusIcon = "○"
+      statusText = "not initialized"
+    } else if (status.status === "connected") {
+      statusIcon = "✓"
+      statusText = "connected"
+      if (hasOAuth && hasStoredTokens) {
+        hint = " (OAuth)"
+      }
+    } else if (status.status === "disabled") {
+      statusIcon = "○"
+      statusText = "disabled"
+    } else if (status.status === "needs_auth") {
+      statusIcon = "⚠"
+      statusText = "needs authentication"
+    } else if (status.status === "needs_client_registration") {
+      statusIcon = "✗"
+      statusText = "needs client registration"
+      hint = "\n    " + status.error
+    } else {
+      statusIcon = "✗"
+      statusText = "failed"
+      hint = "\n    " + status.error
+    }
+
+    const typeHint = serverConfig.type === "remote" ? serverConfig.url : serverConfig.command.join(" ")
+    prompts.log.info(
+      `${statusIcon} ${name} ${UI.Style.TEXT_DIM}${statusText}${hint}\n    ${UI.Style.TEXT_DIM}${typeHint}`,
+    )
+  }
+
+  prompts.outro(`${servers.length} server(s)`)
+})
+
+export type McpShowArgs = {
+  name: string
+  json?: boolean
+}
+
+export const showMcp = Effect.fn("Cli.mcp.show")(function* (args: McpShowArgs) {
+  const { config, statuses, stored } = yield* listState()
+  const serverConfig = config.mcp?.[args.name]
+  if (!serverConfig || !isMcpConfigured(serverConfig)) {
+    return yield* fail(`MCP server not found: ${args.name}`)
+  }
+
+  const status = statuses[args.name]
+  const hasOAuth = isMcpRemote(serverConfig) && !!serverConfig.oauth
+  const hasStoredTokens = stored[args.name]
+
+  if (args.json) {
+    process.stdout.write(
+      JSON.stringify(
+        {
+          name: args.name,
+          type: serverConfig.type,
+          enabled: serverConfig.enabled ?? true,
+          status: status?.status ?? "not_initialized",
+          error: status && "error" in status ? status.error : undefined,
+          oauth: hasOAuth,
+          hasStoredTokens: Boolean(hasStoredTokens),
+          ...(serverConfig.type === "remote"
+            ? {
+                url: serverConfig.url,
+                headers: serverConfig.headers,
+              }
+            : {
+                command: serverConfig.command,
+                cwd: serverConfig.cwd,
+                environment: serverConfig.environment,
+              }),
+          timeout: serverConfig.timeout,
+        },
+        null,
+        2,
+      ) + EOL,
+    )
+    return
+  }
+
+  process.stdout.write(`Server: ${args.name} (${serverConfig.type})` + EOL)
+  process.stdout.write(`  Status: ${status?.status ?? "not initialized"}` + EOL)
+  if (status && "error" in status && status.error) {
+    process.stdout.write(`  Error: ${status.error}` + EOL)
+  }
+  process.stdout.write(`  Enabled: ${serverConfig.enabled ?? true ? "yes" : "no"}` + EOL)
+  if (serverConfig.type === "remote") {
+    process.stdout.write(`  URL: ${serverConfig.url}` + EOL)
+    if (hasOAuth) {
+      process.stdout.write(`  OAuth: supported (stored tokens: ${hasStoredTokens ? "yes" : "no"})` + EOL)
+    }
+    if (serverConfig.headers && Object.keys(serverConfig.headers).length > 0) {
+      process.stdout.write(`  Headers: ${JSON.stringify(serverConfig.headers, null, 2)}` + EOL)
+    }
+  } else {
+    process.stdout.write(`  Command: ${serverConfig.command.join(" ")}` + EOL)
+    if (serverConfig.cwd) {
+      process.stdout.write(`  CWD: ${serverConfig.cwd}` + EOL)
+    }
+    if (serverConfig.environment && Object.keys(serverConfig.environment).length > 0) {
+      process.stdout.write(`  Environment: ${JSON.stringify(serverConfig.environment, null, 2)}` + EOL)
+    }
+  }
+  if (serverConfig.timeout) {
+    process.stdout.write(`  Timeout: ${serverConfig.timeout}ms` + EOL)
+  }
+})
+
+export const McpListCommand = effectCmd({
+  command: "list",
+  aliases: ["ls"],
+  describe: "list MCP servers and their status",
+  builder: (yargs: Argv) =>
+    yargs.option("json", {
+      type: "boolean",
+      describe: "output JSON",
+    }),
+  handler: listMcp,
+})
+
+export const McpShowCommand = effectCmd({
+  command: "show <name>",
+  aliases: ["get"],
+  describe: "show MCP server details",
+  builder: (yargs: Argv) =>
+    yargs
+      .positional("name", {
+        type: "string",
+        describe: "name of the MCP server",
+        demandOption: true,
+      })
+      .option("json", {
+        type: "boolean",
+        describe: "output JSON",
+      }),
+  handler: showMcp,
+})
+
 export const McpCommand = cmd({
   command: "mcp",
   describe: "manage MCP (Model Context Protocol) servers",
@@ -100,6 +300,7 @@ export const McpCommand = cmd({
     yargs
       .command(McpAddCommand)
       .command(McpListCommand)
+      .command(McpShowCommand)
       .command(McpAuthCommand)
       .command(McpLogoutCommand)
       .command(McpDebugCommand)
@@ -108,67 +309,6 @@ export const McpCommand = cmd({
       .command(McpRemoveCommand)
       .demandCommand(),
   async handler() {},
-})
-
-export const McpListCommand = effectCmd({
-  command: "list",
-  aliases: ["ls"],
-  describe: "list MCP servers and their status",
-  handler: Effect.fn("Cli.mcp.list")(function* () {
-    UI.empty()
-    prompts.intro("MCP Servers")
-
-    const { config, statuses, stored } = yield* listState()
-    const servers = configuredServers(config)
-
-    if (servers.length === 0) {
-      prompts.log.warn("No MCP servers configured")
-      prompts.outro("Add servers with: lmplayer mcp add")
-      return
-    }
-
-    for (const [name, serverConfig] of servers) {
-      const status = statuses[name]
-      const hasOAuth = isMcpRemote(serverConfig) && !!serverConfig.oauth
-      const hasStoredTokens = stored[name]
-
-      let statusIcon: string
-      let statusText: string
-      let hint = ""
-
-      if (!status) {
-        statusIcon = "○"
-        statusText = "not initialized"
-      } else if (status.status === "connected") {
-        statusIcon = "✓"
-        statusText = "connected"
-        if (hasOAuth && hasStoredTokens) {
-          hint = " (OAuth)"
-        }
-      } else if (status.status === "disabled") {
-        statusIcon = "○"
-        statusText = "disabled"
-      } else if (status.status === "needs_auth") {
-        statusIcon = "⚠"
-        statusText = "needs authentication"
-      } else if (status.status === "needs_client_registration") {
-        statusIcon = "✗"
-        statusText = "needs client registration"
-        hint = "\n    " + status.error
-      } else {
-        statusIcon = "✗"
-        statusText = "failed"
-        hint = "\n    " + status.error
-      }
-
-      const typeHint = serverConfig.type === "remote" ? serverConfig.url : serverConfig.command.join(" ")
-      prompts.log.info(
-        `${statusIcon} ${name} ${UI.Style.TEXT_DIM}${statusText}${hint}\n    ${UI.Style.TEXT_DIM}${typeHint}`,
-      )
-    }
-
-    prompts.outro(`${servers.length} server(s)`)
-  }),
 })
 
 export const McpAuthCommand = effectCmd({
@@ -307,34 +447,61 @@ export const McpAuthCommand = effectCmd({
   }),
 })
 
+export type McpAuthListArgs = {
+  json?: boolean
+}
+
+export const listMcpAuth = Effect.fn("Cli.mcp.auth.list")(function* (args: McpAuthListArgs = {}) {
+  const { config, auth } = yield* authState()
+  const servers = oauthServers(config)
+
+  if (args.json) {
+    process.stdout.write(
+      JSON.stringify(
+        servers.map(([name, serverConfig]) => ({
+          name,
+          type: serverConfig.type,
+          url: serverConfig.url,
+          authStatus: auth[name] ?? "not_authenticated",
+        })),
+        null,
+        2,
+      ) + EOL,
+    )
+    return
+  }
+
+  UI.empty()
+  prompts.intro("MCP OAuth Status")
+
+  if (servers.length === 0) {
+    prompts.log.warn("No OAuth-capable MCP servers configured")
+    prompts.outro("Done")
+    return
+  }
+
+  for (const [name, serverConfig] of servers) {
+    const authStatus = auth[name]
+    const icon = getAuthStatusIcon(authStatus)
+    const statusText = getAuthStatusText(authStatus)
+    const url = serverConfig.url
+
+    prompts.log.info(`${icon} ${name} ${UI.Style.TEXT_DIM}${statusText}\n    ${UI.Style.TEXT_DIM}${url}`)
+  }
+
+  prompts.outro(`${servers.length} OAuth-capable server(s)`)
+})
+
 export const McpAuthListCommand = effectCmd({
   command: "list",
   aliases: ["ls"],
   describe: "list OAuth-capable MCP servers and their auth status",
-  handler: Effect.fn("Cli.mcp.auth.list")(function* () {
-    UI.empty()
-    prompts.intro("MCP OAuth Status")
-
-    const { config, auth } = yield* authState()
-    const servers = oauthServers(config)
-
-    if (servers.length === 0) {
-      prompts.log.warn("No OAuth-capable MCP servers configured")
-      prompts.outro("Done")
-      return
-    }
-
-    for (const [name, serverConfig] of servers) {
-      const authStatus = auth[name]
-      const icon = getAuthStatusIcon(authStatus)
-      const statusText = getAuthStatusText(authStatus)
-      const url = serverConfig.url
-
-      prompts.log.info(`${icon} ${name} ${UI.Style.TEXT_DIM}${statusText}\n    ${UI.Style.TEXT_DIM}${url}`)
-    }
-
-    prompts.outro(`${servers.length} OAuth-capable server(s)`)
-  }),
+  builder: (yargs: Argv) =>
+    yargs.option("json", {
+      type: "boolean",
+      describe: "output JSON",
+    }),
+  handler: listMcpAuth,
 })
 
 export const McpLogoutCommand = effectCmd({

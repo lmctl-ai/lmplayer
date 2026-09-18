@@ -68,6 +68,16 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
 - `agent create` `[--name n] [--prompt p] [--prompt-file f] [--provision t1,t2] [--path dir] [--json]` — create a new custom agent with prompt-bypass or interactive wizard.
 - `agent delete <name>` (alias `rm`) `[--json]` — safely delete a custom agent file or config entry; guards against deleting built-in agents (`build`, `plan`, `lean`, `summary`, `title`).
 
+## MCP management
+- `mcp list` (alias `ls`) `[--json]` — list configured MCP servers and their connection statuses (with JSON structured output).
+- `mcp show <name>` (alias `get`) `[--json]` — inspect details of a specific MCP server (type, status, enabled, url/command, args, cwd, headers, env, timeout, oauth).
+- `mcp add [name]` — interactive or non-interactive (`--url`, `--header`, `--env`, `--project`, `--global`) MCP server registration.
+- `mcp remove <name>` (alias `rm`) `[--scope project|global] [--project|-p] [--global|-g]` — remove an MCP server from configuration with JSONC formatting preservation.
+- `mcp enable <name>` / `mcp disable <name>` `[--scope project|global] [--project|-p] [--global|-g]` — toggle MCP server enablement without losing configuration.
+- `mcp auth [name]` / `mcp auth list` (alias `ls`) `[--json]` — list OAuth-capable servers and authenticate or inspect auth status.
+- `mcp logout [name]` — remove stored OAuth credentials for an MCP server.
+- `mcp debug <name>` — debug OAuth connection and test server info / tools.
+
 ## Known gaps / TODO (not yet built)
 - `models test [provider]` (probe each entitled model) — SHIPPED (with `--json`, `--timeout`, `--concurrency`).
 - Persistent default effort relies on per-run `--effort` (persisted to model.json state), no config field. (CLOSED: added top-level `default_variant` and `variant` alias to ConfigV1.Info schema, prompt fallback, and config verify).
