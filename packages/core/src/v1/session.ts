@@ -67,3 +67,8 @@ export const ContextOverflowError = NamedError.create("ContextOverflowError", {
   responseBody: Schema.optional(Schema.String),
 })
 export const ContentFilterError = NamedError.create("ContentFilterError", { message: Schema.String })
+export const TurnTimeoutError = NamedError.create("TurnTimeoutError", {
+  message: Schema.String,
+  timeoutMs: NonNegativeInt,
+})
+export type TurnTimeoutError = Schema.Schema.Type<typeof TurnTimeoutError.Schema>

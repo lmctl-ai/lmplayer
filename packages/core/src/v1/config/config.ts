@@ -84,6 +84,10 @@ export const Info = Schema.Struct({
   subagent_depth: Schema.optional(NonNegativeInt).annotate({
     description: "Maximum subagent nesting depth. Defaults to 1, which prevents subagents from launching subagents.",
   }),
+  turn_timeout_ms: Schema.optional(Schema.Union([PositiveInt, Schema.Literal(false)])).annotate({
+    description:
+      "Maximum wall-clock execution time in milliseconds for an aggregate turn (prompt/command/shell/notification/cron). When exceeded, the turn is cancelled with TurnTimeoutError. Defaults to 45 minutes (2700000 ms). Set to false to disable.",
+  }),
   username: Schema.optional(Schema.String).annotate({
     description: "Custom username to display in conversations instead of system username",
   }),

@@ -62,6 +62,10 @@ export const ContextOverflowError = namedError("ContextOverflowError", {
 export const ContentFilterError = namedError("ContentFilterError", {
   message: Schema.String,
 })
+export const TurnTimeoutError = namedError("TurnTimeoutError", {
+  message: Schema.String,
+  timeoutMs: NonNegativeInt,
+})
 
 export class OutputFormatText extends Schema.Class<OutputFormatText>("OutputFormatText")({
   type: Schema.Literal("text"),
@@ -410,6 +414,7 @@ const AssistantErrorSchema = Schema.Union([
   ContextOverflowError.EffectSchema,
   ContentFilterError.EffectSchema,
   APIError.EffectSchema,
+  TurnTimeoutError.EffectSchema,
 ]).annotate({ discriminator: "name" })
 type AssistantError = Schema.Schema.Type<typeof AssistantErrorSchema>
 

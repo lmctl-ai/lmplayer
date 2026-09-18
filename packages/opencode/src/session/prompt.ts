@@ -69,7 +69,7 @@ import { ProjectTable } from "@opencode-ai/core/project/sql"
 import { InstanceRef, WorkspaceRef } from "@/effect/instance-ref"
 import { SessionTurnContext } from "./turn-context"
 import { SessionJobNotificationRetry, type Owner as NotificationRetryOwner } from "./notification-retry"
-import { serialize as gateSerialize } from "@/server/execution-gate"
+import { clearSessionTurnTimeout, getSessionTurnTimeout, serialize as gateSerialize } from "@/server/execution-gate"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -1238,11 +1238,25 @@ const layer = Layer.effect(
           yield* sessions.updateMessage(msg)
 
           const finalizeInterruptedAssistant = Effect.gen(function* () {
+            // The gate records its aggregate deadline before aborting this turn,
+            // so an interruption caused by the deadline is recorded as an
+            // explicit TurnTimeoutError rather than a bare abort. Consume the
+            // record even when the message already completed, or it would leak
+            // onto an unrelated later interruption of this session.
+            const turnTimeoutMs = getSessionTurnTimeout(sessionID)
+            if (turnTimeoutMs !== undefined) clearSessionTurnTimeout(sessionID)
             if (msg.time.completed) return
-            msg.error ??= MessageV2.fromError(new DOMException("Aborted", "AbortError"), {
-              providerID: msg.providerID,
-              aborted: true,
-            })
+            if (turnTimeoutMs !== undefined) {
+              msg.error = new SessionV1.TurnTimeoutError({
+                message: `Turn execution exceeded aggregate deadline of ${turnTimeoutMs}ms`,
+                timeoutMs: turnTimeoutMs,
+              }).toObject()
+            } else {
+              msg.error ??= MessageV2.fromError(new DOMException("Aborted", "AbortError"), {
+                providerID: msg.providerID,
+                aborted: true,
+              })
+            }
             msg.time.completed = Date.now()
             yield* sessions.updateMessage(msg)
           })
@@ -1673,7 +1687,9 @@ const layer = Layer.effect(
       return yield* gateSerialize(
         Effect.gen(function* () {
           const notifications = yield* jobStore.list(sessionID)
-          if (!notifications.some((row) => row.notification_state === "pending" || row.notification_state === "admitted"))
+          if (
+            !notifications.some((row) => row.notification_state === "pending" || row.notification_state === "admitted")
+          )
             return false
           const request = yield* state.wake(sessionID, lastAssistant(sessionID), notify(sessionID))
           if (!request.accepted) return false
@@ -1682,6 +1698,11 @@ const layer = Layer.effect(
             (row) => row.notification_state === "pending" || row.notification_state === "admitted",
           )
         }),
+        // Abort the notification's own run at the deadline: without this the
+        // session runner would stay busy behind a wedged notification turn even
+        // though the gate permit was released, so the next user prompt would
+        // queue behind it forever.
+        { sessionID, onDeadline: state.cancel(sessionID) },
       ).pipe(
         Effect.provideService(InstanceRef, {
           directory: owner.directory,
@@ -1771,8 +1792,14 @@ const layer = Layer.effect(
             if (!request.accepted) return false
             return yield* Deferred.await(persisted)
           }),
+          // A cron turn owns its own runner run, so abort it at the source: the
+          // runner's onInterrupt finalizes the assistant message.
+          { sessionID, onDeadline: state.cancel(sessionID) },
         ).pipe(
           Effect.catchTag("ServiceUnavailable", () => Effect.succeed(false)),
+          // A cron turn that exceeded its own deadline is treated like any other
+          // gate rejection: `false` resets firingMinute so the next tick retries.
+          Effect.catchTag("TurnTimeoutError", () => Effect.succeed(false)),
           Effect.provideService(InstanceRef, {
             directory: owner.directory,
             worktree: owner.project.worktree,

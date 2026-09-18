@@ -1,3 +1,4 @@
+import { NonNegativeInt } from "@opencode-ai/schema/schema"
 import { Schema } from "effect"
 
 export class InvalidRequestError extends Schema.TaggedErrorClass<InvalidRequestError>()(
@@ -55,6 +56,18 @@ export class TimeoutError extends Schema.TaggedErrorClass<TimeoutError>()(
   {
     message: Schema.String,
     operation: Schema.optional(Schema.String),
+  },
+  { httpApiStatus: 504 },
+) {}
+
+// Aggregate turn deadline (execution-gate.ts) exceeded. Distinct from TimeoutError
+// so clients can tell "this run was cancelled, the server is healthy" apart from a
+// downstream operation timeout.
+export class TurnTimeoutError extends Schema.TaggedErrorClass<TurnTimeoutError>()(
+  "TurnTimeoutError",
+  {
+    message: Schema.String,
+    timeoutMs: NonNegativeInt,
   },
   { httpApiStatus: 504 },
 ) {}
