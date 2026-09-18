@@ -39,7 +39,6 @@ flag, which the run path PERSISTS to state file `~/.local/state/lmcode/model.jso
 saveVariant. So "choose effort" sticks across runs without a config field. (See models-and-effort.md.)
 
 ## Non-interactive gaps (Reviewer3, for later)
-- `providers login` has NO non-interactive API-key path (only Prompt.password) — blocker for unattended
-  API-key providers. (Copilot uses OAuth device flow, already working.)
+- `providers login` / `auth login`: RESOLVED — non-interactive API-key path added via `--key` / `--api-key` / `-k <key>`, `--key -` (stdin), and piped non-TTY stdin fallback.
 - `session` has no compact/share/rename/fork CLI. `mcp add` flag-path is global-only.
 - `agent create` always calls the LLM (needs `--prompt`/`--prompt-file` to bypass).
