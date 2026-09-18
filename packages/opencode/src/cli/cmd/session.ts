@@ -1,9 +1,9 @@
 import type { Argv } from "yargs"
 import { Effect } from "effect"
 import { cmd } from "./cmd"
-import { effectCmd, fail } from "../effect-cmd"
+import { CliError, effectCmd, fail } from "../effect-cmd"
 import { Session } from "@/session/session"
-import { SessionID } from "../../session/schema"
+import { MessageID, SessionID } from "../../session/schema"
 import { UI } from "../ui"
 import { Locale } from "@/util/locale"
 import { Flag } from "@opencode-ai/core/flag/flag"
@@ -16,6 +16,8 @@ import path from "path"
 import { which } from "@opencode-ai/core/util/which"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
+import { Provider } from "@/provider/provider"
+import { SessionShare } from "@/share/session"
 
 export type SessionMessage = NonNullable<Awaited<ReturnType<OpencodeClient["session"]["messages"]>>["data"]>[number]
 
@@ -62,6 +64,11 @@ export const SessionCommand = cmd({
       .command(SessionHealthCommand)
       .command(SessionListCommand)
       .command(SessionDeleteCommand)
+      .command(SessionRenameCommand)
+      .command(SessionForkCommand)
+      .command(SessionShareCommand)
+      .command(SessionUnshareCommand)
+      .command(SessionCompactCommand)
       .demandCommand(),
   async handler() {},
 })
@@ -251,7 +258,9 @@ export const SessionHealthCommand = effectCmd({
   handler: Effect.fn("Cli.session.health")(function* (args) {
     const sdk = yield* localSdk()
     const { Provider } = yield* Effect.promise(() => import("@/provider/provider"))
-    const providers = yield* Provider.Service.use((provider) => provider.list()).pipe(Effect.orElseSucceed(() => undefined))
+    const providers = yield* Provider.Service.use((provider) => provider.list()).pipe(
+      Effect.orElseSucceed(() => undefined),
+    )
     yield* Effect.promise(async () => {
       const response = await sdk.session.messages({ sessionID: args.sessionID })
       const health = createSessionHealth(args.sessionID, response.data ?? [], providers)
@@ -276,12 +285,274 @@ export const SessionDeleteCommand = effectCmd({
       demandOption: true,
     }),
   handler: Effect.fn("Cli.session.delete")(function* (args) {
-    const svc = yield* Session.Service
-    const sessionID = SessionID.make(args.sessionID)
-    yield* svc
-      .remove(sessionID)
-      .pipe(Effect.catchIf(NotFoundError.isInstance, () => fail(`Session not found: ${args.sessionID}`)))
+    const sdk = yield* localSdk()
+    const result = yield* Effect.promise(async () => {
+      return sdk.session.delete({
+        sessionID: args.sessionID,
+      })
+    })
+    if (result.error) {
+      return yield* fail(
+        (result.error as { message?: string } | undefined)?.message ?? `Session not found: ${args.sessionID}`,
+      )
+    }
     UI.println(UI.Style.TEXT_SUCCESS_BOLD + `Session ${args.sessionID} deleted` + UI.Style.TEXT_NORMAL)
+  }),
+})
+
+export const SessionRenameCommand = effectCmd({
+  command: "rename <sessionID> <title>",
+  describe: "rename a session",
+  builder: (yargs) =>
+    yargs
+      .positional("sessionID", {
+        describe: "session ID to rename",
+        type: "string",
+        demandOption: true,
+      })
+      .positional("title", {
+        describe: "new title for the session",
+        type: "string",
+        demandOption: true,
+      })
+      .option("json", {
+        describe: "output JSON",
+        type: "boolean",
+      }),
+  handler: Effect.fn("Cli.session.rename")(function* (args) {
+    const sdk = yield* localSdk()
+    const result = yield* Effect.promise(async () => {
+      return sdk.session.update({
+        sessionID: args.sessionID,
+        title: args.title,
+      })
+    })
+    if (result.error) {
+      return yield* fail(
+        (result.error as { message?: string } | undefined)?.message ?? `Session not found: ${args.sessionID}`,
+      )
+    }
+    if (args.json) {
+      console.log(JSON.stringify({ id: args.sessionID, title: args.title }, null, 2))
+    } else {
+      UI.println(
+        UI.Style.TEXT_SUCCESS_BOLD + `Session ${args.sessionID} renamed to "${args.title}"` + UI.Style.TEXT_NORMAL,
+      )
+    }
+  }),
+})
+
+export const SessionForkCommand = effectCmd({
+  command: "fork <sessionID>",
+  describe: "fork a session",
+  builder: (yargs) =>
+    yargs
+      .positional("sessionID", {
+        describe: "session ID to fork",
+        type: "string",
+        demandOption: true,
+      })
+      .option("message", {
+        alias: "m",
+        describe: "message ID up to which to fork",
+        type: "string",
+      })
+      .option("json", {
+        describe: "output JSON",
+        type: "boolean",
+      }),
+  handler: Effect.fn("Cli.session.fork")(function* (args) {
+    const sdk = yield* localSdk()
+    const result = yield* Effect.promise(async () => {
+      return sdk.session.fork({
+        sessionID: args.sessionID,
+        messageID: args.message,
+      })
+    })
+    if (result.error || !result.data) {
+      return yield* fail(
+        (result.error as { message?: string } | undefined)?.message ?? `Session not found: ${args.sessionID}`,
+      )
+    }
+    if (args.json) {
+      console.log(JSON.stringify(result.data, null, 2))
+    } else {
+      UI.println(
+        UI.Style.TEXT_SUCCESS_BOLD + `Forked session ${args.sessionID} to ${result.data.id}` + UI.Style.TEXT_NORMAL,
+      )
+    }
+  }),
+})
+
+export const SessionShareCommand = effectCmd({
+  command: "share <sessionID>",
+  describe: "share a session (create a public share link)",
+  builder: (yargs) =>
+    yargs
+      .positional("sessionID", {
+        describe: "session ID to share",
+        type: "string",
+        demandOption: true,
+      })
+      .option("unshare", {
+        describe: "remove shared link",
+        type: "boolean",
+      })
+      .option("json", {
+        describe: "output JSON",
+        type: "boolean",
+      }),
+  handler: Effect.fn("Cli.session.share")(function* (args) {
+    const sdk = yield* localSdk()
+    if (args.unshare) {
+      const result = yield* Effect.promise(async () => {
+        return sdk.session.unshare({
+          sessionID: args.sessionID,
+        })
+      })
+      if (result.error) {
+        return yield* fail(
+          (result.error as { message?: string } | undefined)?.message ?? `Session not found: ${args.sessionID}`,
+        )
+      }
+      if (args.json) {
+        console.log(JSON.stringify({ id: args.sessionID, shared: false }, null, 2))
+      } else {
+        UI.println(UI.Style.TEXT_SUCCESS_BOLD + `Session ${args.sessionID} unshared` + UI.Style.TEXT_NORMAL)
+      }
+      return
+    }
+
+    const result = yield* Effect.promise(async () => {
+      return sdk.session.share({
+        sessionID: args.sessionID,
+      })
+    })
+    if (result.error || !result.data) {
+      return yield* fail(
+        (result.error as { message?: string } | undefined)?.message ?? `Session not found: ${args.sessionID}`,
+      )
+    }
+    const shareUrl = result.data.share?.url
+    if (args.json) {
+      console.log(JSON.stringify({ id: args.sessionID, url: shareUrl, shared: true }, null, 2))
+    } else {
+      UI.println(
+        UI.Style.TEXT_SUCCESS_BOLD +
+          `Session ${args.sessionID} shared` +
+          (shareUrl ? `: ${shareUrl}` : "") +
+          UI.Style.TEXT_NORMAL,
+      )
+    }
+  }),
+})
+
+export const SessionUnshareCommand = effectCmd({
+  command: "unshare <sessionID>",
+  describe: "unshare a session (revoke public share link)",
+  builder: (yargs) =>
+    yargs
+      .positional("sessionID", {
+        describe: "session ID to unshare",
+        type: "string",
+        demandOption: true,
+      })
+      .option("json", {
+        describe: "output JSON",
+        type: "boolean",
+      }),
+  handler: Effect.fn("Cli.session.unshare")(function* (args) {
+    const sdk = yield* localSdk()
+    const result = yield* Effect.promise(async () => {
+      return sdk.session.unshare({
+        sessionID: args.sessionID,
+      })
+    })
+    if (result.error) {
+      return yield* fail(
+        (result.error as { message?: string } | undefined)?.message ?? `Session not found: ${args.sessionID}`,
+      )
+    }
+    if (args.json) {
+      console.log(JSON.stringify({ id: args.sessionID, shared: false }, null, 2))
+    } else {
+      UI.println(UI.Style.TEXT_SUCCESS_BOLD + `Session ${args.sessionID} unshared` + UI.Style.TEXT_NORMAL)
+    }
+  }),
+})
+
+export const SessionCompactCommand = effectCmd({
+  command: "compact <sessionID>",
+  aliases: ["summarize"],
+  describe: "compact/summarize a session",
+  builder: (yargs) =>
+    yargs
+      .positional("sessionID", {
+        describe: "session ID to compact",
+        type: "string",
+        demandOption: true,
+      })
+      .option("model", {
+        alias: "m",
+        describe: "model to use for compaction (provider/model)",
+        type: "string",
+      })
+      .option("auto", {
+        describe: "mark as auto-compaction",
+        type: "boolean",
+        default: false,
+      })
+      .option("json", {
+        describe: "output JSON",
+        type: "boolean",
+      }),
+  handler: Effect.fn("Cli.session.compact")(function* (args) {
+    const sdk = yield* localSdk()
+    const sessionRes = yield* Effect.promise(async () => {
+      return sdk.session.get({
+        sessionID: args.sessionID,
+      })
+    })
+    if (sessionRes.error || !sessionRes.data) {
+      return yield* fail(
+        (sessionRes.error as { message?: string } | undefined)?.message ?? `Session not found: ${args.sessionID}`,
+      )
+    }
+    const sessionInfo = sessionRes.data
+
+    const providerSvc = yield* Provider.Service
+    let model: { providerID: ProviderV2.ID; modelID: ModelV2.ID }
+    if (args.model) {
+      model = Provider.parseModel(args.model)
+    } else if (sessionInfo.model) {
+      model = {
+        providerID: ProviderV2.ID.make(sessionInfo.model.providerID),
+        modelID: ModelV2.ID.make(sessionInfo.model.id),
+      }
+    } else {
+      model = yield* providerSvc
+        .defaultModel()
+        .pipe(Effect.mapError(() => new CliError({ message: "Could not determine model for compaction" })))
+    }
+
+    const result = yield* Effect.promise(async () => {
+      return sdk.session.summarize({
+        sessionID: args.sessionID,
+        providerID: model.providerID,
+        modelID: model.modelID,
+        auto: args.auto,
+      })
+    })
+
+    if (result.error) {
+      return yield* fail(`Compaction failed: ${JSON.stringify(result.error)}`)
+    }
+
+    if (args.json) {
+      console.log(JSON.stringify({ id: args.sessionID, compacted: true }, null, 2))
+    } else {
+      UI.println(UI.Style.TEXT_SUCCESS_BOLD + `Session ${args.sessionID} compacted` + UI.Style.TEXT_NORMAL)
+    }
   }),
 })
 
@@ -456,7 +727,11 @@ export function createSessionMetrics(
   // Tokens: prefer persisted session row totals; fall back to summed report tokens
   const sessionTokens = options?.session?.tokens
   const sessionSum = sessionTokens
-    ? sessionTokens.input + sessionTokens.output + sessionTokens.reasoning + sessionTokens.cache.read + sessionTokens.cache.write
+    ? sessionTokens.input +
+      sessionTokens.output +
+      sessionTokens.reasoning +
+      sessionTokens.cache.read +
+      sessionTokens.cache.write
     : 0
   const baseTokens = sessionTokens && sessionSum > 0 ? sessionTokens : report.tokens
   const tokens = {
@@ -568,7 +843,9 @@ export function createSessionHealth(
 ) {
   const report = createSessionReport(sessionID, messages)
   const model = latestModel(messages)
-  const contextLimit = model ? providers?.[ProviderV2.ID.make(model.providerID)]?.models[ModelV2.ID.make(model.modelID)]?.limit.context : undefined
+  const contextLimit = model
+    ? providers?.[ProviderV2.ID.make(model.providerID)]?.models[ModelV2.ID.make(model.modelID)]?.limit.context
+    : undefined
   const limit = contextLimit && contextLimit > 0 ? contextLimit : DEFAULT_CONTEXT_LIMIT
   const usedTokens = report.tokens.input + report.tokens.output + report.tokens.reasoning
   return {
@@ -683,10 +960,12 @@ function touchedFiles(tool: string, input: unknown, metadata: unknown) {
 }
 
 function pathFields(operation: FileOperation, input: unknown, metadata: unknown, fields: string[]) {
-  return [input, metadata].flatMap((source) => fields.flatMap((field) => pathFromField(source, field))).map((path) => ({
-    operation,
-    path,
-  }))
+  return [input, metadata]
+    .flatMap((source) => fields.flatMap((field) => pathFromField(source, field)))
+    .map((path) => ({
+      operation,
+      path,
+    }))
 }
 
 function pathArrayFields(operation: FileOperation, input: unknown, metadata: unknown, fields: string[]) {
