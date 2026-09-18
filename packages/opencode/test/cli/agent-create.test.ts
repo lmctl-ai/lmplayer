@@ -1,9 +1,19 @@
 import { describe, expect, test } from "bun:test"
 import { Cause, Effect, Exit } from "effect"
-import { AgentCreateCommand, createAgent } from "../../src/cli/cmd/agent"
+import {
+  AgentCreateCommand,
+  createAgent,
+  AgentListCommand,
+  AgentShowCommand,
+  AgentDeleteCommand,
+  listAgents,
+  showAgent,
+  deleteAgent,
+} from "../../src/cli/cmd/agent"
 import { CliError } from "../../src/cli/effect-cmd"
 import { InstanceRef } from "../../src/effect/instance-ref"
 import { InstanceRuntime } from "../../src/project/instance-runtime"
+import { AppRuntime } from "../../src/effect/app-runtime"
 import { tmpdir } from "../fixture/fixture"
 import yargs, { type Argv } from "yargs"
 import fs from "fs/promises"
@@ -292,6 +302,167 @@ describe("AgentCreateCommand handler (non-interactive prompt bypass)", () => {
 
       expect(parsed.content.trim()).toBe("Custom agent prompt")
       expect(parsed.data.model).toBe("openai/gpt-4o")
+    } finally {
+      await InstanceRuntime.disposeInstance(ctx)
+    }
+  })
+})
+
+describe("AgentListCommand, AgentShowCommand, AgentDeleteCommand", () => {
+  const runList = (args: any, ctx: any) =>
+    AppRuntime.runPromise(listAgents(args).pipe(Effect.provideService(InstanceRef, ctx)))
+
+  const runShow = (args: any, ctx: any) =>
+    AppRuntime.runPromise(showAgent(args).pipe(Effect.provideService(InstanceRef, ctx)))
+
+  const runShowExit = (args: any, ctx: any) =>
+    AppRuntime.runPromiseExit(showAgent(args).pipe(Effect.provideService(InstanceRef, ctx)))
+
+  const runDelete = (args: any, ctx: any) =>
+    AppRuntime.runPromise(deleteAgent(args).pipe(Effect.provideService(InstanceRef, ctx)))
+
+  const runDeleteExit = (args: any, ctx: any) =>
+    AppRuntime.runPromiseExit(deleteAgent(args).pipe(Effect.provideService(InstanceRef, ctx)))
+
+  test("AgentListCommand registers json and mode options and aliases ls", () => {
+    expect(AgentListCommand.aliases).toContain("ls")
+    const builder = AgentListCommand.builder as (y: Argv) => Argv<any>
+    const parser = builder(yargs())
+    const options = (parser as any).getOptions()
+    expect(options.key.json).toBeDefined()
+    expect(options.key.mode).toBeDefined()
+  })
+
+  test("AgentShowCommand registers name and json options and aliases get", () => {
+    expect(AgentShowCommand.aliases).toContain("get")
+    const builder = AgentShowCommand.builder as (y: Argv) => Argv<any>
+    const parser = builder(yargs())
+    const options = (parser as any).getOptions()
+    expect(options.key.json).toBeDefined()
+  })
+
+  test("AgentDeleteCommand registers name and json options and aliases rm", () => {
+    expect(AgentDeleteCommand.aliases).toContain("rm")
+    const builder = AgentDeleteCommand.builder as (y: Argv) => Argv<any>
+    const parser = builder(yargs())
+    const options = (parser as any).getOptions()
+    expect(options.key.json).toBeDefined()
+  })
+
+  test("AgentListCommand lists agents in json format and filters by mode", async () => {
+    const tmp = await tmpdir({ git: true })
+    const dir = tmp.path
+    const ctx = await InstanceRuntime.load({ directory: dir })
+
+    try {
+      let captured = ""
+      const originalWrite = process.stdout.write
+      process.stdout.write = ((chunk: any) => {
+        captured += String(chunk)
+        return true
+      }) as any
+
+      try {
+        await runList({ json: true }, ctx)
+      } finally {
+        process.stdout.write = originalWrite
+      }
+
+      const list = JSON.parse(captured)
+      expect(Array.isArray(list)).toBe(true)
+      expect(list.some((a: any) => a.name === "build")).toBe(true)
+
+      // Test mode filtering
+      let primaryCaptured = ""
+      process.stdout.write = ((chunk: any) => {
+        primaryCaptured += String(chunk)
+        return true
+      }) as any
+
+      try {
+        await runList({ json: true, mode: "primary" }, ctx)
+      } finally {
+        process.stdout.write = originalWrite
+      }
+
+      const primaryList = JSON.parse(primaryCaptured)
+      expect(primaryList.every((a: any) => a.mode === "primary" || a.mode === "all")).toBe(true)
+    } finally {
+      await InstanceRuntime.disposeInstance(ctx)
+    }
+  })
+
+  test("AgentShowCommand displays agent details and fails for missing agent", async () => {
+    const tmp = await tmpdir({ git: true })
+    const dir = tmp.path
+    const ctx = await InstanceRuntime.load({ directory: dir })
+
+    try {
+      let captured = ""
+      const originalWrite = process.stdout.write
+      process.stdout.write = ((chunk: any) => {
+        captured += String(chunk)
+        return true
+      }) as any
+
+      try {
+        await runShow({ name: "build", json: true }, ctx)
+      } finally {
+        process.stdout.write = originalWrite
+      }
+
+      const data = JSON.parse(captured)
+      expect(data.name).toBe("build")
+      expect(data.mode).toBeDefined()
+      expect(data.permission).toBeDefined()
+
+      // Missing agent
+      const exit = await runShowExit({ name: "nonexistent-agent", json: true }, ctx)
+      expect(Exit.isFailure(exit)).toBe(true)
+    } finally {
+      await InstanceRuntime.disposeInstance(ctx)
+    }
+  })
+
+  test("AgentDeleteCommand fails for built-in agents and deletes custom agents", async () => {
+    const tmp = await tmpdir({ git: true })
+    const dir = tmp.path
+    const ctx = await InstanceRuntime.load({ directory: dir })
+
+    try {
+      // 1. Built-in agent cannot be deleted
+      const exit = await runDeleteExit({ name: "build" }, ctx)
+      expect(Exit.isFailure(exit)).toBe(true)
+
+      // 2. Create custom agent
+      const createEffect = createAgent({
+        name: "temp-agent",
+        prompt: "Temporary agent",
+        mode: "subagent",
+      }).pipe(Effect.provideService(InstanceRef, ctx)) as Effect.Effect<void, CliError, never>
+      await Effect.runPromise(createEffect)
+
+      const agentFile = path.join(dir, ".opencode", "agents", "temp-agent.md")
+      expect(await fs.stat(agentFile).then(() => true).catch(() => false)).toBe(true)
+
+      // 3. Delete custom agent
+      let captured = ""
+      const originalWrite = process.stdout.write
+      process.stdout.write = ((chunk: any) => {
+        captured += String(chunk)
+        return true
+      }) as any
+
+      try {
+        await runDelete({ name: "temp-agent", json: true }, ctx)
+      } finally {
+        process.stdout.write = originalWrite
+      }
+
+      const deleteData = JSON.parse(captured)
+      expect(deleteData.name).toBe("temp-agent")
+      expect(deleteData.deleted).toBe(true)
+      expect(await fs.stat(agentFile).then(() => true).catch(() => false)).toBe(false)
     } finally {
       await InstanceRuntime.disposeInstance(ctx)
     }
