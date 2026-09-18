@@ -3050,6 +3050,110 @@ noLLMServer.instance(
   },
 )
 
+// Profiles Phase 2: Per-model auto-selection
+
+noLLMServer.instance(
+  "auto-selects lean profile for weak model when agent is omitted",
+  () =>
+    Effect.gen(function* () {
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const session = yield* sessions.create({})
+
+      const message = yield* prompt.prompt({
+        sessionID: session.id,
+        model: { providerID: ProviderV2.ID.make("ollama"), modelID: ModelV2.ID.make("qwen2.5:7b") },
+        noReply: true,
+        parts: [{ type: "text", text: "hello qwen" }],
+      })
+      if (message.info.role !== "user") throw new Error("expected user message")
+      expect(message.info.agent).toBe("lean")
+
+      const sessionData = yield* sessions.get(session.id)
+      expect(sessionData.agent).toBe("lean")
+
+      yield* sessions.remove(session.id)
+    }),
+  { config: cfg },
+)
+
+noLLMServer.instance(
+  "preserves explicit agent override even for weak models",
+  () =>
+    Effect.gen(function* () {
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const session = yield* sessions.create({})
+
+      const message = yield* prompt.prompt({
+        sessionID: session.id,
+        agent: "build",
+        model: { providerID: ProviderV2.ID.make("ollama"), modelID: ModelV2.ID.make("qwen2.5") },
+        noReply: true,
+        parts: [{ type: "text", text: "hello qwen with build" }],
+      })
+      if (message.info.role !== "user") throw new Error("expected user message")
+      expect(message.info.agent).toBe("build")
+
+      yield* sessions.remove(session.id)
+    }),
+  { config: cfg },
+)
+
+noLLMServer.instance(
+  "defaults to build for non-weak model when agent is omitted",
+  () =>
+    Effect.gen(function* () {
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const session = yield* sessions.create({})
+
+      const message = yield* prompt.prompt({
+        sessionID: session.id,
+        model: { providerID: ProviderV2.ID.make("test"), modelID: ModelV2.ID.make("test-model") },
+        noReply: true,
+        parts: [{ type: "text", text: "hello standard model" }],
+      })
+      if (message.info.role !== "user") throw new Error("expected user message")
+      expect(message.info.agent).toBe("build")
+
+      yield* sessions.remove(session.id)
+    }),
+  { config: cfg },
+)
+
+noLLMServer.instance(
+  "auto-selects custom configured profile matching model when agent is omitted",
+  () =>
+    Effect.gen(function* () {
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const session = yield* sessions.create({})
+
+      const message = yield* prompt.prompt({
+        sessionID: session.id,
+        model: { providerID: ProviderV2.ID.make("ollama"), modelID: ModelV2.ID.make("qwen2.5") },
+        noReply: true,
+        parts: [{ type: "text", text: "hello custom qwen" }],
+      })
+      if (message.info.role !== "user") throw new Error("expected user message")
+      expect(message.info.agent).toBe("custom-qwen-profile")
+
+      yield* sessions.remove(session.id)
+    }),
+  {
+    config: {
+      ...cfg,
+      agent: {
+        "custom-qwen-profile": {
+          model: "ollama/qwen2.5",
+          provision: ["bash", "read"],
+        },
+      },
+    },
+  },
+)
+
 // Agent / command resolution errors
 
 noLLMServer.instance(
