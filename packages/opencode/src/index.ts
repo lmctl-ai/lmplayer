@@ -178,18 +178,24 @@ try {
   // graceful shutdown can take before we fall back to the original hard-exit behavior.
   const { AppRuntime } = await import("@/effect/app-runtime")
   const { SessionJobRuntime } = await import("@/session/job-runtime")
+  const { SessionCronRuntime } = await import("@/session/cron-runtime")
   const shutdown = await Promise.race([
-    AppRuntime.runPromise(SessionJobRuntime.Service.pipe(Effect.flatMap((service) => service.shutdown()))).then(
+    AppRuntime.runPromise(
+      Effect.all([
+        SessionJobRuntime.Service.pipe(Effect.flatMap((service) => service.shutdown())),
+        SessionCronRuntime.Service.pipe(Effect.flatMap((service) => service.shutdown())),
+      ]),
+    ).then(
       () => ({ type: "complete" as const }),
       (error) => ({ type: "failed" as const, error }),
     ),
     new Promise<{ type: "timeout" }>((resolve) => setTimeout(() => resolve({ type: "timeout" }), 10000)),
   ])
   if (shutdown.type === "failed") {
-    process.stderr.write(`Background job shutdown failed: ${errorMessage(shutdown.error)}${EOL}`)
+    process.stderr.write(`Background tasks shutdown failed: ${errorMessage(shutdown.error)}${EOL}`)
   }
   if (shutdown.type === "timeout") {
-    process.stderr.write(`Background job shutdown exceeded 10 seconds; forcing process exit${EOL}`)
+    process.stderr.write(`Background tasks shutdown exceeded 10 seconds; forcing process exit${EOL}`)
   }
   process.exit()
 }

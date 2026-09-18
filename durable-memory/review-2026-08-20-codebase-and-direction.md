@@ -203,8 +203,9 @@ not an existing component.
    introducing migration `20260815012222_add_notification_claim_pid` and `processAlive`
    checks to prevent stealing claims from alive processes.
 3. **Unify shutdown (§4) — SHIPPED.** `gracefulShutdown` in `execution-gate.ts`
-   executes bounded `SessionJobRuntime.shutdown()` and clears cron on SIGTERM/SIGINT
-   (commit `c51e7ff0ed`).
+   and one-shot CLI exit in `index.ts` execute bounded, concurrent `SessionJobRuntime.shutdown()`
+   and `SessionCronRuntime.shutdown()`, terminating active subprocesses, clearing cron entries,
+   and disabling tick loops on SIGTERM/SIGINT and process exit.
 4. **Durable cron + `cron`/`job` permission governance (§5) — SHIPPED.**
    `cron create` and `job stop` permission asks implemented in tools; documented
    in `design-permissions.md`; covered by dedicated unit test suites (`test/tool/cron.test.ts`
