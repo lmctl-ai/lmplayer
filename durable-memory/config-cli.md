@@ -41,4 +41,4 @@ saveVariant. So "choose effort" sticks across runs without a config field. (See 
 ## Non-interactive gaps (Reviewer3, for later)
 - `providers login` / `auth login`: RESOLVED — non-interactive API-key path added via `--key` / `--api-key` / `-k <key>`, `--key -` (stdin), and piped non-TTY stdin fallback.
 - `agent create`: RESOLVED — added `--prompt`, `--prompt-file`, `--name`, and `--provision` to bypass LLM generation and enable fully deterministic, non-interactive agent creation.
-- `session` has no compact/share/rename/fork CLI. `mcp add` flag-path is global-only.
+- `session` has no compact/share/rename/fork CLI. `mcp add` flag-path is RESOLVED — added `--scope <project|global>`, `--project` (`-p`), and `--global` (`-g`) flags with support for `.opencode/opencode.json` and root `opencode.json` project configuration.

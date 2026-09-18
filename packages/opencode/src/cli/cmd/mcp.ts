@@ -405,6 +405,10 @@ async function resolveConfigPath(baseDir: string, global = false) {
     }
   }
 
+  if (!global && (await Filesystem.isDir(path.join(baseDir, ".opencode")))) {
+    return path.join(baseDir, ".opencode", "opencode.json")
+  }
+
   // Default to opencode.json if none exist
   return candidates[0]
 }
@@ -448,12 +452,34 @@ export const McpAddCommand = effectCmd({
         describe: "HTTP header for a remote MCP server (KEY=VALUE)",
         type: "string",
         array: true,
+      })
+      .option("scope", {
+        describe: "configuration target scope (project or global)",
+        choices: ["project", "global"] as const,
+        type: "string",
+      })
+      .option("global", {
+        alias: ["g"],
+        describe: "add to global config (equivalent to --scope global)",
+        type: "boolean",
+      })
+      .option("project", {
+        alias: ["p"],
+        describe: "add to project config (equivalent to --scope project)",
+        type: "boolean",
       }),
   handler: Effect.fn("Cli.mcp.add")(function* (args) {
     const maybeCtx = yield* InstanceRef
     if (!maybeCtx) return yield* Effect.die("InstanceRef not provided")
     const ctx = maybeCtx
+    const projectDir = ctx.project.vcs === "git" && ctx.worktree !== "/" ? ctx.worktree : ctx.directory
     yield* Effect.promise(async () => {
+      const isGlobal = Boolean(args.global || args.scope === "global")
+      const isProject = Boolean(args.project || args.scope === "project")
+      if (isGlobal && isProject) {
+        throw new Error("Cannot specify both global and project scope")
+      }
+
       const command = args["--"] ?? []
       if (!args.name && (args.url || args.env?.length || args.header?.length || command.length)) {
         throw new Error("A server name is required for non-interactive MCP configuration")
@@ -494,7 +520,9 @@ export const McpAddCommand = effectCmd({
               ...(Object.keys(environment).length ? { environment } : {}),
             }
 
-        const configPath = await resolveConfigPath(Global.Path.config, true)
+        const configPath = isProject
+          ? await resolveConfigPath(projectDir, false)
+          : await resolveConfigPath(Global.Path.config, true)
         await addMcpToConfig(args.name, mcpConfig, configPath)
         prompts.log.success(`MCP server "${args.name}" added to ${configPath}`)
         return
@@ -507,13 +535,17 @@ export const McpAddCommand = effectCmd({
 
       // Resolve config paths eagerly for hints
       const [projectConfigPath, globalConfigPath] = await Promise.all([
-        resolveConfigPath(ctx.worktree),
+        resolveConfigPath(projectDir),
         resolveConfigPath(Global.Path.config, true),
       ])
 
       // Determine scope
       let configPath = globalConfigPath
-      if (project.vcs === "git") {
+      if (isProject) {
+        configPath = projectConfigPath
+      } else if (isGlobal) {
+        configPath = globalConfigPath
+      } else if (project.vcs === "git") {
         const scopeResult = await prompts.select({
           message: "Location",
           options: [
