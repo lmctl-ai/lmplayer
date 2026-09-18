@@ -144,20 +144,16 @@ Fix: `gracefulShutdown` should run the same bounded `SessionJobRuntime.shutdown(
   REFRESH drain-then-exit flow is a designed feature, design-orchestrator.md) this
   makes cron near-useless across recycles. Candidate: persist cron entries next to
   jobs.
-- **Naming trap: three "background job" things now coexist.**
+- **Naming trap: three "background job" things now coexist — MITIGATED.**
   (1) `packages/core/src/background-job.ts` `BackgroundJob` — in-memory task/
   subagent registry; (2) `packages/opencode/src/background/job.ts` — instance-scoped
-  wrapper of (1) (note: its `import { BackgroundJob as CoreBackgroundJob }` violates
-  the AGENTS.md no-alias rule); (3) `SessionJob*` (store/runtime) + the `job` TOOL +
-  `bash background:true`. `run-state.ts` has `cancelBackgroundJobs` (cancels (1))
-  while `SessionJobRuntime.cancelSession` cancels (3). CHANGELOG says "no naming
-  collision" — true for identifiers, false for humans. Cheap mitigation: a
-  paragraph in AGENTS.md or a rename of (1) to TaskRegistry when V2 touches it.
-- **Stale docs the port obsoleted:** index.md:73 still says the port is "NOT YET
-  merged to dev" (it merged as `8b2b7c250`/`9d098f4e8`); lmctl-polling-findings.md
-  §1 claims "NO scheduler ... cron: NONE re-invoke the model" (cron-runtime now
-  does exactly that); index.md:47 bootstrap says bun is at
-  `/tmp/opencode/.bun/bin/bun` (this host: `~/.bun/bin/bun`).
+  wrapper of (1) (import alias resolved to direct `Service, make` imports); (3) `SessionJob*`
+  (store/runtime) + the `job` TOOL + `bash background:true`. `run-state.ts` has
+  `cancelBackgroundJobs` (cancels (1)) while `SessionJobRuntime.cancelSession` cancels (3).
+  Mitigated by explicit disambiguation section in `AGENTS.md`.
+- **Stale docs the port obsoleted — RESOLVED.** `lmctl-polling-findings.md`
+  and `durable-memory/index.md` updated to reflect the current reality of `SessionCronRuntime`
+  and `SessionJobRuntime`.
 
 ## 6. Test + typecheck status (run 2026-08-21 on this host)
 
