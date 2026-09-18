@@ -105,6 +105,7 @@ export const McpCommand = cmd({
       .command(McpDebugCommand)
       .command(McpEnableCommand)
       .command(McpDisableCommand)
+      .command(McpRemoveCommand)
       .demandCommand(),
   async handler() {},
 })
@@ -991,4 +992,71 @@ const makeMcpToggleCommand = (action: "enable" | "disable") =>
 
 export const McpEnableCommand = makeMcpToggleCommand("enable")
 export const McpDisableCommand = makeMcpToggleCommand("disable")
+
+async function removeMcpFromConfig(name: string, configPath: string) {
+  if (!(await Filesystem.exists(configPath))) return configPath
+  const text = await Filesystem.readText(configPath)
+  const edits = modify(text, ["mcp", name], undefined, {
+    formattingOptions: { tabSize: 2, insertSpaces: true },
+  })
+  const result = applyEdits(text, edits)
+  await Filesystem.write(configPath, result)
+  return configPath
+}
+
+export const McpRemoveCommand = effectCmd({
+  command: "remove <name>",
+  aliases: ["rm"],
+  describe: "remove a configured MCP server",
+  builder: (yargs) =>
+    addMcpScopeOptions(
+      yargs.positional("name", {
+        describe: "name of the MCP server to remove",
+        type: "string",
+        demandOption: true,
+      }),
+    ),
+  handler: Effect.fn("Cli.mcp.remove")(function* (args) {
+    const maybeCtx = yield* InstanceRef
+    if (!maybeCtx) return yield* Effect.die("InstanceRef not provided")
+    const ctx = maybeCtx
+    const projectDir = ctx.project.vcs === "git" && ctx.worktree !== "/" ? ctx.worktree : ctx.directory
+
+    const isGlobal = Boolean(args.global || args.scope === "global")
+    const isProject = Boolean(args.project || args.scope === "project")
+
+    const projectConfigPath = yield* Effect.promise(() => resolveConfigPath(projectDir, false))
+    const globalConfigPath = yield* Effect.promise(() => resolveConfigPath(Global.Path.config, true))
+
+    let targetPath: string
+    if (isProject) {
+      const has = yield* Effect.promise(() => hasMcpServer(args.name, projectConfigPath))
+      if (!has) {
+        return yield* fail(`MCP server "${args.name}" not found in project configuration (${projectConfigPath})`)
+      }
+      targetPath = projectConfigPath
+    } else if (isGlobal) {
+      const has = yield* Effect.promise(() => hasMcpServer(args.name, globalConfigPath))
+      if (!has) {
+        return yield* fail(`MCP server "${args.name}" not found in global configuration (${globalConfigPath})`)
+      }
+      targetPath = globalConfigPath
+    } else {
+      const hasProject = yield* Effect.promise(() => hasMcpServer(args.name, projectConfigPath))
+      if (hasProject) {
+        targetPath = projectConfigPath
+      } else {
+        const hasGlobal = yield* Effect.promise(() => hasMcpServer(args.name, globalConfigPath))
+        if (hasGlobal) {
+          targetPath = globalConfigPath
+        } else {
+          return yield* fail(`MCP server "${args.name}" not found in configuration`)
+        }
+      }
+    }
+
+    yield* Effect.promise(() => removeMcpFromConfig(args.name, targetPath))
+    prompts.log.success(`MCP server "${args.name}" removed from ${targetPath}`)
+  }),
+})
 

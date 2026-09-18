@@ -18,6 +18,7 @@ export const ConfigCommand = cmd({
       .command(ConfigGetCommand)
       .command(ConfigSetCommand)
       .command(ConfigUnsetCommand)
+      .command(ConfigListCommand)
       .demandCommand(),
   async handler() {},
 })
@@ -102,6 +103,28 @@ export const ConfigGetCommand = effectCmd({
 
     const out = value !== null && typeof value === "object" ? JSON.stringify(value, null, 2) : String(value)
     process.stdout.write(out + EOL)
+  }),
+})
+
+export const ConfigListCommand = effectCmd({
+  command: "list",
+  aliases: ["ls"],
+  describe: "list configuration (merged effective, or scoped)",
+  builder: (yargs) => addScopeOptions(yargs),
+  handler: Effect.fn("Cli.config.list")(function* (args) {
+    const { Config } = yield* Effect.promise(() => import("@/config/config"))
+    const isProject = args.project || args.scope === "project"
+    const isGlobal = args.global || args.scope === "global"
+
+    const config = yield* mapConfigError(
+      Config.Service.use((cfg) => {
+        if (isProject) return cfg.getProject()
+        if (isGlobal) return cfg.getGlobal()
+        return cfg.get()
+      }),
+    )
+
+    process.stdout.write(JSON.stringify(config, null, 2) + EOL)
   }),
 })
 

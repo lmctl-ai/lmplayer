@@ -227,4 +227,35 @@ describe("opencode config (cli command)", () => {
       }),
     60_000,
   )
+
+  cliIt.concurrent(
+    "lists configuration via list and ls alias with scoping",
+    ({ opencode }) =>
+      Effect.gen(function* () {
+        yield* run(opencode, ["config", "set", "model", "test-provider/global-list-model", "--global"])
+        yield* run(opencode, ["config", "set", "small_model", "test-provider/project-small-model", "--project"])
+
+        // Effective config list contains both
+        const listEffective = yield* run(opencode, ["config", "list"])
+        opencode.expectExit(listEffective, 0)
+        const parsedEffective = JSON.parse(listEffective.stdout)
+        expect(parsedEffective.model).toBe("test-provider/global-list-model")
+        expect(parsedEffective.small_model).toBe("test-provider/project-small-model")
+
+        // Scoped project list via ls alias
+        const listProject = yield* run(opencode, ["config", "ls", "-p"])
+        opencode.expectExit(listProject, 0)
+        const parsedProject = JSON.parse(listProject.stdout)
+        expect(parsedProject.small_model).toBe("test-provider/project-small-model")
+        expect(parsedProject.model).toBeUndefined()
+
+        // Scoped global list via --global
+        const listGlobal = yield* run(opencode, ["config", "list", "--global"])
+        opencode.expectExit(listGlobal, 0)
+        const parsedGlobal = JSON.parse(listGlobal.stdout)
+        expect(parsedGlobal.model).toBe("test-provider/global-list-model")
+      }),
+    60_000,
+  )
 })
+
