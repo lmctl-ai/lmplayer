@@ -52,6 +52,12 @@ Additive/backward-compatible: consumers must ignore unknown fields; new fields a
     "modified": ["src/existing.ts"],
     "deleted": [],
     "touched": ["src/existing.ts", "src/new.ts"]
+  },
+  "jobs": {
+    "total": 3,
+    "active": 0,
+    "completed": 2,
+    "failed": 1
   }
 }
 ```
@@ -99,6 +105,10 @@ Additive/backward-compatible: consumers must ignore unknown fields; new fields a
   - `touched`: sorted union of all touched paths.
   - Created-vs-modified is best-effort (no full FS snapshot); prefer authoritative tool metadata,
     fall back to first-touch operation heuristic.
+- `jobs`: job counts for the session: `total` (count of all session background jobs), `active`
+  (`queued`, `starting`, `running`), `completed` (`completed`), and `failed` (`failed`,
+  `timed_out`, `cancelled`, `interrupted`). Sourced from `SessionJobStore` / HTTP API; defaults to
+  all 0s when no jobs exist or store is unreachable.
 
 ## Persisted vs derived (summary for the report)
 
@@ -142,3 +152,10 @@ persisted token totals lmctl already reads, PLUS a derived `cost_usd`, latency, 
 - Follow-up (not done, out of scope): persist real `cost` at write-time in
   `packages/core/src/session/runner/llm.ts` (currently emits `cost: 0` at `Step.Ended`). Deriving at
   read-time is sufficient and works retroactively, so this is optional.
+
+## STATUS 2026-09-18 jobs observability extension (delivered)
+
+- Extended `session-metrics/v1` schema with additive `jobs: { total, active, completed, failed }` breakdown.
+- CLI subcommand added: `lmplayer session jobs <sessionID> [--json] [--output <jobID>] [--job <jobID>] [--status <status>]`.
+- Tested in `test/cli/session-metrics.test.ts`, `test/cli/session-jobs.test.ts`, and `test/cli/session-commands.test.ts`.
+

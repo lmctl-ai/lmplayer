@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { createSessionMetrics, type SessionMessage } from "@/cli/cmd/session"
+import { createSessionMetrics, type JobInfo, type SessionMessage } from "@/cli/cmd/session"
 
 type ToolPart = Extract<SessionMessage["parts"][number], { type: "tool" }>
 type TextPart = Extract<SessionMessage["parts"][number], { type: "text" }>
@@ -421,5 +421,75 @@ describe("session metrics", () => {
     expect(metrics.files.modified).not.toContain("/tmp/proj/dst.ts")
     expect(metrics.files.touched).toContain("/tmp/proj/src.ts")
     expect(metrics.files.touched).toContain("/tmp/proj/dst.ts")
+  })
+
+  test("jobs: defaults to all zeros when options.jobs omitted", () => {
+    const metrics = createSessionMetrics("ses_no_jobs", [])
+    expect(metrics.jobs).toEqual({
+      total: 0,
+      active: 0,
+      completed: 0,
+      failed: 0,
+    })
+  })
+
+  test("jobs: correctly counts active, completed, and failed jobs", () => {
+    const jobs: JobInfo[] = [
+      {
+        id: "job_1",
+        sessionID: "ses_jobs",
+        status: "queued" as const,
+        outputBytes: 0,
+        outputTruncated: false,
+        outputExpired: false,
+        time: { created: 1000, updated: 1000 },
+      },
+      {
+        id: "job_2",
+        sessionID: "ses_jobs",
+        status: "running" as const,
+        outputBytes: 100,
+        outputTruncated: false,
+        outputExpired: false,
+        time: { created: 1000, updated: 1000 },
+      },
+      {
+        id: "job_3",
+        sessionID: "ses_jobs",
+        status: "completed" as const,
+        outputBytes: 200,
+        outputTruncated: false,
+        outputExpired: false,
+        exitCode: 0,
+        time: { created: 1000, updated: 2000 },
+      },
+      {
+        id: "job_4",
+        sessionID: "ses_jobs",
+        status: "failed" as const,
+        outputBytes: 50,
+        outputTruncated: false,
+        outputExpired: false,
+        exitCode: 1,
+        time: { created: 1000, updated: 2000 },
+      },
+      {
+        id: "job_5",
+        sessionID: "ses_jobs",
+        status: "timed_out" as const,
+        outputBytes: 0,
+        outputTruncated: false,
+        outputExpired: false,
+        time: { created: 1000, updated: 2000 },
+      },
+    ]
+
+    const metrics = createSessionMetrics("ses_jobs", [], { jobs })
+    expect(metrics.jobs).toEqual({
+      total: 5,
+      active: 2, // queued + running
+      completed: 1, // completed
+      failed: 2, // failed + timed_out
+    })
   })
 })
