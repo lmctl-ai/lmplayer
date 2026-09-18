@@ -29011,6 +29011,12 @@
           },
           "permissions": {
             "$ref": "#/components/schemas/PermissionV2Ruleset"
+          },
+          "provision": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "required": ["id", "request", "mode", "hidden", "permissions"],
