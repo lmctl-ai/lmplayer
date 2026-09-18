@@ -78,19 +78,24 @@ Additive/backward-compatible: consumers must ignore unknown fields; new fields a
   directly). Fall back to summing `step-finish` part tokens / assistant-message tokens when the row
   totals are absent/zero. `total = input + output + reasoning + cache.read + cache.write`.
   `cache` stays `{read, write}` to match the existing lmctl token contract.
-- `cost_usd` (== `cost.usd`): **DERIVED** at query time = tokens × model pricing. Persisted
-  `session.cost` is currently always 0 (the V2 runner emits `cost: 0` at `Step.Ended`,
-  `packages/core/src/session/runner/llm.ts`), so cost must be computed from the token totals and the
-  model's per-million rates. Deriving at read time also works retroactively on all existing sessions.
-  - Formula (rates are USD per 1,000,000 tokens; reasoning billed at the OUTPUT rate — matches
-    `Session.getUsage` in `packages/opencode/src/session/session.ts`):
+- `cost_usd` (== `cost.usd`): PRIMARY source = the persisted write-time cost from the `session`
+  row (`session.cost`, populated via write-time cost calculation `Model.Cost.calculate`). When
+  present and positive, `cost_usd = session.cost`, `cost.source = "persisted"`, and
+  `pricing_available = true`. When `session.cost` is 0 or absent (e.g. legacy sessions before
+  write-time persistence), falls back to **DERIVED** at query time = tokens × model pricing
+  (`cost.source = "derived"`, `pricing_available = true`). When neither persisted cost nor pricing
+  rates are available, `cost_usd = 0`, `cost.source = "unavailable"`, and `pricing_available = false`
+  (never crash on missing pricing).
+  - Deriving at read time ensures backward compatibility and offline fallback for older sessions.
+  - Formula for derived fallback (rates are USD per 1,000,000 tokens; reasoning billed at the OUTPUT
+    rate — matches `Session.getUsage` in `packages/opencode/src/session/session.ts`):
     `cost = (input*rate.input + output*rate.output + reasoning*rate.output
              + cache.read*rate.cache.read + cache.write*rate.cache.write) / 1e6`
   - Persisted `tokens_input` is already NON-cached input and `tokens_output` already EXCLUDES
     reasoning, so apply rates directly (do not re-subtract cache/reasoning).
-  - `cost.source`: `"derived"` when pricing resolved; `"unavailable"` when pricing could not be
-    resolved offline. `pricing_available`: boolean. When unavailable, `cost_usd = 0` and
-    `pricing_available = false` (never crash on missing pricing).
+  - `cost.source`: `"persisted"` when read from write-time `session.cost`; `"derived"` when
+    recomputed at query time from token counts and pricing rates; `"unavailable"` when pricing
+    could not be resolved offline and no persisted cost exists. `pricing_available`: boolean.
 - `latency_ms` (all DERIVED):
   - per-turn duration = assistant `time.completed - time.created` (skip turns without `completed`).
   - `total` = sum of per-turn durations. `per_turn_p50` / `per_turn_max` over per-turn durations.
@@ -120,12 +125,14 @@ Additive/backward-compatible: consumers must ignore unknown fields; new fields a
 
 ## Persisted vs derived (summary for the report)
 
-- PERSISTED (read straight from SQLite/store): token totals + model on the `session` row; and the
+- PERSISTED (read straight from SQLite/store): write-time `session.cost` (`Model.Cost.calculate`
+  projected into `SessionTable.cost`); token totals + model on the `session` row; and the
   messages/parts (which carry tool names, tool `time.start/end`, assistant `time.created/completed`,
   and tool inputs/metadata used for file derivation); background jobs (`session_job` table); and
   cron schedules (`session_cron` table).
-- DERIVED at query time: `cost_usd` (tokens × pricing), all `latency_ms` aggregates
-  (p50/max/thinking-vs-tool), `tools` counts, and `files` created/modified/deleted bucketing.
+- DERIVED at query time: fallback `cost_usd` (tokens × pricing, when `session.cost` is 0 or absent),
+  all `latency_ms` aggregates (p50/max/thinking-vs-tool), `tools` counts, and `files`
+  created/modified/deleted bucketing.
 
 ## Implementation shape
 
@@ -177,5 +184,14 @@ persisted token totals lmctl already reads, PLUS a derived `cost_usd`, latency, 
 - CLI subcommand added: `lmplayer session crons <sessionID> [--json] [--cron <cronID>] [--delete <cronID>]`.
 - Durable SQLite persistence in `@opencode-ai/core` schema (`session_cron` table with foreign key cascade to `session.id`) and `SessionCronRuntime` SQLite storage & restart recovery.
 - Tested in `test/database-migration.test.ts`, `test/session/cron-runtime.test.ts`, `test/cli/session-metrics.test.ts`, `test/cli/session-crons.test.ts`, and `test/cli/session-commands.test.ts`.
+
+## STATUS 2026-09-18 persisted write-time cost integration (delivered)
+
+- Updated `createSessionMetrics` in `packages/opencode/src/cli/cmd/session.ts` to check `options?.session?.cost > 0` first:
+  - Reports `cost_usd = session.cost`, `cost.source = "persisted"`, and `pricing_available = true`.
+  - Seamlessly falls back to derived token multiplication (`cost.source = "derived"`) when `session.cost` is 0/absent and `pricing` is provided.
+  - Falls back to `cost.source = "unavailable"` when both persisted cost and pricing rates are absent.
+- Updated `formatSessionMetrics` human-readable output to display `Cost: $... (persisted)`.
+- Added unit tests in `packages/opencode/test/cli/session-metrics.test.ts` (30/30 pass) covering persisted cost precedence, fallbacks, and formatted display.
 
 
