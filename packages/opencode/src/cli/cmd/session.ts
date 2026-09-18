@@ -87,15 +87,38 @@ export const SessionLsCommand = effectCmd({
   command: "ls",
   describe: "list sessions",
   builder: (yargs) =>
-    yargs.option("json", {
-      describe: "output JSON",
-      type: "boolean",
-    }),
+    yargs
+      .option("limit", {
+        alias: ["n", "max-count"],
+        describe: "limit number of sessions",
+        type: "number",
+      })
+      .option("roots", {
+        describe: "only show root sessions",
+        type: "boolean",
+      })
+      .option("search", {
+        alias: ["q"],
+        describe: "filter sessions by title",
+        type: "string",
+      })
+      .option("json", {
+        describe: "output JSON",
+        type: "boolean",
+      }),
   handler: Effect.fn("Cli.session.ls")(function* (args) {
     const sdk = yield* localSdk()
     yield* Effect.promise(async () => {
-      const response = await sdk.session.list()
-      const sessions = (response.data ?? []).toSorted((a, b) => b.time.updated - a.time.updated)
+      const limit = Number.isInteger(args.limit) && (args.limit as number) > 0 ? (args.limit as number) : undefined
+      const response = await sdk.session.list({
+        limit,
+        roots: args.roots,
+        search: args.search,
+      })
+      let sessions = (response.data ?? []).toSorted((a, b) => b.time.updated - a.time.updated)
+      if (limit !== undefined && sessions.length > limit) {
+        sessions = sessions.slice(0, limit)
+      }
       const rows = await Promise.all(
         sessions.map(async (session) => ({
           session,
@@ -870,24 +893,36 @@ export const SessionListCommand = effectCmd({
   builder: (yargs) =>
     yargs
       .option("max-count", {
-        alias: "n",
+        alias: ["n", "limit"],
         describe: "limit to N most recent sessions",
         type: "number",
       })
+      .option("roots", {
+        describe: "only show root sessions",
+        type: "boolean",
+        default: true,
+      })
+      .option("search", {
+        alias: ["q"],
+        describe: "filter sessions by title",
+        type: "string",
+      })
       .option("format", {
         describe: "output format",
-        type: "string",
         choices: ["table", "json"],
         default: "table",
       }),
   handler: Effect.fn("Cli.session.list")(function* (args) {
-    const sessions = yield* Session.Service.use((svc) => svc.list({ roots: true, limit: args.maxCount }))
+    const limit = args.maxCount ?? (args as any).limit
+    const sessions = yield* Session.Service.use((svc) =>
+      svc.list({ roots: args.roots, search: args.search, limit }),
+    )
 
     if (sessions.length === 0) return
 
     const output = args.format === "json" ? formatSessionJSON(sessions) : formatSessionTable(sessions)
 
-    const shouldPaginate = process.stdout.isTTY && !args.maxCount && args.format === "table"
+    const shouldPaginate = process.stdout.isTTY && !limit && args.format === "table"
 
     if (shouldPaginate) {
       yield* Effect.promise(async () => {

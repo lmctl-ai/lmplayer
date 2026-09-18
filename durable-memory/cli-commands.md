@@ -26,6 +26,8 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
   (invalid write -> readable error, file unchanged). Value coercion: bool/number/json/string;
   `--json` parses value as JSON (subtree). e.g. `config set model github-copilot/gpt-5.4`.
 - `config unset <key>` — delete a key (validate-before-write).
+- `config list` (alias `ls`) — list merged effective or scoped configuration.
+- `config path [--scope project|global] [--project|-p] [--global|-g] [--json]` — print resolved configuration file path(s) (project candidate in cwd, global config in `~/.config/lmplayer`, or active sources provenance).
 - `config verify` — validate effective config; prints "Config OK" + model/small_model/default_agent/default_variant,
   or readable issues (file + `dot.path: message`) with exit 1. Same readable error fails fast at launch.
 - Dotted-key limitation: keys containing literal dots (some mcp names) need `--json` subtree set.
@@ -43,7 +45,7 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
   postinstall.mjs, ASCII logo + "opencode" describe strings remain (branding follow-up).
 
 ## Session management
-- `session ls [--json]` / `session list [--max-count n] [--format table|json]` — list active and recent sessions.
+- `session ls [--limit n] [-n n] [--roots] [--search q] [--json]` / `session list [--max-count n] [--limit n] [-n n] [--roots] [--search q] [--format table|json]` — list active and recent sessions with server-side limit bounding and message fanout reduction, root-session filtering, and title search.
 - `session tail <id> [--lines n] [--format text|json]` — tail/stream messages from a session.
 - `session report <id> [--json]` — report session activity, tokens, text sizes, duration, and touched files.
 - `session metrics <id> [--json]` — stable `session-metrics/v1` per-session machine-queryable metrics (tokens, write-time/persisted cost, latencies, tools, files, jobs, crons).

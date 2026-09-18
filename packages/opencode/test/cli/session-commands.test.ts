@@ -95,6 +95,23 @@ describe("opencode session commands (CLI)", () => {
         expect(lsData.some((s: any) => s.id === sessionID && s.title === "Second Title")).toBe(true)
         expect(lsData.some((s: any) => s.id === forkData.id)).toBe(true)
 
+        // 5a. Verify limit/max-count flag
+        const limitRes = yield* opencode.spawn(["session", "ls", "--limit", "1", "--json"])
+        opencode.expectExit(limitRes, 0)
+        const limitData = JSON.parse(limitRes.stdout)
+        expect(limitData.length).toBe(1)
+
+        // 5b. Verify search flag
+        const searchRes = yield* opencode.spawn(["session", "ls", "--search", "Second Title", "--json"])
+        opencode.expectExit(searchRes, 0)
+        const searchData = JSON.parse(searchRes.stdout)
+        expect(searchData.some((s: any) => s.id === sessionID)).toBe(true)
+
+        // 5c. Verify text output format
+        const textRes = yield* opencode.spawn(["session", "ls", "-n", "1"])
+        opencode.expectExit(textRes, 0)
+        expect(textRes.stderr).toContain(limitData[0].id)
+
         // 6. Delete the forked session
         const deleteRes = yield* opencode.spawn(["session", "delete", forkData.id])
         opencode.expectExit(deleteRes, 0)

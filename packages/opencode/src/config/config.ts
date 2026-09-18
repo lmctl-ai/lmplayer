@@ -142,7 +142,7 @@ export class Service extends Context.Service<Service, Interface>()("@opencode/Co
 
 export const use = serviceUse(Service)
 
-function globalConfigFile() {
+export function globalConfigFile() {
   const candidates = ["opencode.jsonc", "opencode.json", "config.json"].map((file) =>
     path.join(Global.Path.config, file),
   )
@@ -152,7 +152,7 @@ function globalConfigFile() {
   return candidates[0]
 }
 
-function projectConfigFile(dir: string, fallback = "opencode.json") {
+export function projectConfigFile(dir: string, fallback = "opencode.json") {
   const candidates = [
     path.join(dir, "opencode.jsonc"),
     path.join(dir, "opencode.json"),
