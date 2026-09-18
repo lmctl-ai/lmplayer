@@ -5,9 +5,22 @@ import { Cause, Deferred, Effect, Exit, Ref } from "effect"
 import { TestClock } from "effect/testing"
 import { MAX_CRON_JOBS_PER_SESSION, RECURRING_LIFETIME, SessionCronRuntime, matchesCron } from "@/session/cron-runtime"
 import { SessionID } from "@/session/schema"
+import { Database } from "@opencode-ai/core/database/database"
+import { SessionCronTable, SessionTable } from "@opencode-ai/core/session/sql"
+import { ProjectTable } from "@opencode-ai/core/project/sql"
+import { ProjectV2 } from "@opencode-ai/core/project"
+import { AbsolutePath } from "@opencode-ai/core/schema"
+import { eq, sql } from "drizzle-orm"
+import { mkdtemp, rm } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
 import { testEffect } from "../lib/effect"
 
-const it = testEffect(AppNodeBuilder.build(LayerNode.group([SessionCronRuntime.node])))
+const it = testEffect(
+  AppNodeBuilder.build(LayerNode.group([SessionCronRuntime.node, Database.node]), [
+    [Database.node, Database.layerFromPath(":memory:")],
+  ]),
+)
 
 describe("SessionCronRuntime", () => {
   test("matches standard five-field expressions in local time", () => {
@@ -170,4 +183,100 @@ describe("SessionCronRuntime", () => {
       ).toBe(otherSessionID)
     }),
   )
+
+  test("persists cron jobs to SQLite and recovers them across runtime restarts", async () => {
+    const tmpDir = await mkdtemp(path.join(os.tmpdir(), "cron-test-"))
+    const dbPath = path.join(tmpDir, "test.sqlite")
+    try {
+      const projectID = ProjectV2.ID.make("project_cron_test")
+      const sessionID = SessionID.make("ses_cron_persisted")
+      const directory = AbsolutePath.make(tmpDir)
+
+      const runtimeLayer = AppNodeBuilder.build(
+        LayerNode.group([SessionCronRuntime.node, Database.node]),
+        [[Database.node, Database.layerFromPath(dbPath)]],
+      )
+
+      // 1. First runtime: setup session fixture & create cron job
+      const created = await Effect.runPromise(
+        Effect.gen(function* () {
+          const { db } = yield* Database.Service
+          yield* db
+            .insert(ProjectTable)
+            .values({
+              id: projectID,
+              worktree: directory,
+              sandboxes: [],
+              time_created: Date.now(),
+              time_updated: Date.now(),
+            })
+            .run()
+          yield* db
+            .insert(SessionTable)
+            .values({
+              id: sessionID,
+              project_id: projectID,
+              slug: "cron-test",
+              directory,
+              title: "cron persistence test",
+              version: "test",
+              time_created: Date.now(),
+              time_updated: Date.now(),
+            })
+            .run()
+          const runtime = yield* SessionCronRuntime.Service
+          return yield* runtime.create(sessionID, {
+            cron: "0 12 * * *",
+            prompt: "daily noon report",
+            recurring: true,
+          })
+        }).pipe(Effect.provide(runtimeLayer), Effect.scoped),
+      )
+
+      // 2. Verify row exists directly in SQLite SessionCronTable
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const { db } = yield* Database.Service
+          const rows = yield* db
+            .select()
+            .from(SessionCronTable)
+            .where(eq(SessionCronTable.session_id, sessionID))
+            .all()
+          expect(rows).toHaveLength(1)
+          expect(rows[0]?.id).toBe(created.id)
+          expect(rows[0]?.cron).toBe("0 12 * * *")
+          expect(rows[0]?.prompt).toBe("daily noon report")
+          expect(rows[0]?.recurring).toBe(true)
+        }).pipe(Effect.provide(runtimeLayer), Effect.scoped),
+      )
+
+      // 3. Restart: boot a brand-new SessionCronRuntime layer against the same database
+      const restartedRuntimeLayer = AppNodeBuilder.build(
+        LayerNode.group([SessionCronRuntime.node, Database.node]),
+        [[Database.node, Database.layerFromPath(dbPath)]],
+      )
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const runtime = yield* SessionCronRuntime.Service
+          const recovered = yield* runtime.list(sessionID)
+          expect(recovered).toHaveLength(1)
+          expect(recovered[0]?.id).toBe(created.id)
+          expect(recovered[0]?.cron).toBe("0 12 * * *")
+          expect(recovered[0]?.prompt).toBe("daily noon report")
+
+          // 4. Removing cron deletes from SQLite
+          yield* runtime.remove(sessionID, created.id)
+          const { db } = yield* Database.Service
+          const remaining = yield* db
+            .select()
+            .from(SessionCronTable)
+            .where(eq(SessionCronTable.session_id, sessionID))
+            .all()
+          expect(remaining).toHaveLength(0)
+        }).pipe(Effect.provide(restartedRuntimeLayer), Effect.scoped),
+      )
+    } finally {
+      await rm(tmpDir, { recursive: true, force: true })
+    }
+  })
 })
