@@ -144,6 +144,57 @@ const ModelsVerifyCommand = effectCmd({
   }),
 })
 
+// ─── test subcommand ─────────────────────────────────────────────────────────
+
+export const ModelsTestCommand = effectCmd({
+  command: "test [provider]",
+  describe: "probe each model with a tiny prompt and report which actually work end-to-end",
+  builder: (yargs) =>
+    yargs
+      .positional("provider", {
+        describe: "provider ID to filter models by",
+        type: "string",
+      })
+      .option("json", {
+        describe: "output probe results as a JSON array",
+        type: "boolean",
+      })
+      .option("timeout", {
+        describe: "per-model timeout in milliseconds",
+        type: "number",
+        default: 60000,
+      })
+      .option("concurrency", {
+        describe: "number of models to probe in parallel (default 1, sequential)",
+        type: "number",
+        default: 1,
+      }),
+  handler: Effect.fn("Cli.models.test")(function* (args) {
+    const { Provider } = yield* Effect.promise(() => import("@/provider/provider"))
+    const provider = yield* Provider.Service
+    const providers = yield* provider.list()
+
+    if (args.provider && !providers[ProviderV2.ID.make(args.provider)]) {
+      return yield* fail(`Provider not found: ${args.provider}`)
+    }
+
+    const targets = (args.provider ? [args.provider] : Object.keys(providers).filter((id) => id !== "ollama"))
+      .flatMap((providerID) =>
+        Object.keys(providers[ProviderV2.ID.make(providerID)].models)
+          .sort((a, b) => a.localeCompare(b))
+          .map((modelID) => ({ providerID, modelID })),
+      )
+
+    yield* Effect.promise(() =>
+      runModelTests(targets, {
+        json: Boolean(args.json),
+        timeout: args.timeout,
+        concurrency: args.concurrency,
+      }),
+    )
+  }),
+})
+
 // ─── models list ─────────────────────────────────────────────────────────────
 
 export const ModelsCommand = effectCmd({
@@ -152,6 +203,7 @@ export const ModelsCommand = effectCmd({
   builder: (yargs) =>
     yargs
       .command(ModelsVerifyCommand)
+      .command(ModelsTestCommand)
       .positional("provider", {
         describe: "provider ID to filter models by",
         type: "string",
