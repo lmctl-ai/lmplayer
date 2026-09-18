@@ -39,6 +39,12 @@ export class Info extends Schema.Class<Info>("Config.Info")({
   default_agent: Schema.String.pipe(Schema.optional).annotate({
     description: "Default primary agent to use when no session agent is selected",
   }),
+  default_variant: Schema.String.pipe(Schema.optional).annotate({
+    description: "Default model variant / reasoning effort to use when none is specified",
+  }),
+  variant: Schema.String.pipe(Schema.optional).annotate({
+    description: "@deprecated Use 'default_variant' field instead. Default model variant / reasoning effort",
+  }),
   autoupdate: Schema.Union([Schema.Boolean, Schema.Literal("notify")])
     .pipe(Schema.optional)
     .annotate({

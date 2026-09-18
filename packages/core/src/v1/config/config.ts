@@ -81,6 +81,13 @@ export const Info = Schema.Struct({
     description:
       "Default agent to use when none is specified. Must be a primary agent. Falls back to 'build' if not set or if the specified agent is invalid.",
   }),
+  default_variant: Schema.optional(Schema.String).annotate({
+    description:
+      "Default model variant / reasoning effort (e.g. low, medium, high, xhigh, max) to use when none is specified",
+  }),
+  variant: Schema.optional(Schema.String).annotate({
+    description: "@deprecated Use 'default_variant' field instead. Default model variant / reasoning effort",
+  }),
   subagent_depth: Schema.optional(NonNegativeInt).annotate({
     description: "Maximum subagent nesting depth. Defaults to 1, which prevents subagents from launching subagents.",
   }),

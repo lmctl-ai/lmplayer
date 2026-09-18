@@ -128,10 +128,12 @@ function remappedFs(root: string) {
 }
 
 describe("run variant shared", () => {
-  test("prefers cli then session then saved variants", () => {
+  test("prefers cli then session then saved variants then fallback default", () => {
     expect(resolveVariant("max", "high", "low", ["low", "high"])).toBe("max")
     expect(resolveVariant(undefined, "high", "low", ["low", "high"])).toBe("high")
     expect(resolveVariant(undefined, "missing", "low", ["low", "high"])).toBe("low")
+    expect(resolveVariant(undefined, "missing", undefined, ["low", "high"], "high")).toBe("high")
+    expect(resolveVariant(undefined, "missing", undefined, ["low", "high"], "unsupported")).toBeUndefined()
   })
 
   test("cycles through variants and back to default", () => {

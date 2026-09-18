@@ -94,6 +94,14 @@ describe("Config", () => {
     }),
   )
 
+  it.effect("migrates v1 default_variant and variant alias to v2 default_variant", () =>
+    Effect.sync(() => {
+      expect(ConfigMigrateV1.migrate({ default_variant: "high" }).default_variant).toBe("high")
+      expect(ConfigMigrateV1.migrate({ variant: "xhigh" }).default_variant).toBe("xhigh")
+      expect(ConfigMigrateV1.migrate({ default_variant: "high", variant: "low" }).default_variant).toBe("high")
+    }),
+  )
+
   it.effect("accepts a positive turn timeout and an explicit opt-out", () =>
     Effect.sync(() => {
       // Milestone: aggregate turn deadline. `false` must survive decoding as the

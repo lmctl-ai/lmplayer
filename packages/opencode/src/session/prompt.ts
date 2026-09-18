@@ -681,13 +681,16 @@ const layer = Layer.effect(
         model = input.model ?? ag.model ?? candidateModel
       }
       const same = ag.model && model.providerID === ag.model.providerID && model.modelID === ag.model.modelID
+      const cfg = yield* config.get()
+      const configuredVariant = ag.variant && same ? ag.variant : (cfg.default_variant ?? cfg.variant)
       const full =
-        !input.variant && ag.variant && same
+        !input.variant && configuredVariant
           ? yield* provider
               .getModel(model.providerID, model.modelID)
               .pipe(Effect.catchIf(Provider.ModelNotFoundError.isInstance, () => Effect.succeed(undefined)))
           : undefined
-      const variant = input.variant ?? (ag.variant && full?.variants?.[ag.variant] ? ag.variant : undefined)
+      const variant =
+        input.variant ?? (configuredVariant && full?.variants?.[configuredVariant] ? configuredVariant : undefined)
 
       const info: SessionV1.User = {
         id: input.messageID ?? MessageID.ascending(),

@@ -796,10 +796,11 @@ export const RunCommand = effectCmd({
               args.format !== "json" &&
               toggles.get("start") !== true
             ) {
+              const variant = args.variant ?? event.properties.info.variant
               UI.empty()
               UI.println(
                 `> ${event.properties.info.agent} · ${event.properties.info.modelID}` +
-                  (args.variant ? ` · ${args.variant}` : ""),
+                  (variant ? ` · ${variant}` : ""),
               )
               UI.empty()
               toggles.set("start", true)

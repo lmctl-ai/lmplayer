@@ -3203,6 +3203,70 @@ noLLMServer.instance(
   },
 )
 
+noLLMServer.instance(
+  "applies top-level default_variant when model supports it",
+  () =>
+    Effect.gen(function* () {
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const session = yield* sessions.create({})
+
+      // When model has matching variant, default_variant is applied
+      const match = yield* prompt.prompt({
+        sessionID: session.id,
+        agent: "build",
+        model: { providerID: ProviderV2.ID.make("test"), modelID: ModelV2.ID.make("test-model") },
+        noReply: true,
+        parts: [{ type: "text", text: "use default variant" }],
+      })
+      if (match.info.role !== "user") throw new Error("expected user message")
+      expect(match.info.model.variant).toBe("high")
+
+      // When model does NOT have the variant, it is omitted
+      const unsupported = yield* prompt.prompt({
+        sessionID: session.id,
+        agent: "build",
+        model: { providerID: ProviderV2.ID.make("opencode"), modelID: ModelV2.ID.make("kimi-k2.5-free") },
+        noReply: true,
+        parts: [{ type: "text", text: "no variant on this model" }],
+      })
+      if (unsupported.info.role !== "user") throw new Error("expected user message")
+      expect(unsupported.info.model.variant).toBeUndefined()
+
+      // Explicit per-turn variant overrides default_variant
+      const turnOverride = yield* prompt.prompt({
+        sessionID: session.id,
+        agent: "build",
+        model: { providerID: ProviderV2.ID.make("test"), modelID: ModelV2.ID.make("test-model") },
+        variant: "xhigh",
+        noReply: true,
+        parts: [{ type: "text", text: "explicit turn variant" }],
+      })
+      if (turnOverride.info.role !== "user") throw new Error("expected user message")
+      expect(turnOverride.info.model.variant).toBe("xhigh")
+
+      yield* sessions.remove(session.id)
+    }),
+  {
+    config: {
+      ...cfg,
+      default_variant: "high",
+      provider: {
+        ...cfg.provider,
+        test: {
+          ...cfg.provider.test,
+          models: {
+            "test-model": {
+              ...cfg.provider.test.models["test-model"],
+              variants: { xhigh: {}, high: {} },
+            },
+          },
+        },
+      },
+    },
+  },
+)
+
 // Profiles Phase 2: Per-model auto-selection
 
 noLLMServer.instance(
