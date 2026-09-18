@@ -84,11 +84,11 @@ lmcode is for AGENT interaction, not humans. Make it a plain CLI:
   Recommend: keep `serve`/`acp`/`web` server-side (agents need the server); treat web UI as out of scope.
 
 ### Phase 3 — CLI to cover remaining GUI settings (config get/set + targeted setters)
-- Add `lmcode config get <key>` / `set <key> <value>` / `unset <key>` / `list`, backed by
+- Add `lmcode config get <key>` / `set <key> <value>` / `unset <key>` / `list` (and `ls`), backed by
   `Config.updateGlobal`/`Config.update` (`--global`/`--project`). Covers model, small_model,
   default_agent, autoupdate, share, compaction.*, disabled/enabled_providers, permission, etc. [SHIPPED]
 - Targeted setters for gaps that are runtime/SDK-only today (recommend, in priority order):
-  - `mcp enable/disable <name>` (flip `mcp.<n>.enabled`) with `--scope <project|global>`, `--project`, `--global`. [SHIPPED]
+  - `mcp enable/disable <name>` (flip `mcp.<n>.enabled`) and `mcp remove <name>` (alias `rm`) with `--scope <project|global>`, `--project`, `--global`. [SHIPPED]
   - `provider enable/disable <id>` (edit disabled/enabled_providers) with `--scope <project|global>`, `--project`, `--global`, alias `provider`. [SHIPPED]
   - `session compact/share/unshare/rename/fork <id>` (SDK already supports). [SHIPPED]
 - Fixed `Config.updateGlobal` and `unsetGlobal` in `packages/opencode/src/config/config.ts` to ensure parent directory exists (`fs.ensureDir`) before writing. [SHIPPED]
