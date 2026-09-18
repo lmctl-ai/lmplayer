@@ -4047,6 +4047,7 @@ export type AgentV2Info = {
   color?: AgentColor
   steps?: number
   permissions: PermissionV2Ruleset
+  provision?: Array<string>
 }
 
 export type SessionV2Info = {

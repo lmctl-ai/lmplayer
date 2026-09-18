@@ -20,8 +20,15 @@ export type ExecuteInput = {
   readonly call: ToolCall
 }
 
+export type MaterializeInput =
+  | PermissionV2.Ruleset
+  | {
+      readonly permissions?: PermissionV2.Ruleset
+      readonly provision?: readonly string[]
+    }
+
 export interface Interface {
-  readonly materialize: (permissions?: PermissionV2.Ruleset) => Effect.Effect<Materialization>
+  readonly materialize: (input?: MaterializeInput) => Effect.Effect<Materialization>
   /** Internal registration capability exposed publicly only through Tools.Service. */
   readonly register: (tools: Readonly<Record<string, AnyTool>>) => Effect.Effect<void, RegistrationError, Scope.Scope>
 }
@@ -38,6 +45,11 @@ export interface Settlement {
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/v2/ToolRegistry") {}
+
+const isOptions = (
+  input: MaterializeInput | undefined,
+): input is { readonly permissions?: PermissionV2.Ruleset; readonly provision?: readonly string[] } =>
+  input !== undefined && !Array.isArray(input)
 
 const registryLayer = Layer.effect(
   Service,
@@ -103,14 +115,31 @@ const registryLayer = Layer.effect(
           }),
         )
       }),
-      materialize: Effect.fn("ToolRegistry.materialize")(function* (permissions = []) {
+      materialize: Effect.fn("ToolRegistry.materialize")(function* (input) {
+        const permissions: PermissionV2.Ruleset = isOptions(input) ? (input.permissions ?? []) : (input ?? [])
+        const provisionSet = isOptions(input) && input.provision ? new Set(input.provision) : undefined
         const registrations = new Map(applications.entries())
         for (const [name, entries] of local) {
           const registration = entries.at(-1)?.registration
           if (registration) registrations.set(name, registration)
         }
-        for (const [name, registration] of registrations)
+        for (const [name, registration] of registrations) {
+          if (provisionSet) {
+            if (!provisionSet.has(name)) {
+              registrations.delete(name)
+              continue
+            }
+            const specificDeny = permissions.findLast(
+              (rule) =>
+                rule.action === permission(registration.tool, name) &&
+                rule.resource === "*" &&
+                rule.effect === "deny",
+            )
+            if (specificDeny) registrations.delete(name)
+            continue
+          }
           if (whollyDisabled(permission(registration.tool, name), permissions)) registrations.delete(name)
+        }
         return {
           definitions: Array.from(registrations, ([name, registration]) => definition(name, registration.tool)),
           settle: (input) => {

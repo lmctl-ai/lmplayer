@@ -449,4 +449,50 @@ describe("ToolRegistry", () => {
       expect(yield* Fiber.join(settlement)).toMatchObject({ result: { type: "text", value: "echo" } })
     }),
   )
+
+  it.effect("supports positive tool provisioning and honors specific denies", () =>
+    Effect.gen(function* () {
+      const service = yield* ToolRegistry.Service
+      yield* service.register({
+        bash: make(),
+        edit: make("edit"),
+        read: make(),
+        write: make("edit"),
+      })
+
+      // Without provision, all tools materialized
+      const unconstrained = yield* service.materialize()
+      expect(unconstrained.definitions.map((t) => t.name).sort()).toEqual(["bash", "edit", "read", "write"])
+
+      // Positive provisioning: only bash
+      const leanOnly = yield* service.materialize({ provision: ["bash"] })
+      expect(leanOnly.definitions.map((t) => t.name)).toEqual(["bash"])
+      expect((yield* leanOnly.settle(call("edit"))).result).toEqual({
+        type: "error",
+        value: "Unknown tool: edit",
+      })
+      expect((yield* leanOnly.settle(call("bash"))).result).toEqual({
+        type: "text",
+        value: "bash",
+      })
+
+      // Provisioning multiple tools, but one has a specific deny
+      const partialDeny = yield* service.materialize({
+        provision: ["bash", "edit"],
+        permissions: [{ action: "edit", resource: "*", effect: "deny" }],
+      })
+      expect(partialDeny.definitions.map((t) => t.name)).toEqual(["bash"])
+      expect((yield* partialDeny.settle(call("edit"))).result).toEqual({
+        type: "error",
+        value: "Unknown tool: edit",
+      })
+
+      // Provisioning with wildcard deny in permissions does NOT prune provisioned tools
+      const wildcardDeny = yield* service.materialize({
+        provision: ["bash"],
+        permissions: [{ action: "*", resource: "*", effect: "deny" }],
+      })
+      expect(wildcardDeny.definitions.map((t) => t.name)).toEqual(["bash"])
+    }),
+  )
 })

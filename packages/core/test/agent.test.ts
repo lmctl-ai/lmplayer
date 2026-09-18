@@ -196,6 +196,7 @@ describe("AgentV2", () => {
         "compaction",
         "explore",
         "general",
+        "lean",
         "plan",
         "secured",
         "summary",
@@ -293,6 +294,22 @@ describe("AgentV2", () => {
           call: { type: "tool-call", id: "call-question", name: "question", input: {} },
         })).result,
       ).toEqual({ type: "error", value: "Unknown tool: question" })
+
+      const lean = yield* agent.get(AgentV2.ID.make("lean"))
+      expect(lean).toMatchObject({ id: AgentV2.ID.make("lean"), mode: "primary", provision: ["bash"] })
+      const leanMaterialized = yield* registry.materialize({
+        permissions: lean?.permissions,
+        provision: lean?.provision,
+      })
+      expect(leanMaterialized.definitions.map((tool) => tool.name)).toEqual(["bash"])
+      expect(
+        (yield* leanMaterialized.settle({
+          sessionID: SessionV2.ID.make("ses_lean"),
+          agent: AgentV2.ID.make("lean"),
+          assistantMessageID: SessionMessage.ID.make("msg_lean"),
+          call: { type: "tool-call", id: "call-edit", name: "edit", input: {} },
+        })).result,
+      ).toEqual({ type: "error", value: "Unknown tool: edit" })
     }),
   )
 

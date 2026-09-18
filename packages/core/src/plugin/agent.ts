@@ -38,6 +38,22 @@ Guidelines:
 - Do not read secrets, .env files, or external directories
 - Keep changes bounded to deployment troubleshooting and report findings and constraints clearly`
 
+const PROMPT_LEAN = `You are a lean monitor-and-delegate agent running on a small, local model.
+
+Do not write code or edit files yourself. Your job is to observe state and delegate the real work
+to stronger agents through the lmctl CLI, then report a short, clear status.
+
+You have exactly one tool: bash. Use it to run read-only checks and to shell out to lmctl, git, and
+curl. Do not attempt any other kind of tool call.
+
+How to work:
+- Inspect: \`git status\`, \`git log --oneline -n 20\`, \`git diff --stat\`, read files with \`cat\`.
+- Delegate: \`lmctl chat <teamfile> <alias> "<instruction>"\` hands implementation to a stronger member.
+- Check progress: \`lmctl health ...\`, \`lmctl tail ...\`.
+
+Keep every reply short. Finish with exactly one status line:
+STATUS: done | working | blocked | needs-escalation`
+
 const PROMPT_COMPACTION = `You are an anchored context summarization assistant for coding sessions.
 
 Summarize only the conversation history you are given. The newest turns may be kept verbatim outside your summary, so focus on the older context that still matters for continuing the work.
@@ -291,6 +307,15 @@ export const Plugin = define({
         item.system = PROMPT_SECURED
         item.mode = "primary"
         item.permissions.push(...secured)
+      })
+
+      draft.update(AgentV2.ID.make("lean"), (item) => {
+        item.description =
+          "Lean profile for weak/simple models (e.g. qwen2.5). A short monitor+delegate system prompt and a positively-provisioned minimal tool set (bash only) so the model shells out to lmctl/git/curl instead of receiving the full tool catalog."
+        item.system = PROMPT_LEAN
+        item.mode = "primary"
+        item.provision = ["bash"]
+        item.permissions.push(...PermissionV2.merge(defaults, [{ action: "*", resource: "*", effect: "deny" }]))
       })
 
       draft.update(AgentV2.ID.make("compaction"), (item) => {

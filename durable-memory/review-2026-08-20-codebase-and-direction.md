@@ -227,6 +227,8 @@ not an existing component.
    makes weak-model support (`qwen*`) config-driven instead of flag-driven while
    strictly preserving explicit `--agent` override precedence. Wired via
    `Agent.Service.defaultForModel` and `SessionPrompt.createUserMessage`. Tested.
+   **V2 Seam Port — SHIPPED.** Ported positive tool provisioning (`provision: string[]`)
+   and built-in `lean` profile into V2 (`@opencode-ai/core` `ToolRegistry.materialize()` and `AgentPlugin`).
 9. **app-host design conversation (§8).** Don't build; schedule the operator
    discussion the doc asks for. The §2/§4 fixes are prerequisites anyway (a
    multi-app host multiplies sessions, which multiplies today's cross-session gate

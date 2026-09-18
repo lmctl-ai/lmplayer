@@ -97,8 +97,11 @@ Built-in `lean` agent (`--agent lean`, `mode:"primary" native:true`), added next
     - `executeCommand` (`session/prompt.ts`) and HTTP session handlers (`handlers/session.ts` summarize, `handlers/experimental.ts` tool query) wired to `defaultForModel` / `defaultAgentForModel`.
   - Tests:
     - `test/agent/agent.test.ts`: `isWeakModel`, `isModelMatch`, and `defaultForModel` suite (standard fallback, weak auto-select, disabled fallback, custom config match).
-    - `test/session/prompt.test.ts`: end-to-end prompt resolution (omitted agent on weak model resolves to `lean`, explicit `--agent build` preserved on weak model, non-weak model defaults to `build`, custom configured profile matching model auto-selected).
-- ACTIVE PATH ONLY: legacy `packages/opencode` (run → client.session.prompt → server handlers/session.ts:61 →
-  SessionPrompt.Service). V2 `packages/core` is NOT on the active path; its analogous choke point
-  `ToolRegistry.materialize()` (`core/src/tool/registry.ts:106`) + `runner/llm.ts:203` is the documented follow-up.
+- V2 PORT (SHIPPED): Positive tool provisioning and built-in `lean` profile in V2 (`packages/core`):
+  - `packages/schema/src/agent.ts`: `AgentV2.Info` carries optional `provision: Schema.Array(Schema.String)`.
+  - `packages/core/src/tool/registry.ts`: `ToolRegistry.materialize()` supports `MaterializeInput = PermissionV2.Ruleset | { permissions?: PermissionV2.Ruleset; provision?: readonly string[] }`. When `provisionSet` is present, tools not in the allowlist are omitted; tools in the allowlist bypass wildcard denies while still respecting specific tool denies.
+  - `packages/core/src/session/runner/llm.ts`: forwards `{ permissions: agent.info?.permissions, provision: agent.info?.provision }` to `tools.materialize()`.
+  - `packages/core/src/plugin/agent.ts`: defines `PROMPT_LEAN` and registers the built-in `lean` agent (`mode: "primary"`, `provision: ["bash"]`, `permissions: merge(defaults, [*:deny])`).
+  - `packages/sdk`: `AgentV2Info` schema and OpenAPI definitions updated with optional `provision: Array<string>`.
+  - Tests: `packages/core/test/session-runner-tool-registry.test.ts` (positive provisioning and specific deny verification) and `packages/core/test/agent.test.ts` (lean profile registration and materialization).
 
