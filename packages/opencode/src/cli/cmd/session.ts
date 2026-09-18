@@ -22,6 +22,8 @@ import { SessionJob } from "@opencode-ai/schema/session-job"
 import { SessionCronRuntime } from "@/session/cron-runtime"
 import { ExportCommand } from "./export"
 import { ImportCommand } from "./import"
+import { SessionDurableMemory } from "@/session/durable-memory"
+import { FSUtil } from "@opencode-ai/core/fs-util"
 
 export type SessionMessage = NonNullable<Awaited<ReturnType<OpencodeClient["session"]["messages"]>>["data"]>[number]
 
@@ -79,6 +81,7 @@ export const SessionCommand = cmd({
       .command(SessionDiffCommand)
       .command(SessionExportCommand)
       .command(SessionImportCommand)
+      .command(SessionMemoryCommand)
       .demandCommand(),
   async handler() {},
 })
@@ -882,6 +885,205 @@ export const SessionDiffCommand = effectCmd({
 
     console.log(formatSessionDiff(args.sessionID, result.data))
   }),
+})
+
+export type SessionMemoryArgs = {
+  sessionID: string
+  json?: boolean
+  write?: string
+  append?: string
+  file?: string
+  clear?: boolean
+}
+
+export const sessionMemory = Effect.fn("Cli.session.memory")(function* (args: SessionMemoryArgs) {
+  const toCliError = (err: unknown) => new CliError({ message: err instanceof Error ? err.message : String(err) })
+  const session = yield* Session.Service.use((svc) => svc.get(SessionID.make(args.sessionID))).pipe(
+    Effect.catchTag("NotFoundError", () => Effect.succeed(undefined)),
+    Effect.mapError(toCliError),
+  )
+  if (!session) {
+    return yield* fail(`Session not found: ${args.sessionID}`)
+  }
+
+  const mutatingOptions = [args.write !== undefined, args.append !== undefined, args.file !== undefined, Boolean(args.clear)].filter(
+    Boolean,
+  )
+  if (mutatingOptions.length > 1) {
+    return yield* fail("Cannot specify more than one of --write, --append, --file, --clear")
+  }
+
+  const fsUtil = yield* FSUtil.Service
+  const memoryPath = SessionDurableMemory.indexPath(args.sessionID)
+  const readMemory = (id: string) => SessionDurableMemory.read(id).pipe(Effect.mapError(toCliError))
+  const writeMemory = (id: string, text: string) => SessionDurableMemory.write(id, text).pipe(Effect.mapError(toCliError))
+
+  // 1. Clear mode
+  if (args.clear) {
+    yield* writeMemory(args.sessionID, "")
+    if (args.json) {
+      process.stdout.write(
+        JSON.stringify(
+          {
+            sessionID: args.sessionID,
+            path: memoryPath,
+            action: "clear",
+            bytes: 0,
+            success: true,
+          },
+          null,
+          2,
+        ) + EOL,
+      )
+      return
+    }
+    console.log(`Durable memory cleared for session ${args.sessionID}`)
+    return
+  }
+
+  // 2. File write mode
+  if (args.file) {
+    const fileContent = yield* fsUtil.readFileStringSafe(args.file).pipe(Effect.mapError(toCliError))
+    if (fileContent === undefined) {
+      return yield* fail(`Failed to read file: ${args.file}`)
+    }
+    yield* writeMemory(args.sessionID, fileContent)
+    const bytes = Buffer.byteLength(fileContent, "utf-8")
+    if (args.json) {
+      process.stdout.write(
+        JSON.stringify(
+          {
+            sessionID: args.sessionID,
+            path: memoryPath,
+            action: "write",
+            bytes,
+            success: true,
+          },
+          null,
+          2,
+        ) + EOL,
+      )
+      return
+    }
+    console.log(`Durable memory updated for session ${args.sessionID} (${bytes} bytes from ${args.file})`)
+    return
+  }
+
+  // 3. Direct write mode
+  if (args.write !== undefined) {
+    yield* writeMemory(args.sessionID, args.write)
+    const bytes = Buffer.byteLength(args.write, "utf-8")
+    if (args.json) {
+      process.stdout.write(
+        JSON.stringify(
+          {
+            sessionID: args.sessionID,
+            path: memoryPath,
+            action: "write",
+            bytes,
+            success: true,
+          },
+          null,
+          2,
+        ) + EOL,
+      )
+      return
+    }
+    console.log(`Durable memory updated for session ${args.sessionID} (${bytes} bytes)`)
+    return
+  }
+
+  // 4. Append mode
+  if (args.append !== undefined) {
+    if (!args.append.trim()) {
+      return yield* fail("Durable memory append requires non-empty content")
+    }
+    const prior = (yield* readMemory(args.sessionID)) ?? ""
+    const updated = prior.trim() ? `${prior.trim()}\n\n${args.append.trim()}` : args.append.trim()
+    yield* writeMemory(args.sessionID, updated)
+    const bytes = Buffer.byteLength(updated, "utf-8")
+    if (args.json) {
+      process.stdout.write(
+        JSON.stringify(
+          {
+            sessionID: args.sessionID,
+            path: memoryPath,
+            action: "append",
+            bytes,
+            success: true,
+          },
+          null,
+          2,
+        ) + EOL,
+      )
+      return
+    }
+    console.log(`Durable memory appended for session ${args.sessionID} (${bytes} bytes total)`)
+    return
+  }
+
+  // 5. Read mode (default)
+  const content = (yield* readMemory(args.sessionID)) ?? ""
+  const bytes = Buffer.byteLength(content, "utf-8")
+  const exists = Boolean(content.trim())
+
+  if (args.json) {
+    process.stdout.write(
+      JSON.stringify(
+        {
+          sessionID: args.sessionID,
+          path: memoryPath,
+          exists,
+          bytes,
+          content,
+        },
+        null,
+        2,
+      ) + EOL,
+    )
+    return
+  }
+
+  if (!exists) {
+    console.log(`(no durable memory recorded for session ${args.sessionID})`)
+    return
+  }
+
+  process.stdout.write(content.endsWith("\n") ? content : content + EOL)
+})
+
+export const SessionMemoryCommand = effectCmd({
+  command: "memory <sessionID>",
+  aliases: ["brain"],
+  describe: "view or update durable memory for a session",
+  builder: (yargs: Argv) =>
+    yargs
+      .positional("sessionID", {
+        describe: "session ID to inspect or update",
+        type: "string",
+        demandOption: true,
+      })
+      .option("json", {
+        describe: "output JSON",
+        type: "boolean",
+      })
+      .option("write", {
+        describe: "replace durable memory with markdown text",
+        type: "string",
+      })
+      .option("append", {
+        describe: "append markdown text to durable memory",
+        type: "string",
+      })
+      .option("file", {
+        describe: "replace durable memory with content from a file",
+        type: "string",
+      })
+      .option("clear", {
+        describe: "clear/wipe durable memory for the session",
+        type: "boolean",
+      }),
+  handler: sessionMemory,
 })
 
 export const SessionExportCommand = ExportCommand

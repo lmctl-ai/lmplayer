@@ -61,6 +61,7 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
 - `session share <id> [--unshare] [--json]` / `session unshare <id> [--json]` — create or revoke public share links.
 - `session compact <id> [--model provider/model] [--auto] [--json]` (alias `summarize`) — trigger session compaction/summarization.
 - `session delete <id>` — delete a session and all its messages and parts.
+- `session memory <id> [--json] [--write <text>] [--append <text>] [--file <path>] [--clear]` (alias `brain`) — view, update, append, or clear persistent durable memory for a session.
 
 ## Agent management
 - `agent list` (alias `ls`) `[--json] [--mode all|primary|subagent]` — list all registered agents (built-in and custom) with their mode, model, and tool provision allowlists, sorted with built-ins first.
@@ -81,4 +82,4 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
 ## Known gaps / TODO (not yet built)
 - `models test [provider]` (probe each entitled model) — SHIPPED (with `--json`, `--timeout`, `--concurrency`).
 - Persistent default effort relies on per-run `--effort` (persisted to model.json state), no config field. (CLOSED: added top-level `default_variant` and `variant` alias to ConfigV1.Info schema, prompt fallback, and config verify).
-- Portal memory (external exposure of durable-memory) — pending.
+- Portal memory (external exposure of durable-memory) — SHIPPED via `session memory <id>` (alias `brain`) CLI command and `durable_memory` agent tool.
