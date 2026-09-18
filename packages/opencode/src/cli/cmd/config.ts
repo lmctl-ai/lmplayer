@@ -268,6 +268,7 @@ export const ConfigVerifyCommand = effectCmd({
     process.stdout.write(`  model: ${config.model ?? "(default)"}${EOL}`)
     process.stdout.write(`  small_model: ${config.small_model ?? "(default)"}${EOL}`)
     process.stdout.write(`  default_agent: ${config.default_agent ?? "(default)"}${EOL}`)
+    process.stdout.write(`  default_variant: ${config.default_variant ?? config.variant ?? "(default)"}${EOL}`)
   }),
 })
 

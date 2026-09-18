@@ -91,14 +91,15 @@ function fitVariant(value: string | undefined, variants: string[]): string | und
   return undefined
 }
 
-// Picks the active variant. CLI flag wins, then saved preference, then session
-// history. fitVariant() checks saved and session values against the available
-// variants list -- if the provider doesn't offer a variant, it drops.
+// Picks the active variant. CLI flag wins, then session history, then saved
+// preference, then fallback default. fitVariant() checks candidates against
+// the available variants list -- if the provider doesn't offer a variant, it drops.
 export function resolveVariant(
   input: string | undefined,
   session: string | undefined,
   saved: string | undefined,
   variants: string[],
+  fallbackDefault?: string | undefined,
 ): string | undefined {
   if (input !== undefined) {
     return input
@@ -110,7 +111,11 @@ export function resolveVariant(
     return current
   }
 
-  return fallback
+  if (fallback !== undefined) {
+    return fallback
+  }
+
+  return fitVariant(fallbackDefault, variants)
 }
 
 function state(value: unknown): ModelState {

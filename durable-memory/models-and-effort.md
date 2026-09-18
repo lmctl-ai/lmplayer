@@ -48,11 +48,11 @@ Key knowledge for building model-selection and effort CLI/commands. Verified aga
   or `high`+`max` for thinking-budget models (models.ts:148-187). Copilot gpt-5.2+/codex get `xhigh`
   (transform.ts:819-843). Claude-on-copilot filters out `max`/`xhigh`.
 
-## Setting a default effort (no clean top-level field exists)
-Options: (a) `agent.<name>.variant` (config, applies only to that agent's model),
-(b) state file `model.json` `variant["provider/model"]` (what run/TUI use), or
-(c) `provider.<id>.models.<id>.request.variant` (config; V2 honors as model default).
-Decision pending — see design tasks. Operator prefers config-file-based + a verify command.
+## Setting a default effort (clean top-level field SHIPPED)
+Top-level `default_variant` (with `variant` alias) in config (`opencode.jsonc`).
+Validated by `config verify` (prints `default_variant: <effort>`).
+Fallback priority for session prompt: explicit turn variant > agent variant (if agent model matches) > `config.default_variant` (if supported by model).
+Can be set via CLI: `lmplayer config set default_variant high` (or `default_variant: "high"` in `opencode.jsonc`).
 
 ## TUI runtime state a CLI replacement must cover (model.json)
 Per-agent selected model, `recent[]`, `favorite[]`, and `variant` per model

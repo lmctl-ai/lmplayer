@@ -257,5 +257,51 @@ describe("opencode config (cli command)", () => {
       }),
     60_000,
   )
+
+  cliIt.concurrent(
+    "sets, gets, and verifies default_variant and variant alias",
+    ({ opencode }) =>
+      Effect.gen(function* () {
+        // Initially, config verify displays default_variant: (default)
+        const initialVerify = yield* run(opencode, ["config", "verify"])
+        opencode.expectExit(initialVerify, 0)
+        expect(initialVerify.stderr).toContain("Config OK")
+        expect(initialVerify.stdout).toContain("default_variant: (default)")
+
+        // Set default_variant
+        const setResult = yield* run(opencode, ["config", "set", "default_variant", "high"])
+        opencode.expectExit(setResult, 0)
+        expect(setResult.stdout).toContain('set default_variant = "high"')
+
+        // Get default_variant
+        const getResult = yield* run(opencode, ["config", "get", "default_variant"])
+        opencode.expectExit(getResult, 0)
+        expect(getResult.stdout.trim()).toBe("high")
+
+        // config verify reflects default_variant
+        const verifyResult = yield* run(opencode, ["config", "verify"])
+        opencode.expectExit(verifyResult, 0)
+        expect(verifyResult.stdout).toContain("default_variant: high")
+
+        // Unset default_variant
+        const unsetResult = yield* run(opencode, ["config", "unset", "default_variant"])
+        opencode.expectExit(unsetResult, 0)
+        expect(unsetResult.stdout).toContain("unset default_variant")
+
+        // Set via variant alias
+        const setAlias = yield* run(opencode, ["config", "set", "variant", "xhigh"])
+        opencode.expectExit(setAlias, 0)
+        expect(setAlias.stdout).toContain('set variant = "xhigh"')
+
+        const getAlias = yield* run(opencode, ["config", "get", "variant"])
+        opencode.expectExit(getAlias, 0)
+        expect(getAlias.stdout.trim()).toBe("xhigh")
+
+        const verifyAlias = yield* run(opencode, ["config", "verify"])
+        opencode.expectExit(verifyAlias, 0)
+        expect(verifyAlias.stdout).toContain("default_variant: xhigh")
+      }),
+    60_000,
+  )
 })
 

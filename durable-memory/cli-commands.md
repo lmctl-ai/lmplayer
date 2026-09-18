@@ -26,7 +26,7 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
   (invalid write -> readable error, file unchanged). Value coercion: bool/number/json/string;
   `--json` parses value as JSON (subtree). e.g. `config set model github-copilot/gpt-5.4`.
 - `config unset <key>` — delete a key (validate-before-write).
-- `config verify` — validate effective config; prints "Config OK" + model/small_model/default_agent,
+- `config verify` — validate effective config; prints "Config OK" + model/small_model/default_agent/default_variant,
   or readable issues (file + `dot.path: message`) with exit 1. Same readable error fails fast at launch.
 - Dotted-key limitation: keys containing literal dots (some mcp names) need `--json` subtree set.
 
@@ -44,5 +44,5 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
 
 ## Known gaps / TODO (not yet built)
 - `models test [provider]` (probe each entitled model) — SHIPPED (with `--json`, `--timeout`, `--concurrency`).
-- Persistent default effort relies on per-run `--effort` (persisted to model.json state), no config field.
+- Persistent default effort relies on per-run `--effort` (persisted to model.json state), no config field. (CLOSED: added top-level `default_variant` and `variant` alias to ConfigV1.Info schema, prompt fallback, and config verify).
 - Portal memory (external exposure of durable-memory) — pending.
