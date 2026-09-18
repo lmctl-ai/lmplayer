@@ -178,8 +178,7 @@ Fix: `gracefulShutdown` should run the same bounded `SessionJobRuntime.shutdown(
    `Agent.Service.defaultForModel` and `SessionPrompt.createUserMessage`); V2
    `ToolRegistry.materialize()` seam untouched.
 4. Non-interactive API-key login for `providers login` (index.md:85, config-cli.md).
-5. Branding leftovers: ASCII logo, `opencode-<plat>` package names, publish.ts,
-   postinstall.mjs (index.md:83-84).
+5. Branding leftovers: RESOLVED — lmplayer binary aliases, lmplayer-<plat> platform packages, dual publish wrappers (lmplayer + opencode-ai), postinstall.mjs resolution precedence, and session continuation epilogue aligned to lmplayer.
 6. `contract-session-metrics.md:142`: cost still derived, not persisted at
    write-time.
 7. design-cli-only.md:79 OPEN: retire `packages/cli` (second TUI embedder) + embedded

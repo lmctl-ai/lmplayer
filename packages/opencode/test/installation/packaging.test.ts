@@ -64,6 +64,35 @@ describe("packaging and postinstall", () => {
     expect(content).toContain("ln -s /usr/local/bin/lmplayer /usr/local/bin/opencode")
   })
 
+  test("postinstall.mjs checks lmplayer platform packages before opencode packages", () => {
+    const postinstallPath = path.resolve(import.meta.dir, "../../script/postinstall.mjs")
+    const content = fs.readFileSync(postinstallPath, "utf8")
+
+    expect(content).toContain('const lmplayerBase = `lmplayer-${platform}-${arch}`')
+    expect(content).toContain("const candidatesFor = (prefix) => {")
+    expect(content).toContain("[...candidatesFor(lmplayerBase), ...candidatesFor(base)]")
+  })
+
+  test("publish.ts generates both lmplayer and opencode-ai wrapper packages", () => {
+    const publishPath = path.resolve(import.meta.dir, "../../script/publish.ts")
+    const content = fs.readFileSync(publishPath, "utf8")
+
+    expect(content).toContain("const lmplayerBinaries = Object.fromEntries(")
+    expect(content).toContain("const opencodeBinaries = Object.fromEntries(")
+    expect(content).toContain('await $`mkdir -p ./dist/lmplayer`')
+    expect(content).toContain('name: "lmplayer"')
+    expect(content).toContain('await publish(`./dist/${pkg.name}`, `${pkg.name}-ai`, version)')
+    expect(content).toContain('await publish(`./dist/lmplayer`, "lmplayer", version)')
+  })
+
+  test("build.ts provisions lmplayer platform packages alongside opencode packages", () => {
+    const buildPath = path.resolve(import.meta.dir, "../../script/build.ts")
+    const content = fs.readFileSync(buildPath, "utf8")
+
+    expect(content).toContain('const lmplayerName = name.replace(new RegExp(`^${pkg.name}`), "lmplayer")')
+    expect(content).toContain("binaries[lmplayerName] = Script.version")
+  })
+
   test("binary resolution logic resolves lmplayer and falls back to opencode", () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "packaging-test-"))
     try {
@@ -95,6 +124,38 @@ describe("packaging and postinstall", () => {
       // 3. When lmplayer exists, it takes precedence
       fs.writeFileSync(path.join(mockPkgDir, lmplayerBin), "#!/bin/sh\nexit 0")
       expect(findInDir(mockPkgDir)).toBe(lmplayerBin)
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true })
+    }
+  })
+
+  test("platform package resolution prefers lmplayer packages over opencode packages", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "packaging-platform-test-"))
+    try {
+      const nodeModules = path.join(tmp, "node_modules")
+      const lmplayerPkg = path.join(nodeModules, "lmplayer-linux-x64", "bin")
+      const opencodePkg = path.join(nodeModules, "opencode-linux-x64", "bin")
+
+      fs.mkdirSync(lmplayerPkg, { recursive: true })
+      fs.mkdirSync(opencodePkg, { recursive: true })
+
+      const resolveCandidate = (candidates: string[]) => {
+        for (const candidate of candidates) {
+          const binPath = path.join(nodeModules, candidate, "bin", "lmplayer")
+          if (fs.existsSync(binPath)) return candidate
+        }
+        return undefined
+      }
+
+      const candidates = ["lmplayer-linux-x64", "opencode-linux-x64"]
+
+      // 1. Only opencode package exists with binary
+      fs.writeFileSync(path.join(opencodePkg, "lmplayer"), "#!/bin/sh\nexit 0")
+      expect(resolveCandidate(candidates)).toBe("opencode-linux-x64")
+
+      // 2. Both exist -> lmplayer takes precedence
+      fs.writeFileSync(path.join(lmplayerPkg, "lmplayer"), "#!/bin/sh\nexit 0")
+      expect(resolveCandidate(candidates)).toBe("lmplayer-linux-x64")
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true })
     }
