@@ -3,37 +3,29 @@
 **From:** lmcode fleet (meta-lead). Precise, evidence-backed answer to "how does the agent get woken / poll?"
 file:line refs + an empirical subprocess-lifecycle test. Repo: opencode-derived lmplayer.
 
-**UPDATE 2026-08-21:** §1's "no scheduler" claim is now stale. The session-job-port
-merge added `SessionCronRuntime` (`session/cron-runtime.ts`), an in-memory
-30-second tick timer that DOES re-invoke the model on a schedule (a `cron` tool
-lets an agent create recurring/one-shot self-prompts). The rest of this doc
-(turn-loop mechanics, subprocess lifecycle) is unaffected. See
-`review-2026-08-20-codebase-and-direction.md` §2 for how cron-fired turns
-interact with the execution gate this doc also describes.
+**UPDATE (Current State):** The session-job-port and sequential-gate fixes merged
+`SessionCronRuntime` (`session/cron-runtime.ts`) and `SessionJobRuntime`/`SessionJobStore`
+(`session/job-runtime.ts`, `session/job-store.ts`). The model CAN now be re-invoked on a
+schedule via the `cron` tool and receives completion notifications when background jobs finish.
+All turn origins (HTTP prompts, job notifications, and cron turns) are strictly serialized through
+the process-global execution gate (`execution-gate.ts`), ensuring single-user turn serialization.
 
-## 1. There is NO scheduler that polls/wakes the LLM. A "turn" is purely prompt-driven.
-- A run starts ONLY when a new prompt/message arrives: `prompt()` -> `state.ensureRunning(sessionID, ...,
-  runLoop(sessionID))` (session/prompt.ts:1053,1360). HTTP entry: handlers/session.ts:403 (`prompt`) / :414,428
-  (`promptAsync`, fire-and-forget, wrapped in the execution-gate `serialize`).
-- The turn is a synchronous loop: `while(true)` (prompt.ts:1089) -> call model -> execute tool calls INLINE and
-  awaited (processor.ts settles each tool result :183/201/255) -> feed back -> repeat. It BREAKS only when the
-  model returns a final message with NO tool calls (prompt.ts:1112-1131). Then the session is idle.
-- Grep of session/ + core/session/ for setInterval|setTimeout|cron|poll|schedule: NONE re-invoke the model. The
-  only `wake` primitives are V2 core (execution.ts:15, run-coordinator.ts:81) and they trigger a DRAIN of durable
-  queued work, not a timed poll — and are not on the live HTTP path.
+## 1. How turns are driven
+- Primary run entry: prompt/message arrives via HTTP: `SessionHttpApi.prompt` / `promptAsync`,
+  wrapped in `executionGate.serialize`.
+- Notification run entry: background job completes -> `SessionJobNotificationRetry` schedules an
+  attempt wrapped in `gateSerialize` -> synthesizes user notification message and executes prompt loop.
+- Cron run entry: in-memory 30s tick timer (`SessionCronRuntime`) claims due entries and executes
+  via `gateSerialize` -> synthesizes user prompt message and executes prompt loop.
+- The turn loop is a synchronous loop: call model -> execute tools inline -> repeat until final
+  assistant message with no tool calls.
 
-## 2. So "the agent polling" is really two things
-- WITHIN one turn: the agent issues a bash tool call like `sleep 30 && check-log`; the loop runs it synchronously
-  (the model blocks on the tool result), then continues. Bounded — the turn must end, and the bash tool has a
-  timeout.
-- ACROSS turns: after a final response the session is idle and the agent is DORMANT. Nothing re-invokes it. The
-  next "poll" happens only when a NEW prompt arrives — i.e. when the operator (or another driver) sends another
-  message. The operator is effectively the wake signal; the "frequency" is how often you re-prompt, not something
-  opencode schedules.
-- Consequence: fire-and-forget background work gets NO completion callback. The agent never learns a job finished
-  unless it is re-prompted and chooses to check. Matches operator experience: prompt -> agent delegates -> agent
-  idle -> never wakes unless asked again. (Fine if members autopilot; otherwise members return quickly and the
-  meta-lead never issues the next order until re-prompted.)
+## 2. Across-turn behavior
+- When all sessions are idle, the agent process is dormant, awaiting HTTP requests, job completion, or cron tick.
+- Background tasks: with `bash background:true` / `job` tool, tasks run detached under `SessionJobRuntime`.
+  On completion, the agent receives an automatic completion notification turn delivered through the sequential gate.
+- Scheduled tasks: with `cron`, agents can register recurring or one-shot self-prompts that re-awaken
+  the session through the sequential gate.
 
 ## 3. TESTED: one-shot `run` + backgrounded subprocesses — does opencode wait? does exit kill them?
 Test: a one-shot `lmplayer run` whose task spawns two ~50s jobs (one `setsid`-detached, one plain `&`) then
