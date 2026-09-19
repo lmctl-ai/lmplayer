@@ -630,11 +630,31 @@ export const SessionHealthCommand = effectCmd({
         type: "string",
         demandOption: true,
       })
+      .option("output", {
+        alias: "o",
+        describe: "write health report to output file path",
+        type: "string",
+      })
+      .option("threshold", {
+        alias: "t",
+        describe: "context usage warning threshold percentage (default: 80)",
+        type: "number",
+      })
+      .option("check", {
+        describe: "exit with code 2 if context usage meets or exceeds threshold",
+        type: "boolean",
+      })
       .option("json", {
         describe: "output JSON",
         type: "boolean",
       }),
-  handler: Effect.fn("Cli.session.health")(function* (args) {
+  handler: Effect.fn("Cli.session.health")(function* (args: {
+    sessionID: string
+    output?: string
+    threshold?: number
+    check?: boolean
+    json?: boolean
+  }) {
     const sdk = yield* localSdk()
     const info = yield* Effect.promise(() => sdk.session.get({ sessionID: args.sessionID }).then((r) => r.data))
     if (!info) return yield* fail(`Session not found: ${args.sessionID}`)
@@ -642,17 +662,67 @@ export const SessionHealthCommand = effectCmd({
     const providers = yield* Provider.Service.use((provider) => provider.list()).pipe(
       Effect.orElseSucceed(() => undefined),
     )
-    yield* Effect.promise(async () => {
+    const threshold = args.threshold !== undefined && !isNaN(args.threshold) ? args.threshold : 80
+
+    const health = yield* Effect.promise(async () => {
       const response = await sdk.session.messages({ sessionID: args.sessionID })
-      const health = createSessionHealth(args.sessionID, response.data ?? [], providers)
-
-      if (args.json) {
-        console.log(JSON.stringify(health, null, 2))
-        return
-      }
-
-      console.log(formatSessionHealth(health))
+      return createSessionHealth(args.sessionID, response.data ?? [], providers)
     })
+
+    const exceeded = Boolean(
+      args.check && health.context.percentUsed !== null && health.context.percentUsed >= threshold,
+    )
+
+    if (args.json) {
+      const jsonPayload = {
+        ...health,
+        healthCheck: args.check
+          ? {
+              threshold,
+              exceeded,
+              status: exceeded ? "warning" : "ok",
+            }
+          : undefined,
+      }
+      const jsonOutput = JSON.stringify(jsonPayload, null, 2)
+      if (args.output) {
+        const resolved = path.resolve(args.output)
+        yield* Effect.promise(async () => {
+          const fs = await import("fs/promises")
+          await fs.mkdir(path.dirname(resolved), { recursive: true })
+          await fs.writeFile(resolved, jsonOutput + EOL, "utf-8")
+        })
+        console.log(JSON.stringify({ ok: true, file: resolved }, null, 2))
+      } else {
+        console.log(jsonOutput)
+      }
+      if (exceeded) {
+        process.exitCode = 2
+      }
+      return
+    }
+
+    const outputText = formatSessionHealth(health)
+    if (args.output) {
+      const resolved = path.resolve(args.output)
+      yield* Effect.promise(async () => {
+        const fs = await import("fs/promises")
+        await fs.mkdir(path.dirname(resolved), { recursive: true })
+        await fs.writeFile(resolved, outputText + EOL, "utf-8")
+      })
+      UI.println(`Wrote health report to ${resolved}`)
+    } else {
+      console.log(outputText)
+    }
+
+    if (exceeded) {
+      UI.println(
+        UI.Style.TEXT_WARNING_BOLD +
+          `[WARNING] Context usage ${health.context.percentUsed}% meets or exceeds threshold ${threshold}%` +
+          UI.Style.TEXT_NORMAL,
+      )
+      process.exitCode = 2
+    }
   }),
 })
 
@@ -1421,6 +1491,7 @@ export const SessionDiffCommand = effectCmd({
 
 export type SessionMemoryArgs = {
   sessionID: string
+  output?: string
   json?: boolean
   write?: string
   append?: string
@@ -1559,6 +1630,29 @@ export const sessionMemory = Effect.fn("Cli.session.memory")(function* (args: Se
   const bytes = Buffer.byteLength(content, "utf-8")
   const exists = Boolean(content.trim())
 
+  if (args.output) {
+    const resolved = path.resolve(args.output)
+    yield* Effect.promise(async () => {
+      const fs = await import("fs/promises")
+      await fs.mkdir(path.dirname(resolved), { recursive: true })
+      if (args.json) {
+        await fs.writeFile(
+          resolved,
+          JSON.stringify({ sessionID: args.sessionID, path: memoryPath, exists, bytes, content }, null, 2) + EOL,
+          "utf-8",
+        )
+      } else {
+        await fs.writeFile(resolved, content.endsWith("\n") ? content : content + EOL, "utf-8")
+      }
+    })
+    if (args.json) {
+      process.stdout.write(JSON.stringify({ ok: true, file: resolved, bytes }, null, 2) + EOL)
+    } else {
+      UI.println(`Wrote durable memory (${bytes} bytes) to ${resolved}`)
+    }
+    return
+  }
+
   if (args.json) {
     process.stdout.write(
       JSON.stringify(
@@ -1594,6 +1688,11 @@ export const SessionMemoryCommand = effectCmd({
         describe: "session ID to inspect or update",
         type: "string",
         demandOption: true,
+      })
+      .option("output", {
+        alias: "o",
+        describe: "write durable memory to output file path",
+        type: "string",
       })
       .option("json", {
         describe: "output JSON",
