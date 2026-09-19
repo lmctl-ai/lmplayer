@@ -1,6 +1,13 @@
 import { describe, expect, test } from "bun:test"
 import { Effect } from "effect"
-import { StatsCommand, displayStats, formatStatsJson, runStats, type SessionStats } from "../../src/cli/cmd/stats"
+import {
+  StatsCommand,
+  computeBudgetStats,
+  displayStats,
+  formatStatsJson,
+  runStats,
+  type SessionStats,
+} from "../../src/cli/cmd/stats"
 import { Session } from "../../src/session/session"
 import { MessageID } from "../../src/session/schema"
 import { InstanceRef } from "../../src/effect/instance-ref"
@@ -10,7 +17,7 @@ import { tmpdir } from "../fixture/fixture"
 import yargs, { type Argv } from "yargs"
 
 describe("StatsCommand options and builder", () => {
-  test("StatsCommand registers days, tools, models, project, and json options", () => {
+  test("StatsCommand registers days, tools, models, project, budget, and json options", () => {
     expect(StatsCommand.command).toBe("stats")
     const builder = StatsCommand.builder as (y: Argv) => Argv<any>
     const parser = builder(yargs())
@@ -23,6 +30,9 @@ describe("StatsCommand options and builder", () => {
     expect(options.key.project).toBeDefined()
     expect(options.key.provider).toBeDefined()
     expect(options.key.model).toBeDefined()
+    expect(options.key.budget).toBeDefined()
+    expect(options.key["budget-check"]).toBeDefined()
+    expect(options.boolean).toContain("budget-check")
   })
 })
 
@@ -153,6 +163,40 @@ describe("formatStatsJson", () => {
       model: "deepseek-v4.1-flash",
     })
   })
+
+  test("computes budget stats correctly when within limit", () => {
+    const budget = computeBudgetStats(0.045, 10)
+    expect(budget.limit).toBe(10)
+    expect(budget.used).toBe(0.045)
+    expect(budget.remaining).toBe(9.955)
+    expect(budget.percentage).toBe(0.45)
+    expect(budget.exceeded).toBe(false)
+  })
+
+  test("computes budget stats and flags exceeded when spend meets or exceeds limit", () => {
+    const budget = computeBudgetStats(15.5, 10)
+    expect(budget.limit).toBe(10)
+    expect(budget.used).toBe(15.5)
+    expect(budget.remaining).toBe(0)
+    expect(budget.percentage).toBe(155)
+    expect(budget.exceeded).toBe(true)
+
+    const exactBudget = computeBudgetStats(10, 10)
+    expect(exactBudget.exceeded).toBe(true)
+    expect(exactBudget.remaining).toBe(0)
+  })
+
+  test("includes budget in JSON output when budget is provided", () => {
+    const budget = computeBudgetStats(sampleStats.totalCost, 5)
+    const json = formatStatsJson(sampleStats, undefined, undefined, undefined, budget)
+    expect(json.budget).toEqual({
+      limit: 5,
+      used: 0.045,
+      remaining: 4.955,
+      percentage: 0.9,
+      exceeded: false,
+    })
+  })
 })
 
 describe("displayStats", () => {
@@ -182,6 +226,38 @@ describe("displayStats", () => {
       expect(joined).toContain("COST & TOKENS")
       expect(joined).toContain("Total Cost")
       expect(joined).toContain("TOOL USAGE")
+    } finally {
+      console.log = originalLog
+    }
+  })
+
+  test("prints BUDGET box with limit, spend, remaining, and status when budget provided", () => {
+    const logs: string[] = []
+    const originalLog = console.log
+    console.log = (...args: any[]) => {
+      logs.push(args.map(String).join(" "))
+    }
+
+    try {
+      // Within budget
+      const withinBudget = computeBudgetStats(sampleStats.totalCost, 10)
+      displayStats(sampleStats, undefined, undefined, undefined, withinBudget)
+      let joined = logs.join("\n")
+      expect(joined).toContain("BUDGET")
+      expect(joined).toContain("Budget Limit")
+      expect(joined).toContain("$10.00")
+      expect(joined).toContain("Total Spend")
+      expect(joined).toContain("Remaining")
+      expect(joined).toContain("Status")
+      expect(joined).toContain("WITHIN BUDGET")
+
+      // Exceeded budget
+      logs.length = 0
+      const exceededBudget = computeBudgetStats(12.5, 10)
+      displayStats({ ...sampleStats, totalCost: 12.5 }, undefined, undefined, undefined, exceededBudget)
+      joined = logs.join("\n")
+      expect(joined).toContain("BUDGET")
+      expect(joined).toContain("EXCEEDED [ALERT]")
     } finally {
       console.log = originalLog
     }
@@ -327,6 +403,43 @@ describe("StatsCommand in-process execution", () => {
       const fullModelData = JSON.parse(captured)
       expect(fullModelData.total_sessions).toBe(1)
       expect(fullModelData.total_messages).toBe(1)
+
+      // 5. Budget option in JSON output
+      captured = ""
+      await AppRuntime.runPromise(
+        runStats({ budget: 10, json: true }).pipe(Effect.provideService(InstanceRef, ctx)),
+      )
+      const budgetData = JSON.parse(captured)
+      expect(budgetData.budget).toBeDefined()
+      expect(budgetData.budget.limit).toBe(10)
+      expect(budgetData.budget.used).toBe(0.005)
+      expect(budgetData.budget.exceeded).toBe(false)
+
+      // 6. Budget check passes when within budget
+      await AppRuntime.runPromise(
+        runStats({ budget: 10, budgetCheck: true, json: true }).pipe(Effect.provideService(InstanceRef, ctx)),
+      )
+
+      // 7. Budget check fails when spending exceeds budget
+      await expect(
+        AppRuntime.runPromise(
+          runStats({ budget: 0.001, budgetCheck: true, json: true }).pipe(Effect.provideService(InstanceRef, ctx)),
+        ),
+      ).rejects.toThrow(/Budget limit exceeded/)
+
+      // 8. Budget check without budget fails
+      await expect(
+        AppRuntime.runPromise(
+          runStats({ budgetCheck: true, json: true }).pipe(Effect.provideService(InstanceRef, ctx)),
+        ),
+      ).rejects.toThrow(/--budget-check requires --budget/)
+
+      // 9. Negative budget fails
+      await expect(
+        AppRuntime.runPromise(
+          runStats({ budget: -5, json: true }).pipe(Effect.provideService(InstanceRef, ctx)),
+        ),
+      ).rejects.toThrow(/--budget must be a non-negative number/)
     } finally {
       process.stdout.write = originalWrite
       await InstanceRuntime.disposeInstance(ctx)
