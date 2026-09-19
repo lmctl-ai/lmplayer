@@ -65,6 +65,7 @@ export const SessionCommand = cmd({
     yargs
       .command(SessionLsCommand)
       .command(SessionShowCommand)
+      .command(SessionStatusCommand)
       .command(SessionTailCommand)
       .command(SessionReportCommand)
       .command(SessionMetricsCommand)
@@ -311,6 +312,12 @@ export const SessionShowCommand = effectCmd({
     )
 
     const shareUrl = (info as any).share?.url ?? (info as any).share_url ?? null
+    const statusRes = yield* Effect.promise(() =>
+      sdk.session
+        .status()
+        .then((r) => r.data?.[args.sessionID] ?? { type: "idle" as const })
+        .catch(() => ({ type: "idle" as const })),
+    )
 
     if (args.json) {
       process.stdout.write(
@@ -351,6 +358,7 @@ export const SessionShowCommand = effectCmd({
               tool: toolCalls,
             },
             memory: memoryInfo,
+            status: statusRes,
             share: shareUrl ? { url: shareUrl } : null,
           },
           null,
@@ -373,6 +381,7 @@ export const SessionShowCommand = effectCmd({
     if (info.agent) {
       UI.println(`  Agent:      ${info.agent}`)
     }
+    UI.println(`  Status:     ${statusRes.type}`)
     UI.println(`  Created:    ${Locale.todayTimeOrDateTime(info.time.created)}`)
     UI.println(`  Updated:    ${Locale.todayTimeOrDateTime(info.time.updated)}`)
     UI.println(
@@ -387,6 +396,80 @@ export const SessionShowCommand = effectCmd({
     }
     if (shareUrl) {
       UI.println(`  Share:      ${shareUrl}`)
+    }
+  }),
+})
+
+export const SessionStatusCommand = effectCmd({
+  command: "status [sessionID]",
+  describe: "show runtime status of sessions",
+  builder: (yargs) =>
+    yargs
+      .positional("sessionID", {
+        describe: "session ID to inspect status for",
+        type: "string",
+      })
+      .option("json", {
+        describe: "output JSON",
+        type: "boolean",
+      }),
+  handler: Effect.fn("Cli.session.status")(function* (args) {
+    const sdk = yield* localSdk()
+    const statusRes = yield* Effect.promise(() => sdk.session.status())
+    const statusMap = statusRes.data ?? {}
+
+    if (args.sessionID) {
+      const info = yield* Effect.promise(() => sdk.session.get({ sessionID: args.sessionID! }).then((r) => r.data))
+      if (!info) return yield* fail(`Session not found: ${args.sessionID}`)
+
+      const status = statusMap[args.sessionID] ?? { type: "idle" as const }
+      if (args.json) {
+        process.stdout.write(
+          JSON.stringify(
+            {
+              id: args.sessionID,
+              status,
+            },
+            null,
+            2,
+          ) + EOL,
+        )
+        return
+      }
+
+      if (status.type === "idle") {
+        UI.println(`Session ${args.sessionID}: idle`)
+      } else if (status.type === "busy") {
+        UI.println(
+          UI.Style.TEXT_WARNING_BOLD +
+            `Session ${args.sessionID}: busy (active run in progress)` +
+            UI.Style.TEXT_NORMAL,
+        )
+      } else if (status.type === "retry") {
+        UI.println(
+          UI.Style.TEXT_WARNING_BOLD +
+            `Session ${args.sessionID}: retry (attempt ${status.attempt}: ${status.message})` +
+            UI.Style.TEXT_NORMAL,
+        )
+      }
+      return
+    }
+
+    const entries = Object.entries(statusMap)
+    if (args.json) {
+      process.stdout.write(JSON.stringify(statusMap, null, 2) + EOL)
+      return
+    }
+
+    if (entries.length === 0) {
+      UI.println("No active sessions (all sessions idle)")
+      return
+    }
+
+    for (const [id, s] of entries) {
+      const typeStr =
+        s.type === "busy" ? "busy" : s.type === "retry" ? `retry (attempt ${s.attempt})` : s.type
+      UI.println(`${id}: ${typeStr}`)
     }
   }),
 })
