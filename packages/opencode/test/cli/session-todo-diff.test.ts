@@ -5,9 +5,12 @@ import {
   formatSessionTodos,
   formatSessionDiffStat,
   formatSessionDiff,
+  SessionForkCommand,
+  SessionDiffCommand,
   type SessionTodoItem,
   type SessionFileDiff,
 } from "@/cli/cmd/session"
+import yargs, { type Argv } from "yargs"
 
 describe("session todo formatting", () => {
   test("formatSessionTodos: formats empty todo list", () => {
@@ -155,6 +158,24 @@ describe("opencode session todo, diff, and export CLI commands", () => {
         const diffs = JSON.parse(diffJsonRes.stdout)
         expect(Array.isArray(diffs)).toBe(true)
 
+        // 3a. session diff with --file filter
+        const diffFileRes = yield* opencode.spawn(["session", "diff", sessionID, "--file", "index.ts", "--json"])
+        opencode.expectExit(diffFileRes, 0)
+        const filteredDiffs = JSON.parse(diffFileRes.stdout)
+        expect(Array.isArray(filteredDiffs)).toBe(true)
+
+        // 3b. session diff with -o file output
+        const diffOutRes = yield* opencode.spawn(["session", "diff", sessionID, "-o", "test-diff.txt"])
+        opencode.expectExit(diffOutRes, 0)
+        expect(diffOutRes.stderr).toContain("Wrote diff for")
+
+        // 3c. session diff with -o and --json
+        const diffOutJsonRes = yield* opencode.spawn(["session", "diff", sessionID, "-o", "test-diff.json", "--json"])
+        opencode.expectExit(diffOutJsonRes, 0)
+        const diffOutData = JSON.parse(diffOutJsonRes.stdout)
+        expect(diffOutData.ok).toBe(true)
+        expect(diffOutData.file).toContain("test-diff.json")
+
         // 4. session diff --stat
         const diffStatRes = yield* opencode.spawn(["session", "diff", sessionID, "--stat"])
         opencode.expectExit(diffStatRes, 0)
@@ -169,4 +190,30 @@ describe("opencode session todo, diff, and export CLI commands", () => {
       }),
     60_000,
   )
+})
+
+describe("session diff & fork command definitions & builders", () => {
+  test("SessionForkCommand registers fork, title, and options", () => {
+    expect(SessionForkCommand.command).toBe("fork <sessionID>")
+    const builder = SessionForkCommand.builder as (y: Argv) => Argv<any>
+    const parser = builder(yargs())
+    const options = (parser as any).getOptions()
+    expect(options.key.title).toBeDefined()
+    expect(options.key.t).toBeDefined()
+    expect(options.key.message).toBeDefined()
+    expect(options.key.json).toBeDefined()
+  })
+
+  test("SessionDiffCommand registers diff, file filter, and output options", () => {
+    expect(SessionDiffCommand.command).toBe("diff <sessionID>")
+    const builder = SessionDiffCommand.builder as (y: Argv) => Argv<any>
+    const parser = builder(yargs())
+    const options = (parser as any).getOptions()
+    expect(options.key.file).toBeDefined()
+    expect(options.key.path).toBeDefined()
+    expect(options.key.output).toBeDefined()
+    expect(options.key.o).toBeDefined()
+    expect(options.key.stat).toBeDefined()
+    expect(options.key.json).toBeDefined()
+  })
 })

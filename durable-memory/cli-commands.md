@@ -60,13 +60,13 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
 - `session metrics <id> [--json]` — stable `session-metrics/v1` per-session machine-queryable metrics (tokens, write-time/persisted cost, latencies, tools, files, jobs, crons).
 - `session health <id> [--json]` — inspect session context usage and headroom against model limit.
 - `session todo <id> [--json]` — list todo tasks for a session with status checkboxes (`[x]`, `[>]`, `[-]`, `[ ]`) and priority tags.
-- `session diff <id> [--message msgID] [--stat] [--json]` — inspect file diffs and patches resulting from session turns, with optional diffstat summary (`--stat`).
+- `session diff <id> [--message msgID] [--file file|--path file] [--output file|-o file] [--stat] [--json]` — inspect file diffs and patches resulting from session turns, with file path filtering (`--file`), direct file export (`--output`), diffstat summary (`--stat`), and structured JSON output (`--json`).
 - `session export [id] [--output file|-o file|--file file] [--sanitize] [--json]` — export session data as JSON to stdout or directly to a file, with optional sensitive transcript sanitization (`--sanitize`) and structured JSON summary (`--json`).
 - `session import <file> [--title title] [--json]` — import session data from a JSON file or share URL with fail-fast validation, optional title override (`--title`), and structured JSON response (`--json`).
 - `session jobs <id> [--json] [--output jobID] [--job jobID] [--status s]` — list and inspect background jobs.
 - `session crons <id> [--json] [--cron cronID] [--delete cronID]` — list, inspect, and delete scheduled cron jobs.
 - `session rename <id> <title> [--json]` — rename a session.
-- `session fork <id> [--message msgID] [--json]` — fork a session at a specific message boundary.
+- `session fork <id> [--title title|-t title] [--message msgID] [--json]` — fork a session at a specific message boundary with an optional custom title (`--title`).
 - `session share <id> [--unshare] [--json]` / `session unshare <id> [--json]` — create or revoke public share links.
 - `session compact <id> [--model provider/model] [--auto] [--json]` (alias `summarize`) — trigger session compaction/summarization.
 - `session delete <sessionID...> [extraSessionIDs...] [-f|--force] [--json]` (alias `rm`) — delete one or more sessions and permanently remove their messages and history, with `--force` to ignore non-existent sessions and `--json` structured response.
