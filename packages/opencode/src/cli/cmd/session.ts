@@ -64,6 +64,7 @@ export const SessionCommand = cmd({
   builder: (yargs: Argv) =>
     yargs
       .command(SessionLsCommand)
+      .command(SessionShowCommand)
       .command(SessionTailCommand)
       .command(SessionReportCommand)
       .command(SessionMetricsCommand)
@@ -221,6 +222,172 @@ export const SessionTailCommand = effectCmd({
     rows.forEach((row) => {
       UI.println(`${row.role}: ${row.text}`)
     })
+  }),
+})
+
+export const SessionShowCommand = effectCmd({
+  command: "show <sessionID>",
+  aliases: ["get"],
+  describe: "show detailed session information",
+  builder: (yargs) =>
+    yargs
+      .positional("sessionID", {
+        describe: "session ID to inspect",
+        type: "string",
+        demandOption: true,
+      })
+      .option("json", {
+        describe: "output JSON",
+        type: "boolean",
+      }),
+  handler: Effect.fn("Cli.session.show")(function* (args) {
+    const sdk = yield* localSdk()
+    const info = yield* Effect.promise(() => sdk.session.get({ sessionID: args.sessionID }).then((r) => r.data))
+    if (!info) return yield* fail(`Session not found: ${args.sessionID}`)
+
+    const msgs = yield* Effect.promise(() =>
+      sdk.session.messages({ sessionID: args.sessionID }).then((r) => r.data ?? []),
+    )
+
+    const sessionTokens = info.tokens
+    const sessionSum = sessionTokens
+      ? sessionTokens.input +
+        sessionTokens.output +
+        sessionTokens.reasoning +
+        sessionTokens.cache.read +
+        sessionTokens.cache.write
+      : 0
+
+    let inputTokens = sessionTokens?.input ?? 0
+    let outputTokens = sessionTokens?.output ?? 0
+    let reasoningTokens = sessionTokens?.reasoning ?? 0
+    let cacheReadTokens = sessionTokens?.cache?.read ?? 0
+    let cacheWriteTokens = sessionTokens?.cache?.write ?? 0
+    let totalCost = info.cost ?? 0
+
+    let userTurns = 0
+    let assistantTurns = 0
+    let toolCalls = 0
+
+    for (const msg of msgs) {
+      if (msg.info.role === "user") {
+        userTurns++
+      } else if (msg.info.role === "assistant") {
+        assistantTurns++
+        if (sessionSum === 0 && msg.info.tokens) {
+          inputTokens += msg.info.tokens.input ?? 0
+          outputTokens += msg.info.tokens.output ?? 0
+          reasoningTokens += msg.info.tokens.reasoning ?? 0
+          cacheReadTokens += msg.info.tokens.cache?.read ?? 0
+          cacheWriteTokens += msg.info.tokens.cache?.write ?? 0
+        }
+        if (totalCost === 0 && msg.info.cost) {
+          totalCost += msg.info.cost
+        }
+        for (const part of msg.parts) {
+          if (part.type === "tool") {
+            toolCalls++
+          }
+        }
+      }
+    }
+
+    const totalTokens = inputTokens + outputTokens + reasoningTokens + cacheReadTokens + cacheWriteTokens
+    const fallbackModel = latestModel(msgs)
+    const effectiveModel = info.model?.id ?? fallbackModel?.modelID ?? null
+    const effectiveProvider = info.model?.providerID ?? fallbackModel?.providerID ?? null
+    const modelVariant = (info.model as any)?.variant ?? null
+    const directory = (info as any).directory ?? (info as any).location?.directory ?? null
+
+    const memoryInfo = yield* SessionDurableMemory.read(args.sessionID).pipe(
+      Effect.map((content) => {
+        const exists = Boolean(content && content.trim().length > 0)
+        return {
+          exists,
+          bytes: exists && content ? Buffer.byteLength(content, "utf-8") : 0,
+        }
+      }),
+      Effect.orElseSucceed(() => ({ exists: false, bytes: 0 })),
+    )
+
+    const shareUrl = (info as any).share?.url ?? (info as any).share_url ?? null
+
+    if (args.json) {
+      process.stdout.write(
+        JSON.stringify(
+          {
+            id: info.id,
+            title: info.title,
+            parentID: info.parentID ?? null,
+            projectID: (info as any).projectID ?? null,
+            directory,
+            agent: info.agent ?? null,
+            model: effectiveModel
+              ? {
+                  providerID: effectiveProvider,
+                  modelID: effectiveModel,
+                  ...(modelVariant ? { variant: modelVariant } : {}),
+                }
+              : null,
+            time: {
+              created: info.time.created,
+              updated: info.time.updated,
+            },
+            messages: msgs.length,
+            cost: totalCost,
+            tokens: {
+              input: inputTokens,
+              output: outputTokens,
+              reasoning: reasoningTokens,
+              cache: {
+                read: cacheReadTokens,
+                write: cacheWriteTokens,
+              },
+              total: totalTokens,
+            },
+            turns: {
+              user: userTurns,
+              assistant: assistantTurns,
+              tool: toolCalls,
+            },
+            memory: memoryInfo,
+            share: shareUrl ? { url: shareUrl } : null,
+          },
+          null,
+          2,
+        ) + EOL,
+      )
+      return
+    }
+
+    UI.println(UI.Style.TEXT_NORMAL_BOLD + `${info.title}` + UI.Style.TEXT_NORMAL + ` (${info.id})`)
+    if (directory) {
+      UI.println(`  Directory:  ${directory}`)
+    }
+    if (info.parentID) {
+      UI.println(`  Parent:     ${info.parentID}`)
+    }
+    if (effectiveModel) {
+      UI.println(`  Model:      ${effectiveProvider}/${effectiveModel}${modelVariant ? ` (${modelVariant})` : ""}`)
+    }
+    if (info.agent) {
+      UI.println(`  Agent:      ${info.agent}`)
+    }
+    UI.println(`  Created:    ${Locale.todayTimeOrDateTime(info.time.created)}`)
+    UI.println(`  Updated:    ${Locale.todayTimeOrDateTime(info.time.updated)}`)
+    UI.println(
+      `  Messages:   ${msgs.length} (${userTurns} user, ${assistantTurns} assistant${toolCalls > 0 ? `, ${toolCalls} tool calls` : ""})`,
+    )
+    UI.println(
+      `  Tokens:     ${totalTokens.toLocaleString()} (in: ${inputTokens.toLocaleString()}, out: ${outputTokens.toLocaleString()}${reasoningTokens > 0 ? `, reasoning: ${reasoningTokens.toLocaleString()}` : ""}${cacheReadTokens > 0 ? `, cache read: ${cacheReadTokens.toLocaleString()}` : ""})`,
+    )
+    UI.println(`  Cost:       $${totalCost.toFixed(4)}`)
+    if (memoryInfo.exists) {
+      UI.println(`  Memory:     recorded (${memoryInfo.bytes} bytes)`)
+    }
+    if (shareUrl) {
+      UI.println(`  Share:      ${shareUrl}`)
+    }
   }),
 })
 
