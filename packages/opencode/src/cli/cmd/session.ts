@@ -175,7 +175,8 @@ export const SessionTailCommand = effectCmd({
         type: "string",
         demandOption: true,
       })
-      .option("n", {
+      .option("lines", {
+        alias: ["n", "limit"],
         describe: "number of messages to print",
         type: "number",
         default: 20,
@@ -186,23 +187,39 @@ export const SessionTailCommand = effectCmd({
       }),
   handler: Effect.fn("Cli.session.tail")(function* (args) {
     const sdk = yield* localSdk()
-    yield* Effect.promise(async () => {
-      const limit = Number.isInteger(args.n) && args.n >= 0 ? args.n : 20
-      const response = await sdk.session.messages({ sessionID: args.sessionID, limit })
-      const rows = (response.data ?? []).map((message) => ({
+    const info = yield* Effect.promise(() => sdk.session.get({ sessionID: args.sessionID }).then((r) => r.data))
+    if (!info) return yield* fail(`Session not found: ${args.sessionID}`)
+
+    const count = args.lines ?? (args as any).n ?? (args as any).limit
+    const limit = Number.isInteger(count) && count >= 0 ? count : 20
+    const response = yield* Effect.promise(() => sdk.session.messages({ sessionID: args.sessionID, limit }))
+    const rows = (response.data ?? []).map((message) => {
+      if (message.info.role === "assistant") {
+        return {
+          id: message.info.id,
+          role: message.info.role,
+          text: messageText(message),
+          time: message.info.time.created,
+          model: message.info.modelID ? `${message.info.providerID}/${message.info.modelID}` : undefined,
+          cost: message.info.cost,
+          tokens: message.info.tokens,
+        }
+      }
+      return {
+        id: message.info.id,
         role: message.info.role,
         text: messageText(message),
         time: message.info.time.created,
-      }))
-
-      if (args.json) {
-        console.log(JSON.stringify(rows, null, 2))
-        return
       }
+    })
 
-      rows.forEach((row) => {
-        UI.println(`${row.role}: ${row.text}`)
-      })
+    if (args.json) {
+      process.stdout.write(JSON.stringify(rows, null, 2) + "\n")
+      return
+    }
+
+    rows.forEach((row) => {
+      UI.println(`${row.role}: ${row.text}`)
     })
   }),
 })
