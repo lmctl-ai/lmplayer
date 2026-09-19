@@ -100,6 +100,11 @@ export const SessionLsCommand = effectCmd({
         describe: "only show root sessions",
         type: "boolean",
       })
+      .option("all", {
+        alias: ["a"],
+        describe: "show sessions across all projects (global)",
+        type: "boolean",
+      })
       .option("search", {
         alias: ["q"],
         describe: "filter sessions by title",
@@ -110,45 +115,49 @@ export const SessionLsCommand = effectCmd({
         type: "boolean",
       }),
   handler: Effect.fn("Cli.session.ls")(function* (args) {
-    const sdk = yield* localSdk()
-    yield* Effect.promise(async () => {
-      const limit = Number.isInteger(args.limit) && (args.limit as number) > 0 ? (args.limit as number) : undefined
-      const response = await sdk.session.list({
-        limit,
-        roots: args.roots,
-        search: args.search,
-      })
-      let sessions = (response.data ?? []).toSorted((a, b) => b.time.updated - a.time.updated)
-      if (limit !== undefined && sessions.length > limit) {
-        sessions = sessions.slice(0, limit)
-      }
-      const rows = await Promise.all(
-        sessions.map(async (session) => ({
-          session,
-          messageCount: (await sdk.session.messages({ sessionID: session.id })).data?.length ?? 0,
-        })),
-      )
+    const limit = Number.isInteger(args.limit) && (args.limit as number) > 0 ? (args.limit as number) : undefined
+    const svc = yield* Session.Service
+    const sessions = yield* (args.all
+      ? svc.listGlobal({ roots: args.roots, search: args.search, limit })
+      : svc.list({ roots: args.roots, search: args.search, limit }))
 
-      if (args.json) {
-        console.log(
-          JSON.stringify(
-            rows.map((row) => ({
-              id: row.session.id,
-              title: row.session.title,
-              directory: row.session.directory,
-              updated: row.session.time.updated,
-              messageCount: row.messageCount,
-            })),
-            null,
-            2,
+    let sortedSessions = [...sessions].sort((a, b) => b.time.updated - a.time.updated)
+    if (limit !== undefined && sortedSessions.length > limit) {
+      sortedSessions = sortedSessions.slice(0, limit)
+    }
+
+    const rows = yield* Effect.forEach(
+      sortedSessions,
+      (session) =>
+        svc
+          .messages({ sessionID: session.id })
+          .pipe(
+            Effect.map((msgs) => ({ session, messageCount: msgs.length })),
+            Effect.catchIf(NotFoundError.isInstance, () => Effect.succeed({ session, messageCount: 0 })),
+            Effect.orElseSucceed(() => ({ session, messageCount: 0 })),
           ),
-        )
-        return
-      }
+      { concurrency: 10 },
+    )
 
-      rows.forEach((row) => {
-        UI.println(row.session.id, row.session.title, row.session.directory)
-      })
+    if (args.json) {
+      console.log(
+        JSON.stringify(
+          rows.map((row) => ({
+            id: row.session.id,
+            title: row.session.title,
+            directory: row.session.directory,
+            updated: row.session.time.updated,
+            messageCount: row.messageCount,
+          })),
+          null,
+          2,
+        ),
+      )
+      return
+    }
+
+    rows.forEach((row) => {
+      UI.println(row.session.id, row.session.title, row.session.directory)
     })
   }),
 })
@@ -1104,6 +1113,11 @@ export const SessionListCommand = effectCmd({
         type: "boolean",
         default: true,
       })
+      .option("all", {
+        alias: ["a"],
+        describe: "show sessions across all projects (global)",
+        type: "boolean",
+      })
       .option("search", {
         alias: ["q"],
         describe: "filter sessions by title",
@@ -1117,7 +1131,9 @@ export const SessionListCommand = effectCmd({
   handler: Effect.fn("Cli.session.list")(function* (args) {
     const limit = args.maxCount ?? (args as any).limit
     const sessions = yield* Session.Service.use((svc) =>
-      svc.list({ roots: args.roots, search: args.search, limit }),
+      args.all
+        ? svc.listGlobal({ roots: args.roots, search: args.search, limit })
+        : svc.list({ roots: args.roots, search: args.search, limit }),
     )
 
     if (sessions.length === 0) return

@@ -112,6 +112,18 @@ describe("opencode session commands (CLI)", () => {
         opencode.expectExit(textRes, 0)
         expect(textRes.stderr).toContain(limitData[0].id)
 
+        // 5d. Verify --all flag on session ls
+        const allRes = yield* opencode.spawn(["session", "ls", "--all", "--json"])
+        opencode.expectExit(allRes, 0)
+        const allData = JSON.parse(allRes.stdout)
+        expect(allData.some((s: any) => s.id === sessionID)).toBe(true)
+
+        // 5e. Verify --all flag on session list
+        const listAllRes = yield* opencode.spawn(["session", "list", "--all", "--format", "json"])
+        opencode.expectExit(listAllRes, 0)
+        const listAllData = JSON.parse(listAllRes.stdout)
+        expect(listAllData.some((s: any) => s.id === sessionID)).toBe(true)
+
         // 6. Delete the forked session
         const deleteRes = yield* opencode.spawn(["session", "delete", forkData.id])
         opencode.expectExit(deleteRes, 0)
