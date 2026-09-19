@@ -3,6 +3,8 @@ import { Cause, Effect, Exit } from "effect"
 import {
   AgentCreateCommand,
   createAgent,
+  AgentCloneCommand,
+  cloneAgent,
   AgentListCommand,
   AgentShowCommand,
   AgentDeleteCommand,
@@ -463,6 +465,105 @@ describe("AgentListCommand, AgentShowCommand, AgentDeleteCommand", () => {
       expect(deleteData.name).toBe("temp-agent")
       expect(deleteData.deleted).toBe(true)
       expect(await fs.stat(agentFile).then(() => true).catch(() => false)).toBe(false)
+    } finally {
+      await InstanceRuntime.disposeInstance(ctx)
+    }
+  })
+})
+
+describe("AgentCloneCommand builder and handler", () => {
+  const getBuilder = () => {
+    const builder = AgentCloneCommand.builder as (y: Argv) => Argv<any>
+    expect(typeof builder).toBe("function")
+    return builder
+  }
+
+  const runClone = (args: any, ctx: any) =>
+    AppRuntime.runPromise(cloneAgent(args).pipe(Effect.provideService(InstanceRef, ctx)))
+
+  const runCloneExit = (args: any, ctx: any) =>
+    AppRuntime.runPromiseExit(cloneAgent(args).pipe(Effect.provideService(InstanceRef, ctx)))
+
+  test("registers source and target positionals, options, and aliases copy/cp", () => {
+    expect(AgentCloneCommand.aliases).toEqual(["copy", "cp"])
+    const parser = getBuilder()(yargs())
+    const options = (parser as any).getOptions()
+    expect(options.key.path).toBeDefined()
+    expect(options.key.scope).toBeDefined()
+    expect(options.key.description).toBeDefined()
+    expect(options.key.model).toBeDefined()
+    expect(options.key.force).toBeDefined()
+    expect(options.key.json).toBeDefined()
+  })
+
+  test("clones a built-in agent with overrides, preserves prompt, and outputs json", async () => {
+    const tmp = await tmpdir({ git: true })
+    const dir = tmp.path
+    const ctx = await InstanceRuntime.load({ directory: dir })
+
+    try {
+      // 1. Fails for non-existent source
+      const failExit = await runCloneExit({ source: "non-existent-agent", target: "my-agent" }, ctx)
+      expect(Exit.isFailure(failExit)).toBe(true)
+
+      // 2. Fails when trying to overwrite a built-in agent
+      const builtinExit = await runCloneExit({ source: "build", target: "plan" }, ctx)
+      expect(Exit.isFailure(builtinExit)).toBe(true)
+
+      // 3. Clone built-in agent 'build' to 'custom-builder' with custom description and model
+      let captured = ""
+      const originalWrite = process.stdout.write
+      process.stdout.write = ((chunk: any) => {
+        captured += String(chunk)
+        return true
+      }) as any
+
+      try {
+        await runClone(
+          {
+            source: "build",
+            target: "custom-builder",
+            description: "My custom build agent",
+            model: "anthropic/claude-3-5-sonnet",
+            json: true,
+          },
+          ctx,
+        )
+      } finally {
+        process.stdout.write = originalWrite
+      }
+
+      const cloneData = JSON.parse(captured)
+      expect(cloneData.source).toBe("build")
+      expect(cloneData.target).toBe("custom-builder")
+      expect(cloneData.model).toBe("anthropic/claude-3-5-sonnet")
+
+      const targetFile = cloneData.file
+      expect(await fs.stat(targetFile).then(() => true).catch(() => false)).toBe(true)
+
+      const fileContent = await fs.readFile(targetFile, "utf-8")
+      const parsed = matter(fileContent)
+      expect(parsed.data.description).toBe("My custom build agent")
+      expect(parsed.data.model).toBe("anthropic/claude-3-5-sonnet")
+      expect(parsed.content.length).toBeGreaterThan(0)
+
+      // 4. Cloning again without force fails
+      const duplicateExit = await runCloneExit({ source: "build", target: "custom-builder" }, ctx)
+      expect(Exit.isFailure(duplicateExit)).toBe(true)
+
+      // 5. Cloning again with force succeeds
+      await runClone(
+        {
+          source: "build",
+          target: "custom-builder",
+          description: "Overwritten build agent",
+          force: true,
+        },
+        ctx,
+      )
+      const overwrittenContent = await fs.readFile(targetFile, "utf-8")
+      const overwrittenParsed = matter(overwrittenContent)
+      expect(overwrittenParsed.data.description).toBe("Overwritten build agent")
     } finally {
       await InstanceRuntime.disposeInstance(ctx)
     }

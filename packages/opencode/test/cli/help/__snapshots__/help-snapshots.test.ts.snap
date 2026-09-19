@@ -202,10 +202,12 @@ exports[`opencode CLI help-text snapshots every documented command emits stable 
 manage agents
 
 Commands:
-  lmplayer agent create         create a new agent
-  lmplayer agent list           list all available agents                              [aliases: ls]
-  lmplayer agent show <name>    show agent details                                    [aliases: get]
-  lmplayer agent delete <name>  delete a custom agent                                  [aliases: rm]
+  lmplayer agent create                   create a new agent
+  lmplayer agent clone <source> <target>  clone an existing agent into a new custom agent
+                                                                                 [aliases: copy, cp]
+  lmplayer agent list                     list all available agents                    [aliases: ls]
+  lmplayer agent show <name>              show agent details                          [aliases: get]
+  lmplayer agent delete <name>            delete a custom agent                        [aliases: rm]
 
 Options:
   -h, --help        show help                                                              [boolean]

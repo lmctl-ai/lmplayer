@@ -358,6 +358,156 @@ export const AgentCreateCommand = effectCmd({
   handler: createAgent,
 })
 
+export type AgentCloneArgs = {
+  source: string
+  target: string
+  path?: string
+  scope?: "project" | "global"
+  description?: string
+  model?: string
+  force?: boolean
+  json?: boolean
+}
+
+export const cloneAgent = Effect.fn("Cli.agent.clone")(function* (args: AgentCloneArgs) {
+  const { Agent } = yield* Effect.promise(() => import("../../agent/agent"))
+  const { InstanceRef } = yield* Effect.promise(() => import("@/effect/instance-ref"))
+  const maybeCtx = yield* InstanceRef
+  if (!maybeCtx) return yield* Effect.die("InstanceRef not provided")
+  const ctx = maybeCtx
+
+  const agent = yield* Agent.Service.use((svc) => svc.get(args.source))
+  if (!agent) {
+    return yield* fail(`Agent not found: ${args.source}`)
+  }
+
+  const target = args.target.trim()
+  if (!/^[a-zA-Z0-9_-]+$/.test(target)) {
+    return yield* fail(`Invalid agent name "${target}". Must contain only letters, numbers, dashes, and underscores.`)
+  }
+
+  const existing = yield* Agent.Service.use((svc) => svc.get(target))
+  if (existing?.native) {
+    return yield* fail(`Cannot overwrite built-in agent: ${target}`)
+  }
+  if (existing && !args.force) {
+    return yield* fail(`Agent already exists: ${target}`)
+  }
+
+  let targetPath: string
+  if (args.path) {
+    targetPath = args.path.endsWith("agents") ? args.path : path.join(args.path, "agents")
+  } else if (args.scope === "global") {
+    targetPath = path.join(Global.Path.config, "agents")
+  } else if (ctx.project.vcs === "git") {
+    targetPath = path.join(ctx.worktree, ".opencode", "agents")
+  } else {
+    targetPath = path.join(Global.Path.config, "agents")
+  }
+
+  const frontmatter: {
+    description: string
+    mode: AgentMode
+    model?: string
+    variant?: string
+    provision?: string[]
+    permission?: any
+  } = {
+    description: args.description ?? agent.description ?? `Cloned from ${args.source}`,
+    mode: agent.mode,
+  }
+  if (args.model) {
+    frontmatter.model = args.model
+  } else if (agent.model) {
+    frontmatter.model = `${agent.model.providerID}/${agent.model.modelID}`
+  }
+  if (agent.variant) {
+    frontmatter.variant = agent.variant
+  }
+  if (agent.provision && agent.provision.length > 0) {
+    frontmatter.provision = agent.provision
+  }
+  if (agent.permission && Object.keys(agent.permission).length > 0) {
+    frontmatter.permission = agent.permission
+  }
+
+  const filePath = path.join(targetPath, `${target}.md`)
+  yield* Effect.promise(() => fs.mkdir(targetPath, { recursive: true }))
+
+  if (!args.force && (yield* Effect.promise(() => Filesystem.exists(filePath)))) {
+    return yield* fail(`Agent file already exists: ${filePath}`)
+  }
+
+  const promptContent = agent.prompt ? agent.prompt.trim() : ""
+  const content = matter.stringify(promptContent ? `\n${promptContent}\n` : "", frontmatter)
+  yield* Effect.promise(() => Filesystem.write(filePath, content))
+
+  if (args.json) {
+    process.stdout.write(
+      JSON.stringify(
+        {
+          source: args.source,
+          target,
+          file: filePath,
+          mode: frontmatter.mode,
+          model: frontmatter.model,
+        },
+        null,
+        2,
+      ) + EOL,
+    )
+    return
+  }
+
+  UI.println(UI.Style.TEXT_SUCCESS_BOLD + `Agent "${args.source}" cloned to "${target}" (${filePath})` + UI.Style.TEXT_NORMAL)
+})
+
+export const AgentCloneCommand = effectCmd({
+  command: "clone <source> <target>",
+  aliases: ["copy", "cp"],
+  describe: "clone an existing agent into a new custom agent",
+  builder: (yargs: Argv) =>
+    yargs
+      .positional("source", {
+        type: "string",
+        describe: "source agent to clone",
+        demandOption: true,
+      })
+      .positional("target", {
+        type: "string",
+        describe: "new agent identifier",
+        demandOption: true,
+      })
+      .option("path", {
+        type: "string",
+        describe: "directory path to generate the agent file",
+      })
+      .option("scope", {
+        type: "string",
+        describe: "agent scope (project or global)",
+        choices: ["project", "global"] as const,
+      })
+      .option("description", {
+        type: "string",
+        describe: "custom description for the cloned agent",
+      })
+      .option("model", {
+        type: "string",
+        alias: ["m"],
+        describe: "override model in provider/model format",
+      })
+      .option("force", {
+        type: "boolean",
+        alias: ["f"],
+        describe: "overwrite existing agent file if it exists",
+      })
+      .option("json", {
+        type: "boolean",
+        describe: "output JSON",
+      }),
+  handler: cloneAgent,
+})
+
 export type AgentListArgs = {
   json?: boolean
   mode?: "all" | "primary" | "subagent"
@@ -593,6 +743,7 @@ export const AgentCommand = cmd({
   builder: (yargs) =>
     yargs
       .command(AgentCreateCommand)
+      .command(AgentCloneCommand)
       .command(AgentListCommand)
       .command(AgentShowCommand)
       .command(AgentDeleteCommand)

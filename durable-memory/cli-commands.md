@@ -71,6 +71,7 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
 - `agent list` (alias `ls`) `[--json] [--mode all|primary|subagent]` — list all registered agents (built-in and custom) with their mode, model, and tool provision allowlists, sorted with built-ins first.
 - `agent show <name>` (alias `get`) `[--json]` — inspect details of a specific agent (description, mode, model, variant, provision, system prompt, and permissions).
 - `agent create` `[--name n] [--prompt p] [--prompt-file f] [--provision t1,t2] [--path dir] [--json]` — create a new custom agent with prompt-bypass or interactive wizard.
+- `agent clone <source> <target> [--path dir] [--scope project|global] [--description d] [--model m] [-f|--force] [--json]` (aliases: `copy`, `cp`) — clone an existing agent configuration (built-in or custom) into a new custom agent, preserving or overriding model, description, system prompt, tool provision allowlists, and permissions.
 - `agent delete <name>` (alias `rm`) `[--json]` — safely delete a custom agent file or config entry; guards against deleting built-in agents (`build`, `plan`, `lean`, `summary`, `title`).
 
 ## MCP management
