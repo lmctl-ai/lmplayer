@@ -96,14 +96,37 @@ function authState() {
 
 export type McpListArgs = {
   json?: boolean
+  output?: string
+  search?: string
+  type?: "local" | "remote"
+  enabled?: boolean
 }
 
 export const listMcp = Effect.fn("Cli.mcp.list")(function* (args: McpListArgs = {}) {
   const { config, statuses, stored } = yield* listState()
-  const servers = configuredServers(config)
+  let servers = configuredServers(config)
+
+  if (args.search) {
+    const q = args.search.toLowerCase()
+    servers = servers.filter(([name, serverConfig]) => {
+      if (name.toLowerCase().includes(q)) return true
+      if (serverConfig.type.toLowerCase().includes(q)) return true
+      if (serverConfig.type === "remote" && serverConfig.url.toLowerCase().includes(q)) return true
+      if (serverConfig.type === "local" && serverConfig.command.some((c) => c.toLowerCase().includes(q))) return true
+      return false
+    })
+  }
+
+  if (args.type) {
+    servers = servers.filter(([, serverConfig]) => serverConfig.type === args.type)
+  }
+
+  if (args.enabled !== undefined) {
+    servers = servers.filter(([, serverConfig]) => (serverConfig.enabled ?? true) === args.enabled)
+  }
 
   if (args.json) {
-    process.stdout.write(
+    const jsonStr =
       JSON.stringify(
         servers.map(([name, serverConfig]) => {
           const status = statuses[name]
@@ -132,8 +155,43 @@ export const listMcp = Effect.fn("Cli.mcp.list")(function* (args: McpListArgs = 
         }),
         null,
         2,
-      ) + EOL,
-    )
+      ) + EOL
+    if (args.output) {
+      const resolved = path.resolve(args.output)
+      yield* Effect.promise(async () => {
+        const fs = await import("fs/promises")
+        await fs.mkdir(path.dirname(resolved), { recursive: true })
+        await fs.writeFile(resolved, jsonStr, "utf-8")
+      })
+      UI.println(`Wrote MCP servers list to ${resolved}`)
+      return
+    }
+    process.stdout.write(jsonStr)
+    return
+  }
+
+  if (args.output) {
+    const lines: string[] = []
+    lines.push("MCP Servers")
+    if (servers.length === 0) {
+      lines.push("No MCP servers configured")
+    } else {
+      for (const [name, serverConfig] of servers) {
+        const status = statuses[name]
+        const statusText = status?.status ?? "not initialized"
+        const typeHint = serverConfig.type === "remote" ? serverConfig.url : serverConfig.command.join(" ")
+        lines.push(`- ${name} (${serverConfig.type}): ${statusText}`)
+        lines.push(`    ${typeHint}`)
+      }
+      lines.push(`${servers.length} server(s)`)
+    }
+    const resolved = path.resolve(args.output)
+    yield* Effect.promise(async () => {
+      const fs = await import("fs/promises")
+      await fs.mkdir(path.dirname(resolved), { recursive: true })
+      await fs.writeFile(resolved, lines.join(EOL) + EOL, "utf-8")
+    })
+    UI.println(`Wrote MCP servers list to ${resolved}`)
     return
   }
 
@@ -192,6 +250,7 @@ export const listMcp = Effect.fn("Cli.mcp.list")(function* (args: McpListArgs = 
 export type McpShowArgs = {
   name: string
   json?: boolean
+  output?: string
 }
 
 export const showMcp = Effect.fn("Cli.mcp.show")(function* (args: McpShowArgs) {
@@ -206,7 +265,7 @@ export const showMcp = Effect.fn("Cli.mcp.show")(function* (args: McpShowArgs) {
   const hasStoredTokens = stored[args.name]
 
   if (args.json) {
-    process.stdout.write(
+    const jsonStr =
       JSON.stringify(
         {
           name: args.name,
@@ -230,8 +289,56 @@ export const showMcp = Effect.fn("Cli.mcp.show")(function* (args: McpShowArgs) {
         },
         null,
         2,
-      ) + EOL,
-    )
+      ) + EOL
+    if (args.output) {
+      const resolved = path.resolve(args.output)
+      yield* Effect.promise(async () => {
+        const fs = await import("fs/promises")
+        await fs.mkdir(path.dirname(resolved), { recursive: true })
+        await fs.writeFile(resolved, jsonStr, "utf-8")
+      })
+      UI.println(`Wrote MCP server details to ${resolved}`)
+      return
+    }
+    process.stdout.write(jsonStr)
+    return
+  }
+
+  if (args.output) {
+    const lines: string[] = []
+    lines.push(`Server: ${args.name} (${serverConfig.type})`)
+    lines.push(`  Status: ${status?.status ?? "not initialized"}`)
+    if (status && "error" in status && status.error) {
+      lines.push(`  Error: ${status.error}`)
+    }
+    lines.push(`  Enabled: ${serverConfig.enabled ?? true ? "yes" : "no"}`)
+    if (serverConfig.type === "remote") {
+      lines.push(`  URL: ${serverConfig.url}`)
+      if (hasOAuth) {
+        lines.push(`  OAuth: supported (stored tokens: ${hasStoredTokens ? "yes" : "no"})`)
+      }
+      if (serverConfig.headers && Object.keys(serverConfig.headers).length > 0) {
+        lines.push(`  Headers: ${JSON.stringify(serverConfig.headers, null, 2)}`)
+      }
+    } else {
+      lines.push(`  Command: ${serverConfig.command.join(" ")}`)
+      if (serverConfig.cwd) {
+        lines.push(`  CWD: ${serverConfig.cwd}`)
+      }
+      if (serverConfig.environment && Object.keys(serverConfig.environment).length > 0) {
+        lines.push(`  Environment: ${JSON.stringify(serverConfig.environment, null, 2)}`)
+      }
+    }
+    if (serverConfig.timeout) {
+      lines.push(`  Timeout: ${serverConfig.timeout}ms`)
+    }
+    const resolved = path.resolve(args.output)
+    yield* Effect.promise(async () => {
+      const fs = await import("fs/promises")
+      await fs.mkdir(path.dirname(resolved), { recursive: true })
+      await fs.writeFile(resolved, lines.join(EOL) + EOL, "utf-8")
+    })
+    UI.println(`Wrote MCP server details to ${resolved}`)
     return
   }
 
@@ -268,10 +375,31 @@ export const McpListCommand = effectCmd({
   aliases: ["ls"],
   describe: "list MCP servers and their status",
   builder: (yargs: Argv) =>
-    yargs.option("json", {
-      type: "boolean",
-      describe: "output JSON",
-    }),
+    yargs
+      .option("json", {
+        type: "boolean",
+        describe: "output JSON",
+      })
+      .option("output", {
+        alias: "o",
+        type: "string",
+        describe: "write MCP servers list to output file path",
+      })
+      .option("search", {
+        alias: ["q", "query"],
+        type: "string",
+        describe: "filter servers by name, type, or command/URL",
+      })
+      .option("type", {
+        alias: "t",
+        type: "string",
+        choices: ["local", "remote"] as const,
+        describe: "filter servers by type",
+      })
+      .option("enabled", {
+        type: "boolean",
+        describe: "filter servers by enabled status",
+      }),
   handler: listMcp,
 })
 
@@ -289,6 +417,11 @@ export const McpShowCommand = effectCmd({
       .option("json", {
         type: "boolean",
         describe: "output JSON",
+      })
+      .option("output", {
+        alias: "o",
+        type: "string",
+        describe: "write MCP server details to output file path",
       }),
   handler: showMcp,
 })
@@ -449,14 +582,26 @@ export const McpAuthCommand = effectCmd({
 
 export type McpAuthListArgs = {
   json?: boolean
+  output?: string
+  search?: string
+  status?: string
 }
 
 export const listMcpAuth = Effect.fn("Cli.mcp.auth.list")(function* (args: McpAuthListArgs = {}) {
   const { config, auth } = yield* authState()
-  const servers = oauthServers(config)
+  let servers = oauthServers(config)
+
+  if (args.search) {
+    const q = args.search.toLowerCase()
+    servers = servers.filter(([name, sCfg]) => name.toLowerCase().includes(q) || sCfg.url.toLowerCase().includes(q))
+  }
+
+  if (args.status) {
+    servers = servers.filter(([name]) => (auth[name] ?? "not_authenticated") === args.status)
+  }
 
   if (args.json) {
-    process.stdout.write(
+    const jsonStr =
       JSON.stringify(
         servers.map(([name, serverConfig]) => ({
           name,
@@ -466,8 +611,41 @@ export const listMcpAuth = Effect.fn("Cli.mcp.auth.list")(function* (args: McpAu
         })),
         null,
         2,
-      ) + EOL,
-    )
+      ) + EOL
+    if (args.output) {
+      const resolved = path.resolve(args.output)
+      yield* Effect.promise(async () => {
+        const fs = await import("fs/promises")
+        await fs.mkdir(path.dirname(resolved), { recursive: true })
+        await fs.writeFile(resolved, jsonStr, "utf-8")
+      })
+      UI.println(`Wrote OAuth status list to ${resolved}`)
+      return
+    }
+    process.stdout.write(jsonStr)
+    return
+  }
+
+  if (args.output) {
+    const lines: string[] = []
+    lines.push("MCP OAuth Status")
+    if (servers.length === 0) {
+      lines.push("No OAuth-capable MCP servers configured")
+    } else {
+      for (const [name, serverConfig] of servers) {
+        const authStatus = auth[name] ?? "not_authenticated"
+        lines.push(`- ${name}: ${authStatus}`)
+        lines.push(`    ${serverConfig.url}`)
+      }
+      lines.push(`${servers.length} OAuth-capable server(s)`)
+    }
+    const resolved = path.resolve(args.output)
+    yield* Effect.promise(async () => {
+      const fs = await import("fs/promises")
+      await fs.mkdir(path.dirname(resolved), { recursive: true })
+      await fs.writeFile(resolved, lines.join(EOL) + EOL, "utf-8")
+    })
+    UI.println(`Wrote OAuth status list to ${resolved}`)
     return
   }
 
@@ -497,10 +675,27 @@ export const McpAuthListCommand = effectCmd({
   aliases: ["ls"],
   describe: "list OAuth-capable MCP servers and their auth status",
   builder: (yargs: Argv) =>
-    yargs.option("json", {
-      type: "boolean",
-      describe: "output JSON",
-    }),
+    yargs
+      .option("json", {
+        type: "boolean",
+        describe: "output JSON",
+      })
+      .option("output", {
+        alias: "o",
+        type: "string",
+        describe: "write OAuth status list to output file path",
+      })
+      .option("search", {
+        alias: ["q", "query"],
+        type: "string",
+        describe: "filter servers by name or URL",
+      })
+      .option("status", {
+        alias: "s",
+        type: "string",
+        choices: ["authenticated", "expired", "not_authenticated"] as const,
+        describe: "filter servers by auth status",
+      }),
   handler: listMcpAuth,
 })
 
@@ -508,21 +703,102 @@ export const McpLogoutCommand = effectCmd({
   command: "logout [name]",
   describe: "remove OAuth credentials for an MCP server",
   builder: (yargs) =>
-    yargs.positional("name", {
-      describe: "name of the MCP server",
-      type: "string",
-    }),
-  handler: Effect.fn("Cli.mcp.logout")(function* (args) {
-    UI.empty()
-    prompts.intro("MCP OAuth Logout")
-
+    yargs
+      .positional("name", {
+        describe: "name of the MCP server",
+        type: "string",
+      })
+      .option("force", {
+        alias: "f",
+        describe: "do not exit non-zero if credentials or server not found",
+        type: "boolean",
+      })
+      .option("json", {
+        describe: "output JSON result",
+        type: "boolean",
+      })
+      .option("output", {
+        alias: "o",
+        describe: "write logout result to output file path",
+        type: "string",
+      }),
+  handler: Effect.fn("Cli.mcp.logout")(function* (args: {
+    name?: string
+    force?: boolean
+    json?: boolean
+    output?: string
+  }) {
     const credentials = yield* McpAuth.Service.use((auth) => auth.all())
     const serverNames = Object.keys(credentials)
 
+    const writeResult = (payload: { ok: boolean; name?: string; removed: boolean; message?: string; error?: string }) =>
+      Effect.gen(function* () {
+        if (args.json) {
+          const jsonStr = JSON.stringify(payload, null, 2) + EOL
+          if (args.output) {
+            const resolved = path.resolve(args.output)
+            yield* Effect.promise(async () => {
+              const fs = await import("fs/promises")
+              await fs.mkdir(path.dirname(resolved), { recursive: true })
+              await fs.writeFile(resolved, jsonStr, "utf-8")
+            })
+          }
+          process.stdout.write(jsonStr)
+          if (!payload.ok && !args.force) process.exitCode = 1
+          return
+        }
+        if (args.output) {
+          const resolved = path.resolve(args.output)
+          yield* Effect.promise(async () => {
+            const fs = await import("fs/promises")
+            await fs.mkdir(path.dirname(resolved), { recursive: true })
+            await fs.writeFile(resolved, (payload.message || payload.error || "") + EOL, "utf-8")
+          })
+        }
+        if (!payload.ok) {
+          if (args.force) {
+            UI.println(payload.message || payload.error || "No credentials found")
+          } else {
+            UI.empty()
+            prompts.intro("MCP OAuth Logout")
+            prompts.log.error(payload.error || "Failed")
+            prompts.outro("Done")
+            process.exitCode = 1
+          }
+          return
+        }
+        UI.empty()
+        prompts.intro("MCP OAuth Logout")
+        prompts.log.success(payload.message || `Removed OAuth credentials for ${payload.name}`)
+        prompts.outro("Done")
+      })
+
+    if (!args.name && !process.stdin.isTTY) {
+      if (args.json) {
+        return yield* writeResult({
+          ok: false,
+          error: "Server name is required in non-interactive mode",
+          removed: false,
+        })
+      }
+      return yield* fail("Server name is required in non-interactive mode. Specify a server name.")
+    }
+
     if (serverNames.length === 0) {
-      prompts.log.warn("No MCP OAuth credentials stored")
-      prompts.outro("Done")
-      return
+      if (args.force) {
+        return yield* writeResult({
+          ok: true,
+          name: args.name,
+          removed: false,
+          message: "No MCP OAuth credentials stored",
+        })
+      }
+      return yield* writeResult({
+        ok: false,
+        name: args.name,
+        removed: false,
+        error: "No MCP OAuth credentials stored",
+      })
     }
 
     let serverName = args.name
@@ -551,14 +827,29 @@ export const McpLogoutCommand = effectCmd({
     }
 
     if (!credentials[serverName]) {
-      prompts.log.error(`No credentials found for: ${serverName}`)
-      prompts.outro("Done")
-      return
+      if (args.force) {
+        return yield* writeResult({
+          ok: true,
+          name: serverName,
+          removed: false,
+          message: `No credentials found for: ${serverName}`,
+        })
+      }
+      return yield* writeResult({
+        ok: false,
+        name: serverName,
+        removed: false,
+        error: `No credentials found for: ${serverName}`,
+      })
     }
 
     yield* MCP.Service.use((mcp) => mcp.removeAuth(serverName))
-    prompts.log.success(`Removed OAuth credentials for ${serverName}`)
-    prompts.outro("Done")
+    return yield* writeResult({
+      ok: true,
+      name: serverName,
+      removed: true,
+      message: `Removed OAuth credentials for ${serverName}`,
+    })
   }),
 })
 

@@ -519,12 +519,16 @@ exports[`opencode CLI help-text snapshots every documented command emits stable 
 list MCP servers and their status
 
 Options:
-  -h, --help        show help                                                              [boolean]
-  -v, --version     show version number                                                    [boolean]
-      --print-logs  print logs to stderr                                                   [boolean]
-      --log-level   log level                   [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
-      --pure        run without external plugins                                           [boolean]
-      --json        output JSON                                                            [boolean]"
+  -h, --help             show help                                                         [boolean]
+  -v, --version          show version number                                               [boolean]
+      --print-logs       print logs to stderr                                              [boolean]
+      --log-level        log level              [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
+      --pure             run without external plugins                                      [boolean]
+      --json             output JSON                                                       [boolean]
+  -o, --output           write MCP servers list to output file path                         [string]
+  -q, --search, --query  filter servers by name, type, or command/URL                       [string]
+  -t, --type             filter servers by type                [string] [choices: "local", "remote"]
+      --enabled          filter servers by enabled status                                  [boolean]"
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode mcp show --help 1`] = `
@@ -541,7 +545,8 @@ Options:
       --print-logs  print logs to stderr                                                   [boolean]
       --log-level   log level                   [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
       --pure        run without external plugins                                           [boolean]
-      --json        output JSON                                                            [boolean]"
+      --json        output JSON                                                            [boolean]
+  -o, --output      write MCP server details to output file path                            [string]"
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode mcp add --help 1`] = `
@@ -599,7 +604,10 @@ Options:
   -v, --version     show version number                                                    [boolean]
       --print-logs  print logs to stderr                                                   [boolean]
       --log-level   log level                   [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
-      --pure        run without external plugins                                           [boolean]"
+      --pure        run without external plugins                                           [boolean]
+  -f, --force       do not exit non-zero if credentials or server not found                [boolean]
+      --json        output JSON result                                                     [boolean]
+  -o, --output      write logout result to output file path                                 [string]"
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode providers list --help 1`] = `
