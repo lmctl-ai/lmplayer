@@ -4,6 +4,8 @@ import { ModelsDev } from "@opencode-ai/core/models-dev"
 import { effectCmd, fail } from "../effect-cmd"
 import { UI } from "../ui"
 import { ProviderV2 } from "@opencode-ai/core/provider"
+import { ModelV2 } from "@opencode-ai/core/model"
+import * as Prompt from "../effect/prompt"
 import { createOpencodeClient, type OpencodeClient } from "@opencode-ai/sdk/v2"
 import { Auth } from "../../auth"
 import type { Provider } from "@/provider/provider"
@@ -42,6 +44,85 @@ export function modelToJsonEntry(providerID: string, modelID: string, model: Pro
     },
     variants: Object.keys(model.variants ?? {}),
     available: true as const,
+  }
+}
+
+export type ModelDetailJson = {
+  id: string
+  provider: {
+    id: string
+    name: string
+  }
+  name: string
+  family?: string
+  status: string
+  release_date?: string
+  limit: {
+    context: number | null
+    input: number | null
+    output: number | null
+  }
+  capabilities: {
+    reasoning: boolean
+    toolcall: boolean
+    attachment: boolean
+    temperature: boolean
+  }
+  variants: string[]
+  cost: {
+    input: number
+    output: number
+    cache: {
+      read: number
+      write: number
+    }
+  } | null
+  options?: Record<string, any>
+  headers?: Record<string, string>
+  available: boolean
+}
+
+export function modelToDetailJson(
+  providerID: string,
+  modelID: string,
+  model: Provider.Model,
+  providerName: string,
+): ModelDetailJson {
+  return {
+    id: `${providerID}/${modelID}`,
+    provider: {
+      id: providerID,
+      name: providerName,
+    },
+    name: model.name,
+    family: model.family,
+    status: model.status,
+    release_date: model.release_date,
+    limit: {
+      context: model.limit?.context ?? null,
+      input: model.limit?.input ?? null,
+      output: model.limit?.output ?? null,
+    },
+    capabilities: {
+      reasoning: Boolean(model.capabilities?.reasoning),
+      toolcall: Boolean(model.capabilities?.toolcall),
+      attachment: Boolean(model.capabilities?.attachment),
+      temperature: Boolean(model.capabilities?.temperature),
+    },
+    variants: Object.keys(model.variants ?? {}),
+    cost: model.cost
+      ? {
+          input: model.cost.input,
+          output: model.cost.output,
+          cache: {
+            read: model.cost.cache?.read ?? 0,
+            write: model.cost.cache?.write ?? 0,
+          },
+        }
+      : null,
+    options: model.options ?? {},
+    headers: model.headers ?? {},
+    available: true,
   }
 }
 
@@ -195,6 +276,146 @@ export const ModelsTestCommand = effectCmd({
   }),
 })
 
+// ─── show subcommand ─────────────────────────────────────────────────────────
+
+export const modelsShow = Effect.fn("Cli.models.show")(function* (args: { model: string; json?: boolean }) {
+  const { Provider } = yield* Effect.promise(() => import("@/provider/provider"))
+  const providerSvc = yield* Provider.Service
+  const providers = yield* providerSvc.list()
+  const modelsDev = yield* ModelsDev.Service
+  const database = yield* modelsDev.get()
+
+  const input = args.model.trim()
+  let providerID: string | undefined
+  let modelID: string | undefined
+
+  const slash = input.indexOf("/")
+  if (slash > 0 && slash < input.length - 1) {
+    providerID = input.slice(0, slash)
+    modelID = input.slice(slash + 1)
+  } else if (slash === 0 || slash === input.length - 1) {
+    return yield* fail(`Invalid model format "${input}". Expected "providerID/modelID" or model name.`)
+  } else {
+    // Search connected providers for matching modelID or model name
+    const matches: Array<{ providerID: string; modelID: string; model: Provider.Model }> = []
+    for (const [pID, pInfo] of Object.entries(providers)) {
+      for (const [mID, m] of Object.entries(pInfo.models)) {
+        if (
+          mID === input ||
+          m.id === input ||
+          mID.toLowerCase() === input.toLowerCase() ||
+          m.name.toLowerCase() === input.toLowerCase()
+        ) {
+          matches.push({ providerID: pID, modelID: mID, model: m })
+        }
+      }
+    }
+    if (matches.length === 1) {
+      providerID = matches[0].providerID
+      modelID = matches[0].modelID
+    } else if (matches.length > 1) {
+      const list = matches.map((m) => `${m.providerID}/${m.modelID}`).join(", ")
+      return yield* fail(`Multiple models matched "${input}": ${list}. Please specify "providerID/modelID".`)
+    } else {
+      // Search catalog database for hints
+      for (const [pID, pDef] of Object.entries(database)) {
+        if (pDef.models[input] || Object.values(pDef.models).some((m) => m.name?.toLowerCase() === input.toLowerCase())) {
+          return yield* fail(
+            `Model "${input}" found in catalog under provider "${pID}", but "${pID}" is not authenticated or connected. Log in with: lmplayer auth login --provider ${pID}`,
+          )
+        }
+      }
+      return yield* fail(`Model not found: "${input}"`)
+    }
+  }
+
+  const p = providers[ProviderV2.ID.make(providerID)]
+  if (!p) {
+    if (database[providerID]) {
+      return yield* fail(
+        `Provider "${providerID}" is not authenticated or connected. Log in with: lmplayer auth login --provider ${providerID}`,
+      )
+    }
+    return yield* fail(`Unknown provider "${providerID}"`)
+  }
+
+  const modelResult = yield* providerSvc.getModel(ProviderV2.ID.make(providerID), ModelV2.ID.make(modelID)).pipe(
+    Effect.catchTag("ProviderModelNotFoundError", (err) => {
+      const didYouMean = err.suggestions?.length ? ` Did you mean: ${err.suggestions.join(", ")}?` : ""
+      return fail(`Model "${modelID}" not found for provider "${providerID}".${didYouMean}`)
+    }),
+  )
+
+  const providerDef = database[providerID]
+  const providerName = providerDef?.name || p.name || providerID
+
+  if (args.json) {
+    const out = modelToDetailJson(providerID, modelID, modelResult, providerName)
+    process.stdout.write(JSON.stringify(out, null, 2) + EOL)
+    return
+  }
+
+  UI.empty()
+  yield* Prompt.intro(`${modelResult.name} ${UI.Style.TEXT_DIM}(${providerID}/${modelID})`)
+  yield* Prompt.log.info(`Provider: ${providerName} (${providerID})`)
+  if (modelResult.family) yield* Prompt.log.info(`Family: ${modelResult.family}`)
+  yield* Prompt.log.info(`Status: ${modelResult.status}`)
+  if (modelResult.release_date) yield* Prompt.log.info(`Release Date: ${modelResult.release_date}`)
+
+  yield* Prompt.log.info(`Limits:`)
+  yield* Prompt.log.info(`  Context: ${modelResult.limit?.context?.toLocaleString() ?? "unspecified"} tokens`)
+  if (modelResult.limit?.input !== undefined) {
+    yield* Prompt.log.info(`  Input: ${modelResult.limit.input.toLocaleString()} tokens`)
+  }
+  yield* Prompt.log.info(`  Output: ${modelResult.limit?.output?.toLocaleString() ?? "unspecified"} tokens`)
+
+  yield* Prompt.log.info(`Capabilities:`)
+  yield* Prompt.log.info(`  Reasoning: ${modelResult.capabilities?.reasoning ? "yes" : "no"}`)
+  yield* Prompt.log.info(`  Tool Calling: ${modelResult.capabilities?.toolcall ? "yes" : "no"}`)
+  yield* Prompt.log.info(`  Attachments: ${modelResult.capabilities?.attachment ? "yes" : "no"}`)
+  yield* Prompt.log.info(`  Temperature: ${modelResult.capabilities?.temperature ? "yes" : "no"}`)
+
+  const variants = Object.keys(modelResult.variants ?? {})
+  if (variants.length > 0) {
+    yield* Prompt.log.info(`Reasoning Effort Variants:`)
+    yield* Prompt.log.info(`  ${variants.join(", ")}`)
+  }
+
+  if (modelResult.cost) {
+    yield* Prompt.log.info(`Cost (per 1M tokens):`)
+    yield* Prompt.log.info(`  Input: $${modelResult.cost.input.toFixed(2)}`)
+    yield* Prompt.log.info(`  Output: $${modelResult.cost.output.toFixed(2)}`)
+    yield* Prompt.log.info(`  Cache Read: $${modelResult.cost.cache.read.toFixed(2)}`)
+    yield* Prompt.log.info(`  Cache Write: $${modelResult.cost.cache.write.toFixed(2)}`)
+  }
+
+  yield* Prompt.outro("Done")
+})
+
+export const ModelsShowCommand = effectCmd({
+  command: "show <model>",
+  aliases: ["get"],
+  describe: "show detailed information for a specific model",
+  instance: true,
+  builder: (yargs) =>
+    yargs
+      .positional("model", {
+        describe: 'model name or ID in "providerID/modelID" format (e.g. github-copilot/claude-sonnet-4.6 or gpt-4o)',
+        type: "string",
+        demandOption: true,
+      })
+      .option("json", {
+        describe: "output as JSON",
+        type: "boolean",
+      }),
+  handler: Effect.fn("Cli.models.show.cmd")(function* (args) {
+    yield* modelsShow({
+      model: args.model!,
+      json: Boolean(args.json),
+    })
+  }),
+})
+
 // ─── models list ─────────────────────────────────────────────────────────────
 
 export const ModelsCommand = effectCmd({
@@ -204,6 +425,7 @@ export const ModelsCommand = effectCmd({
     yargs
       .command(ModelsVerifyCommand)
       .command(ModelsTestCommand)
+      .command(ModelsShowCommand)
       .positional("provider", {
         describe: "provider ID to filter models by",
         type: "string",

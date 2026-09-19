@@ -7,12 +7,14 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
 - `models [provider]` — list models (text).
 - `models [provider] --json` — machine-readable array: {id, provider, name, limit, capabilities, variants[]}.
   `variants[]` are the reasoning-EFFORT choices for that model (low/medium/high/xhigh/max).
+- `models show <model>` (alias `get`) `[--json]` — inspect detailed configuration, limits, capabilities, reasoning-effort variants, and token pricing rates for a specific model.
 - `models [provider] --refresh` — refresh models.dev cache.
 - `models verify <model>` — verify a model is known and available (format, provider, auth, effort).
 - `models test [provider] [--json] [--timeout ms] [--concurrency n]` — probe each entitled model with a single turn prompt, reporting OK/FAIL (exit non-zero on any fail). Also accepts `--test` flag on `models`.
-- `auth list` (alias `providers list`) — authed providers, each with its entitled model ids indented.
-- `auth list --json` — {credentials_path, providers:[{id,name,type,source,models:[{id,variants}]}]}.
+- `auth list` (alias `providers list`, `providers ls`) — authed providers, each with its entitled model ids indented.
+- `auth list --json` (alias `providers list --json`) — {credentials_path, providers:[{id,name,type,source,models:[{id,variants}]}]}.
   "Authed" = credentials in auth.json + active provider env vars (auth wins on overlap). Needs an instance.
+- `auth show <provider>` (alias `providers show`, `auth get`, `providers get`) `[--json]` — inspect detailed provider authentication status, active env vars, configuration options, and entitled models.
 
 ## Choose model + effort when prompting
 - `run --model <provider/model> --effort <tier> "<prompt>"` — `--effort` is an alias of `--variant`.

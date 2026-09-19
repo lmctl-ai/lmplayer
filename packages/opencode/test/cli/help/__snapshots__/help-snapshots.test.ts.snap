@@ -182,6 +182,7 @@ manage AI providers and credentials
 
 Commands:
   lmplayer providers list                list providers and credentials                [aliases: ls]
+  lmplayer providers show <provider>     show detailed information for an AI provider [aliases: get]
   lmplayer providers login [url]         log in to a provider
   lmplayer providers logout [provider]   log out from a configured provider
   lmplayer providers enable <provider>   enable an AI provider
@@ -299,6 +300,7 @@ Commands:
                                    reason if not
   lmplayer models test [provider]  probe each model with a tiny prompt and report which actually
                                    work end-to-end
+  lmplayer models show <model>     show detailed information for a specific model     [aliases: get]
 
 Positionals:
   provider  provider ID to filter models by                                                 [string]
