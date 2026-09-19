@@ -48,7 +48,7 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
 
 ## Session management
 - `session ls [--limit n] [-n n] [--roots] [-a|--all] [--search q] [--json]` / `session list [--max-count n] [--limit n] [-n n] [--roots] [-a|--all] [--search q] [--format table|json]` — list active and recent sessions with server-side limit bounding and message fanout reduction, root-session filtering, cross-project global listing (`-a` / `--all`), title search, and token/cost accounting in JSON payloads (`cost`, `tokens`, `created`).
-- `session tail <id> [--lines n] [--format text|json]` — tail/stream messages from a session.
+- `session tail <id> [--lines n] [-n n] [--limit n] [--json]` — inspect recent session messages with verified session lookup, lines/limit bounding, and structured JSON output containing message ID, role, text, timestamp, and assistant model/cost/tokens metadata.
 - `session report <id> [--json]` — report session activity, tokens, text sizes, duration, and touched files.
 - `session metrics <id> [--json]` — stable `session-metrics/v1` per-session machine-queryable metrics (tokens, write-time/persisted cost, latencies, tools, files, jobs, crons).
 - `session health <id> [--json]` — inspect session context usage and headroom against model limit.

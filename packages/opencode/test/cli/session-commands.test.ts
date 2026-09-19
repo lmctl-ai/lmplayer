@@ -48,6 +48,10 @@ describe("opencode session commands (CLI)", () => {
         const exportRes = yield* opencode.spawn(["session", "export", notFound])
         opencode.expectExit(exportRes, 1)
         expect(exportRes.stderr).toContain(`Session not found: ${notFound}`)
+
+        const tailRes = yield* opencode.spawn(["session", "tail", notFound])
+        opencode.expectExit(tailRes, 1)
+        expect(tailRes.stderr).toContain(`Session not found: ${notFound}`)
       }),
     60_000,
   )
@@ -190,6 +194,19 @@ describe("opencode session commands (CLI)", () => {
         const jobsData = JSON.parse(jobsJsonRes.stdout)
         expect(Array.isArray(jobsData)).toBe(true)
         expect(jobsData.length).toBe(0)
+
+        // 11. Tail session messages in text and JSON format
+        const tailRes = yield* opencode.spawn(["session", "tail", sessionID, "--lines", "5"])
+        opencode.expectExit(tailRes, 0)
+        expect(tailRes.stderr).toContain("say hi")
+
+        const tailJsonRes = yield* opencode.spawn(["session", "tail", sessionID, "--json"])
+        opencode.expectExit(tailJsonRes, 0)
+        const tailData = JSON.parse(tailJsonRes.stdout)
+        expect(Array.isArray(tailData)).toBe(true)
+        expect(tailData.length).toBeGreaterThan(0)
+        expect(tailData[0].role).toBe("user")
+        expect(tailData[0].text).toContain("say hi")
       }),
     60_000,
   )
