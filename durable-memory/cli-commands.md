@@ -74,11 +74,11 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
 - `session memory <id> [--output file|-o file] [--write <text>] [--append <text>] [--file <path>] [--clear] [--json]` (alias `brain`) — view, export (`--output`), update, append, or clear persistent durable memory for a session.
 
 ## Agent management
-- `agent list` (alias `ls`) `[--json] [--mode all|primary|subagent]` — list all registered agents (built-in and custom) with their mode, model, and tool provision allowlists, sorted with built-ins first.
-- `agent show <name>` (alias `get`) `[--json]` — inspect details of a specific agent (description, mode, model, variant, provision, system prompt, and permissions).
+- `agent list` (alias `ls`) `[--search q|-q q] [--mode all|primary|subagent] [--native] [--output file|-o file] [--json]` — list all registered agents (built-in and custom) with mode, model, tool provision allowlists, query/mode/native filtering, and direct file export (`--output`).
+- `agent show <name>` (alias `get`) `[--output file|-o file] [--json]` — inspect details of a specific agent (description, mode, model, variant, provision, system prompt, and permissions) with direct file export (`--output`).
 - `agent create` `[--name n] [--prompt p] [--prompt-file f] [--provision t1,t2] [--path dir] [--json]` — create a new custom agent with prompt-bypass or interactive wizard.
 - `agent clone <source> <target> [--path dir] [--scope project|global] [--description d] [--model m] [-f|--force] [--json]` (aliases: `copy`, `cp`) — clone an existing agent configuration (built-in or custom) into a new custom agent, preserving or overriding model, description, system prompt, tool provision allowlists, and permissions.
-- `agent delete <name>` (alias `rm`) `[--json]` — safely delete a custom agent file or config entry; guards against deleting built-in agents (`build`, `plan`, `lean`, `summary`, `title`).
+- `agent delete <name>` (alias `rm`) `[--force|-f] [--output file|-o file] [--json]` — safely delete a custom agent file or config entry; guards against deleting built-in agents (`build`, `plan`, `lean`, `summary`, `title`) with force and file export options.
 
 ## MCP management
 - `mcp list` (alias `ls`) `[--search q|-q q] [--type local|remote|-t type] [--enabled] [--output file|-o file] [--json]` — list configured MCP servers and their connection statuses, with filtering by query/type/status and direct file export (`--output`).

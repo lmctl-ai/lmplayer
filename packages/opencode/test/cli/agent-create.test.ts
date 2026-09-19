@@ -326,32 +326,38 @@ describe("AgentListCommand, AgentShowCommand, AgentDeleteCommand", () => {
   const runDeleteExit = (args: any, ctx: any) =>
     AppRuntime.runPromiseExit(deleteAgent(args).pipe(Effect.provideService(InstanceRef, ctx)))
 
-  test("AgentListCommand registers json and mode options and aliases ls", () => {
+  test("AgentListCommand registers json, mode, output, search, and native options and aliases ls", () => {
     expect(AgentListCommand.aliases).toContain("ls")
     const builder = AgentListCommand.builder as (y: Argv) => Argv<any>
     const parser = builder(yargs())
     const options = (parser as any).getOptions()
     expect(options.key.json).toBeDefined()
     expect(options.key.mode).toBeDefined()
+    expect(options.key.output).toBeDefined()
+    expect(options.key.search).toBeDefined()
+    expect(options.key.native).toBeDefined()
   })
 
-  test("AgentShowCommand registers name and json options and aliases get", () => {
+  test("AgentShowCommand registers name, json, and output options and aliases get", () => {
     expect(AgentShowCommand.aliases).toContain("get")
     const builder = AgentShowCommand.builder as (y: Argv) => Argv<any>
     const parser = builder(yargs())
     const options = (parser as any).getOptions()
     expect(options.key.json).toBeDefined()
+    expect(options.key.output).toBeDefined()
   })
 
-  test("AgentDeleteCommand registers name and json options and aliases rm", () => {
+  test("AgentDeleteCommand registers name, force, json, and output options and aliases rm", () => {
     expect(AgentDeleteCommand.aliases).toContain("rm")
     const builder = AgentDeleteCommand.builder as (y: Argv) => Argv<any>
     const parser = builder(yargs())
     const options = (parser as any).getOptions()
     expect(options.key.json).toBeDefined()
+    expect(options.key.force).toBeDefined()
+    expect(options.key.output).toBeDefined()
   })
 
-  test("AgentListCommand lists agents in json format and filters by mode", async () => {
+  test("AgentListCommand lists agents in json format, filters by mode/search/native, and exports to file", async () => {
     const tmp = await tmpdir({ git: true })
     const dir = tmp.path
     const ctx = await InstanceRuntime.load({ directory: dir })
@@ -389,12 +395,56 @@ describe("AgentListCommand, AgentShowCommand, AgentDeleteCommand", () => {
 
       const primaryList = JSON.parse(primaryCaptured)
       expect(primaryList.every((a: any) => a.mode === "primary" || a.mode === "all")).toBe(true)
+
+      // Test search filtering
+      let searchCaptured = ""
+      process.stdout.write = ((chunk: any) => {
+        searchCaptured += String(chunk)
+        return true
+      }) as any
+
+      try {
+        await runList({ json: true, search: "build" }, ctx)
+      } finally {
+        process.stdout.write = originalWrite
+      }
+
+      const searchList = JSON.parse(searchCaptured)
+      expect(searchList.some((a: any) => a.name === "build")).toBe(true)
+
+      // Test native filtering
+      let nativeCaptured = ""
+      process.stdout.write = ((chunk: any) => {
+        nativeCaptured += String(chunk)
+        return true
+      }) as any
+
+      try {
+        await runList({ json: true, native: true }, ctx)
+      } finally {
+        process.stdout.write = originalWrite
+      }
+
+      const nativeList = JSON.parse(nativeCaptured)
+      expect(nativeList.every((a: any) => a.native === true)).toBe(true)
+
+      // Test output file export (json)
+      const outFile = path.join(dir, "agents.json")
+      await runList({ json: true, output: outFile }, ctx)
+      const exportedJson = JSON.parse(await fs.readFile(outFile, "utf-8"))
+      expect(Array.isArray(exportedJson)).toBe(true)
+
+      // Test output file export (text)
+      const outTextFile = path.join(dir, "agents.txt")
+      await runList({ output: outTextFile }, ctx)
+      const exportedText = await fs.readFile(outTextFile, "utf-8")
+      expect(exportedText).toContain("build")
     } finally {
       await InstanceRuntime.disposeInstance(ctx)
     }
   })
 
-  test("AgentShowCommand displays agent details and fails for missing agent", async () => {
+  test("AgentShowCommand displays agent details, exports to file, and fails for missing agent", async () => {
     const tmp = await tmpdir({ git: true })
     const dir = tmp.path
     const ctx = await InstanceRuntime.load({ directory: dir })
@@ -418,6 +468,12 @@ describe("AgentListCommand, AgentShowCommand, AgentDeleteCommand", () => {
       expect(data.mode).toBeDefined()
       expect(data.permission).toBeDefined()
 
+      // Test output file export
+      const showOutFile = path.join(dir, "build-agent.json")
+      await runShow({ name: "build", json: true, output: showOutFile }, ctx)
+      const exportedShow = JSON.parse(await fs.readFile(showOutFile, "utf-8"))
+      expect(exportedShow.name).toBe("build")
+
       // Missing agent
       const exit = await runShowExit({ name: "nonexistent-agent", json: true }, ctx)
       expect(Exit.isFailure(exit)).toBe(true)
@@ -426,7 +482,7 @@ describe("AgentListCommand, AgentShowCommand, AgentDeleteCommand", () => {
     }
   })
 
-  test("AgentDeleteCommand fails for built-in agents and deletes custom agents", async () => {
+  test("AgentDeleteCommand fails for built-in agents, handles force option, and deletes custom agents", async () => {
     const tmp = await tmpdir({ git: true })
     const dir = tmp.path
     const ctx = await InstanceRuntime.load({ directory: dir })
@@ -436,7 +492,25 @@ describe("AgentListCommand, AgentShowCommand, AgentDeleteCommand", () => {
       const exit = await runDeleteExit({ name: "build" }, ctx)
       expect(Exit.isFailure(exit)).toBe(true)
 
-      // 2. Create custom agent
+      // 2. Force delete on nonexistent agent succeeds cleanly
+      let forceCaptured = ""
+      const originalWrite = process.stdout.write
+      process.stdout.write = ((chunk: any) => {
+        forceCaptured += String(chunk)
+        return true
+      }) as any
+
+      try {
+        await runDelete({ name: "nonexistent-agent", force: true, json: true }, ctx)
+      } finally {
+        process.stdout.write = originalWrite
+      }
+
+      const forceData = JSON.parse(forceCaptured)
+      expect(forceData.deleted).toBe(false)
+      expect(forceData.name).toBe("nonexistent-agent")
+
+      // 3. Create custom agent
       const createEffect = createAgent({
         name: "temp-agent",
         prompt: "Temporary agent",
@@ -447,16 +521,16 @@ describe("AgentListCommand, AgentShowCommand, AgentDeleteCommand", () => {
       const agentFile = path.join(dir, ".opencode", "agents", "temp-agent.md")
       expect(await fs.stat(agentFile).then(() => true).catch(() => false)).toBe(true)
 
-      // 3. Delete custom agent
+      // 4. Delete custom agent with output file
+      const deleteOutFile = path.join(dir, "delete-result.json")
       let captured = ""
-      const originalWrite = process.stdout.write
       process.stdout.write = ((chunk: any) => {
         captured += String(chunk)
         return true
       }) as any
 
       try {
-        await runDelete({ name: "temp-agent", json: true }, ctx)
+        await runDelete({ name: "temp-agent", json: true, output: deleteOutFile }, ctx)
       } finally {
         process.stdout.write = originalWrite
       }
@@ -465,6 +539,10 @@ describe("AgentListCommand, AgentShowCommand, AgentDeleteCommand", () => {
       expect(deleteData.name).toBe("temp-agent")
       expect(deleteData.deleted).toBe(true)
       expect(await fs.stat(agentFile).then(() => true).catch(() => false)).toBe(false)
+
+      const deleteFileContent = JSON.parse(await fs.readFile(deleteOutFile, "utf-8"))
+      expect(deleteFileContent.name).toBe("temp-agent")
+      expect(deleteFileContent.deleted).toBe(true)
     } finally {
       await InstanceRuntime.disposeInstance(ctx)
     }

@@ -511,6 +511,9 @@ export const AgentCloneCommand = effectCmd({
 export type AgentListArgs = {
   json?: boolean
   mode?: "all" | "primary" | "subagent"
+  output?: string
+  search?: string
+  native?: boolean
 }
 
 export const listAgents = Effect.fn("Cli.agent.list")(function* (args: AgentListArgs) {
@@ -521,6 +524,20 @@ export const listAgents = Effect.fn("Cli.agent.list")(function* (args: AgentList
     agents = agents.filter((a) => a.mode === args.mode || a.mode === "all")
   }
 
+  if (args.search) {
+    const q = args.search.toLowerCase()
+    agents = agents.filter((a) => {
+      if (a.name.toLowerCase().includes(q)) return true
+      if (a.description && a.description.toLowerCase().includes(q)) return true
+      if (a.model && `${a.model.providerID}/${a.model.modelID}`.toLowerCase().includes(q)) return true
+      return false
+    })
+  }
+
+  if (args.native !== undefined) {
+    agents = agents.filter((a) => Boolean(a.native) === args.native)
+  }
+
   const sortedAgents = agents.sort((a, b) => {
     if (a.native !== b.native) {
       return a.native ? -1 : 1
@@ -529,7 +546,7 @@ export const listAgents = Effect.fn("Cli.agent.list")(function* (args: AgentList
   })
 
   if (args.json) {
-    process.stdout.write(
+    const jsonStr =
       JSON.stringify(
         sortedAgents.map((a) => ({
           name: a.name,
@@ -543,8 +560,39 @@ export const listAgents = Effect.fn("Cli.agent.list")(function* (args: AgentList
         })),
         null,
         2,
-      ) + EOL,
-    )
+      ) + EOL
+    if (args.output) {
+      const resolved = path.resolve(args.output)
+      yield* Effect.promise(async () => {
+        await fs.mkdir(path.dirname(resolved), { recursive: true })
+        await fs.writeFile(resolved, jsonStr, "utf-8")
+      })
+      UI.println(`Wrote agents list to ${resolved}`)
+      return
+    }
+    process.stdout.write(jsonStr)
+    return
+  }
+
+  if (args.output) {
+    const lines: string[] = []
+    for (const agent of sortedAgents) {
+      const tag = agent.native ? " (built-in)" : ""
+      const modelStr = agent.model ? ` [model: ${agent.model.providerID}/${agent.model.modelID}]` : ""
+      lines.push(`${agent.name} (${agent.mode})${tag}${modelStr}`)
+      if (agent.description) {
+        lines.push(`  ${agent.description}`)
+      }
+      if (agent.provision && agent.provision.length > 0) {
+        lines.push(`  provision: ${agent.provision.join(", ")}`)
+      }
+    }
+    const resolved = path.resolve(args.output)
+    yield* Effect.promise(async () => {
+      await fs.mkdir(path.dirname(resolved), { recursive: true })
+      await fs.writeFile(resolved, lines.join(EOL) + EOL, "utf-8")
+    })
+    UI.println(`Wrote agents list to ${resolved}`)
     return
   }
 
@@ -564,6 +612,7 @@ export const listAgents = Effect.fn("Cli.agent.list")(function* (args: AgentList
 export type AgentShowArgs = {
   name: string
   json?: boolean
+  output?: string
 }
 
 export const showAgent = Effect.fn("Cli.agent.show")(function* (args: AgentShowArgs) {
@@ -575,7 +624,7 @@ export const showAgent = Effect.fn("Cli.agent.show")(function* (args: AgentShowA
   }
 
   if (args.json) {
-    process.stdout.write(
+    const jsonStr =
       JSON.stringify(
         {
           name: agent.name,
@@ -590,8 +639,46 @@ export const showAgent = Effect.fn("Cli.agent.show")(function* (args: AgentShowA
         },
         null,
         2,
-      ) + EOL,
-    )
+      ) + EOL
+    if (args.output) {
+      const resolved = path.resolve(args.output)
+      yield* Effect.promise(async () => {
+        await fs.mkdir(path.dirname(resolved), { recursive: true })
+        await fs.writeFile(resolved, jsonStr, "utf-8")
+      })
+      UI.println(`Wrote agent details to ${resolved}`)
+      return
+    }
+    process.stdout.write(jsonStr)
+    return
+  }
+
+  if (args.output) {
+    const lines: string[] = []
+    const tag = agent.native ? " (built-in)" : ""
+    lines.push(`${agent.name} (${agent.mode})${tag}`)
+    if (agent.description) {
+      lines.push(`  Description: ${agent.description}`)
+    }
+    if (agent.model) {
+      lines.push(`  Model: ${agent.model.providerID}/${agent.model.modelID}`)
+    }
+    if (agent.variant) {
+      lines.push(`  Variant: ${agent.variant}`)
+    }
+    if (agent.provision && agent.provision.length > 0) {
+      lines.push(`  Provision: ${agent.provision.join(", ")}`)
+    }
+    if (agent.prompt) {
+      lines.push(`  Prompt: ${agent.prompt.trim()}`)
+    }
+    lines.push(`  Permissions: ${JSON.stringify(agent.permission, null, 2)}`)
+    const resolved = path.resolve(args.output)
+    yield* Effect.promise(async () => {
+      await fs.mkdir(path.dirname(resolved), { recursive: true })
+      await fs.writeFile(resolved, lines.join(EOL) + EOL, "utf-8")
+    })
+    UI.println(`Wrote agent details to ${resolved}`)
     return
   }
 
@@ -618,6 +705,8 @@ export const showAgent = Effect.fn("Cli.agent.show")(function* (args: AgentShowA
 export type AgentDeleteArgs = {
   name: string
   json?: boolean
+  force?: boolean
+  output?: string
 }
 
 export const deleteAgent = Effect.fn("Cli.agent.delete")(function* (args: AgentDeleteArgs) {
@@ -662,22 +751,61 @@ export const deleteAgent = Effect.fn("Cli.agent.delete")(function* (args: AgentD
   }
 
   if (!deletedPath) {
+    if (args.force) {
+      if (args.json) {
+        const payload = {
+          name: args.name,
+          deleted: false,
+          message: `Agent not found: ${args.name}`,
+        }
+        const jsonStr = JSON.stringify(payload, null, 2) + EOL
+        if (args.output) {
+          const resolved = path.resolve(args.output)
+          yield* Effect.promise(async () => {
+            await fs.mkdir(path.dirname(resolved), { recursive: true })
+            await fs.writeFile(resolved, jsonStr, "utf-8")
+          })
+        }
+        process.stdout.write(jsonStr)
+        return
+      }
+      if (args.output) {
+        const resolved = path.resolve(args.output)
+        yield* Effect.promise(async () => {
+          await fs.mkdir(path.dirname(resolved), { recursive: true })
+          await fs.writeFile(resolved, `Agent not found: ${args.name}${EOL}`, "utf-8")
+        })
+      }
+      UI.println(`Agent not found: ${args.name}`)
+      return
+    }
     return yield* fail(`Agent not found: ${args.name}`)
   }
 
   if (args.json) {
-    process.stdout.write(
-      JSON.stringify(
-        {
-          name: args.name,
-          file: deletedPath,
-          deleted: true,
-        },
-        null,
-        2,
-      ) + EOL,
-    )
+    const payload = {
+      name: args.name,
+      file: deletedPath,
+      deleted: true,
+    }
+    const jsonStr = JSON.stringify(payload, null, 2) + EOL
+    if (args.output) {
+      const resolved = path.resolve(args.output)
+      yield* Effect.promise(async () => {
+        await fs.mkdir(path.dirname(resolved), { recursive: true })
+        await fs.writeFile(resolved, jsonStr, "utf-8")
+      })
+    }
+    process.stdout.write(jsonStr)
     return
+  }
+
+  if (args.output) {
+    const resolved = path.resolve(args.output)
+    yield* Effect.promise(async () => {
+      await fs.mkdir(path.dirname(resolved), { recursive: true })
+      await fs.writeFile(resolved, `Agent ${args.name} deleted (${deletedPath})${EOL}`, "utf-8")
+    })
   }
 
   UI.println(UI.Style.TEXT_SUCCESS_BOLD + `Agent ${args.name} deleted (${deletedPath})` + UI.Style.TEXT_NORMAL)
@@ -692,6 +820,20 @@ export const AgentListCommand = effectCmd({
       .option("json", {
         type: "boolean",
         describe: "output JSON",
+      })
+      .option("output", {
+        alias: "o",
+        type: "string",
+        describe: "write agents list to output file path",
+      })
+      .option("search", {
+        alias: ["q", "query"],
+        type: "string",
+        describe: "filter agents by name, description, or model",
+      })
+      .option("native", {
+        type: "boolean",
+        describe: "filter built-in vs custom agents",
       })
       .option("mode", {
         type: "string",
@@ -715,6 +857,11 @@ export const AgentShowCommand = effectCmd({
       .option("json", {
         type: "boolean",
         describe: "output JSON",
+      })
+      .option("output", {
+        alias: "o",
+        type: "string",
+        describe: "write agent details to output file path",
       }),
   handler: showAgent,
 })
@@ -730,9 +877,19 @@ export const AgentDeleteCommand = effectCmd({
         describe: "agent identifier",
         demandOption: true,
       })
+      .option("force", {
+        alias: "f",
+        type: "boolean",
+        describe: "do not exit non-zero if agent is not found",
+      })
       .option("json", {
         type: "boolean",
         describe: "output JSON",
+      })
+      .option("output", {
+        alias: "o",
+        type: "string",
+        describe: "write deletion result to output file path",
       }),
   handler: deleteAgent,
 })
