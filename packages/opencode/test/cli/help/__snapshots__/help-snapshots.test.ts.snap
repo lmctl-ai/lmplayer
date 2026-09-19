@@ -491,6 +491,11 @@ database tools
 Commands:
   lmplayer db [query]     open an interactive sqlite3 shell or run a query                 [default]
   lmplayer db path        print the database path
+  lmplayer db info        show database size, row counts, and storage metrics
+                                                                            [aliases: stats, status]
+  lmplayer db check       verify database integrity and foreign key constraints
+                                                                        [aliases: verify, integrity]
+  lmplayer db vacuum      reclaim disk space, checkpoint WAL, and optimize[aliases: optimize, clean]
 
 Positionals:
   query  SQL query to execute                                                               [string]
@@ -785,5 +790,51 @@ Options:
   -v, --version     show version number                                                    [boolean]
       --print-logs  print logs to stderr                                                   [boolean]
       --log-level   log level                   [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
-      --pure        run without external plugins                                           [boolean]"
+      --pure        run without external plugins                                           [boolean]
+      --json        output as JSON                                                         [boolean]"
+`;
+
+exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode db info --help 1`] = `
+"lmplayer db info
+
+show database size, row counts, and storage metrics
+
+Options:
+  -h, --help        show help                                                              [boolean]
+  -v, --version     show version number                                                    [boolean]
+      --print-logs  print logs to stderr                                                   [boolean]
+      --log-level   log level                   [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
+      --pure        run without external plugins                                           [boolean]
+      --json        output as JSON                                                         [boolean]"
+`;
+
+exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode db check --help 1`] = `
+"lmplayer db check
+
+verify database integrity and foreign key constraints
+
+Options:
+  -h, --help        show help                                                              [boolean]
+  -v, --version     show version number                                                    [boolean]
+      --print-logs  print logs to stderr                                                   [boolean]
+      --log-level   log level                   [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
+      --pure        run without external plugins                                           [boolean]
+      --json        output as JSON                                                         [boolean]"
+`;
+
+exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode db vacuum --help 1`] = `
+"lmplayer db vacuum
+
+reclaim disk space, checkpoint WAL, and optimize
+
+Options:
+  -h, --help               show help                                                       [boolean]
+  -v, --version            show version number                                             [boolean]
+      --print-logs         print logs to stderr                                            [boolean]
+      --log-level          log level            [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
+      --pure               run without external plugins                                    [boolean]
+      --wal, --checkpoint  only checkpoint and truncate the WAL without rewriting the database file
+                                                                                           [boolean]
+      --analyze            run ANALYZE for query planner statistics                        [boolean]
+      --json               output as JSON                                                  [boolean]"
 `;

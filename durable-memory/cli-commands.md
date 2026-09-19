@@ -92,6 +92,13 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
 ## Token usage & statistics
 - `stats [--days n] [--tools [n]] [--models [n]] [--project p] [--provider <id>] [--model <id>] [--budget <amount>] [--budget-check] [--json]` — aggregate and inspect token usage, write-time costs, tool call counts, and daily/per-session averages across sessions. Supports granular provider (`--provider`) and model (`--model`) filtering for unmetered cloud ledgering (e.g. Ollama Cloud), client-side budget tracking (`--budget <amount>`), budget threshold checks (`--budget-check` which displays full stats and exits with code 2 if spend meets or exceeds the limit), and machine-readable structured JSON output (`--json`).
 
+## Database management & diagnostics
+- `db path [--json]` — print the active SQLite database path, with `--json` returning structured path metadata (`path`, `wal_path`, `shm_path`).
+- `db info` (aliases: `stats`, `status`) `[--json]` — inspect SQLite database status, database file and WAL/SHM sizes, page sizes, page counts, freelist page counts, SQLite version, journal mode, and row counts across all tables.
+- `db check` (aliases: `verify`, `integrity`) `[--json]` — verify database integrity and foreign key constraints via `PRAGMA integrity_check` and `PRAGMA foreign_key_check`, reporting structured check results and failing with exit code 1 if issues or violations are detected.
+- `db vacuum` (aliases: `optimize`, `clean`) `[--wal] [--analyze] [--json]` — reclaim disk space and defragment database storage via `VACUUM` and `PRAGMA wal_checkpoint(TRUNCATE)`, run `PRAGMA optimize`, and optionally run query planner analysis (`--analyze`) or WAL checkpoint only (`--wal` / `--checkpoint`), reporting before/after byte sizes and reclaimed space.
+- `db [query] [--format table|json|markdown]` — open an interactive `sqlite3` CLI shell or run raw SQL queries directly against the active database.
+
 ## Known gaps / TODO (not yet built)
 - `models test [provider]` (probe each entitled model) — SHIPPED (with `--json`, `--timeout`, `--concurrency`).
 - Persistent default effort relies on per-run `--effort` (persisted to model.json state), no config field. (CLOSED: added top-level `default_variant` and `variant` alias to ConfigV1.Info schema, prompt fallback, and config verify).
