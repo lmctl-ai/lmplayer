@@ -1,9 +1,25 @@
 import { describe, expect, test } from "bun:test"
-import { modelToDetailJson, modelToJsonEntry, ModelsShowCommand, resolveVerify } from "../../src/cli/cmd/models"
+import {
+  filterModel,
+  modelsList,
+  ModelsListCommand,
+  ModelsCommand,
+  modelToDetailJson,
+  modelToJsonEntry,
+  ModelsShowCommand,
+  parseModelFilterOptions,
+  resolveVerify,
+} from "../../src/cli/cmd/models"
 import { ProviderTest } from "../fake/provider"
 import yargs, { type Argv } from "yargs"
 import type { ModelsDev } from "@opencode-ai/core/models-dev"
 import type { Auth } from "../../src/auth"
+import type { Provider } from "@/provider/provider"
+import { Effect, Exit } from "effect"
+import { InstanceRef } from "../../src/effect/instance-ref"
+import { InstanceRuntime } from "../../src/project/instance-runtime"
+import { AppRuntime } from "../../src/effect/app-runtime"
+import { tmpdir } from "../fixture/fixture"
 
 // ─── modelToJsonEntry shape ───────────────────────────────────────────────────
 
@@ -243,6 +259,258 @@ describe("ModelsShowCommand definition and builder", () => {
     const options = (parser as any).getOptions()
     expect(options.key.json).toBeDefined()
     expect(options.boolean).toContain("json")
+  })
+})
+
+// ─── filterModel ─────────────────────────────────────────────────────────────
+
+describe("filterModel", () => {
+  const testCaps = (override: Partial<Provider.Model["capabilities"]> = {}) => ({
+    ...ProviderTest.model().capabilities,
+    ...override,
+  })
+
+  const model = ProviderTest.model({
+    name: "Claude 3.7 Sonnet",
+    capabilities: testCaps({
+      reasoning: true,
+      toolcall: true,
+      attachment: true,
+      temperature: true,
+    }),
+    limit: { context: 200_000, input: 200_000, output: 8192 },
+  })
+
+  test("accepts when no filters are set", () => {
+    expect(filterModel("anthropic", "claude-3-7-sonnet", model, {})).toBe(true)
+  })
+
+  test("matches search by model ID", () => {
+    expect(filterModel("anthropic", "claude-3-7-sonnet", model, { search: "sonnet" })).toBe(true)
+    expect(filterModel("anthropic", "claude-3-7-sonnet", model, { search: "claude-3" })).toBe(true)
+  })
+
+  test("matches search by model name case-insensitively", () => {
+    expect(filterModel("anthropic", "claude-3-7-sonnet", model, { search: "Claude" })).toBe(true)
+    expect(filterModel("anthropic", "claude-3-7-sonnet", model, { search: "3.7" })).toBe(true)
+  })
+
+  test("matches search by provider ID", () => {
+    expect(filterModel("anthropic", "claude-3-7-sonnet", model, { search: "anthropic" })).toBe(true)
+  })
+
+  test("rejects search when no match", () => {
+    expect(filterModel("anthropic", "claude-3-7-sonnet", model, { search: "gpt-4o" })).toBe(false)
+  })
+
+  test("filters by reasoning capability", () => {
+    expect(filterModel("anthropic", "claude-3-7-sonnet", model, { reasoning: true })).toBe(true)
+    const noReasoning = ProviderTest.model({
+      capabilities: testCaps({ reasoning: false, toolcall: true, attachment: true, temperature: true }),
+    })
+    expect(filterModel("anthropic", "m1", noReasoning, { reasoning: true })).toBe(false)
+  })
+
+  test("filters by toolcall capability", () => {
+    expect(filterModel("anthropic", "claude-3-7-sonnet", model, { toolcall: true })).toBe(true)
+    const noTool = ProviderTest.model({
+      capabilities: testCaps({ reasoning: false, toolcall: false, attachment: true, temperature: true }),
+    })
+    expect(filterModel("anthropic", "m1", noTool, { toolcall: true })).toBe(false)
+  })
+
+  test("filters by attachment capability", () => {
+    expect(filterModel("anthropic", "claude-3-7-sonnet", model, { attachment: true })).toBe(true)
+    const noAttach = ProviderTest.model({
+      capabilities: testCaps({ reasoning: false, toolcall: true, attachment: false, temperature: true }),
+    })
+    expect(filterModel("anthropic", "m1", noAttach, { attachment: true })).toBe(false)
+  })
+
+  test("filters by minContext", () => {
+    expect(filterModel("anthropic", "claude-3-7-sonnet", model, { minContext: 128_000 })).toBe(true)
+    expect(filterModel("anthropic", "claude-3-7-sonnet", model, { minContext: 200_000 })).toBe(true)
+    expect(filterModel("anthropic", "claude-3-7-sonnet", model, { minContext: 500_000 })).toBe(false)
+  })
+
+  test("combines multiple filter predicates", () => {
+    expect(
+      filterModel("anthropic", "claude-3-7-sonnet", model, {
+        search: "sonnet",
+        reasoning: true,
+        toolcall: true,
+        minContext: 100_000,
+      }),
+    ).toBe(true)
+
+    expect(
+      filterModel("anthropic", "claude-3-7-sonnet", model, {
+        search: "sonnet",
+        reasoning: true,
+        toolcall: true,
+        minContext: 300_000,
+      }),
+    ).toBe(false)
+  })
+})
+
+// ─── parseModelFilterOptions ──────────────────────────────────────────────────
+
+describe("parseModelFilterOptions", () => {
+  test("parses flag aliases", () => {
+    const opts = parseModelFilterOptions({
+      q: "sonnet",
+      r: true,
+      tools: true,
+      attachments: true,
+      "min-context": 128_000,
+    })
+    expect(opts.search).toBe("sonnet")
+    expect(opts.reasoning).toBe(true)
+    expect(opts.toolcall).toBe(true)
+    expect(opts.attachment).toBe(true)
+    expect(opts.minContext).toBe(128_000)
+  })
+
+  test("handles empty options", () => {
+    const opts = parseModelFilterOptions({})
+    expect(opts.search).toBeUndefined()
+    expect(opts.reasoning).toBe(false)
+    expect(opts.toolcall).toBe(false)
+    expect(opts.attachment).toBe(false)
+    expect(opts.minContext).toBeUndefined()
+  })
+})
+
+// ─── ModelsListCommand definition and builder ────────────────────────────────
+
+describe("ModelsListCommand and ModelsCommand definition and builder", () => {
+  test("ModelsListCommand has command list [provider] and alias ls", () => {
+    expect(ModelsListCommand.command).toBe("list [provider]")
+    expect(ModelsListCommand.aliases).toContain("ls")
+  })
+
+  test("ModelsListCommand builder registers all filter and output options", () => {
+    const builder = ModelsListCommand.builder as (y: Argv) => Argv<any>
+    const parser = builder(yargs())
+    const options = (parser as any).getOptions()
+    expect(options.key.search).toBeDefined()
+    expect(options.key.reasoning).toBeDefined()
+    expect(options.key.toolcall).toBeDefined()
+    expect(options.key.attachment).toBeDefined()
+    expect(options.key["min-context"]).toBeDefined()
+    expect(options.key.json).toBeDefined()
+    expect(options.key.verbose).toBeDefined()
+    expect(options.key.refresh).toBeDefined()
+  })
+
+  test("ModelsCommand builder registers test, timeout, and concurrency options", () => {
+    const builder = ModelsCommand.builder as (y: Argv) => Argv<any>
+    const parser = builder(yargs())
+    const options = (parser as any).getOptions()
+    expect(options.key.test).toBeDefined()
+    expect(options.key.timeout).toBeDefined()
+    expect(options.key.concurrency).toBeDefined()
+    expect(options.key.search).toBeDefined()
+  })
+})
+
+// ─── modelsList in-process handler ───────────────────────────────────────────
+
+describe("modelsList in-process handler", () => {
+  const runModelsList = (args: any, ctx: any) =>
+    AppRuntime.runPromise(modelsList(args).pipe(Effect.provideService(InstanceRef, ctx)))
+
+  const runModelsListExit = (args: any, ctx: any) =>
+    AppRuntime.runPromiseExit(modelsList(args).pipe(Effect.provideService(InstanceRef, ctx)))
+
+  test("fails cleanly for unknown provider", async () => {
+    const tmp = await tmpdir({ git: true })
+    const ctx = await InstanceRuntime.load({ directory: tmp.path })
+    try {
+      const exit = await runModelsListExit({ provider: "totally-unknown-provider-999" }, ctx)
+      expect(Exit.isFailure(exit)).toBe(true)
+    } finally {
+      await InstanceRuntime.disposeInstance(ctx)
+    }
+  })
+
+  test("lists ollama models as json", async () => {
+    const tmp = await tmpdir({ git: true })
+    const ctx = await InstanceRuntime.load({ directory: tmp.path })
+    let captured = ""
+    const originalWrite = process.stdout.write
+    process.stdout.write = ((chunk: any) => {
+      captured += String(chunk)
+      return true
+    }) as any
+
+    try {
+      await runModelsList({ provider: "ollama", json: true }, ctx)
+      const data = JSON.parse(captured)
+      expect(Array.isArray(data)).toBe(true)
+      expect(data.length).toBeGreaterThan(0)
+      const first = data[0]
+      expect(first.provider).toBe("ollama")
+      expect(first.available).toBe(true)
+      expect(typeof first.id).toBe("string")
+      expect(typeof first.name).toBe("string")
+      expect(typeof first.limit).toBe("object")
+      expect(typeof first.capabilities).toBe("object")
+    } finally {
+      process.stdout.write = originalWrite
+      await InstanceRuntime.disposeInstance(ctx)
+    }
+  })
+
+  test("filters models by search query in json mode", async () => {
+    const tmp = await tmpdir({ git: true })
+    const ctx = await InstanceRuntime.load({ directory: tmp.path })
+    let captured = ""
+    const originalWrite = process.stdout.write
+    process.stdout.write = ((chunk: any) => {
+      captured += String(chunk)
+      return true
+    }) as any
+
+    try {
+      await runModelsList({ provider: "ollama", search: "qwen", json: true }, ctx)
+      const data = JSON.parse(captured)
+      expect(Array.isArray(data)).toBe(true)
+      for (const entry of data) {
+        const matches =
+          entry.id.toLowerCase().includes("qwen") ||
+          entry.name.toLowerCase().includes("qwen") ||
+          entry.provider.toLowerCase().includes("qwen")
+        expect(matches).toBe(true)
+      }
+    } finally {
+      process.stdout.write = originalWrite
+      await InstanceRuntime.disposeInstance(ctx)
+    }
+  })
+
+  test("filters models by capabilities in json mode", async () => {
+    const tmp = await tmpdir({ git: true })
+    const ctx = await InstanceRuntime.load({ directory: tmp.path })
+    let captured = ""
+    const originalWrite = process.stdout.write
+    process.stdout.write = ((chunk: any) => {
+      captured += String(chunk)
+      return true
+    }) as any
+
+    try {
+      await runModelsList({ provider: "ollama", toolcall: true, json: true }, ctx)
+      const data = JSON.parse(captured)
+      expect(Array.isArray(data)).toBe(true)
+      for (const entry of data) {
+        expect(entry.capabilities.toolcall).toBe(true)
+      }
+    } finally {
+      process.stdout.write = originalWrite
+      await InstanceRuntime.disposeInstance(ctx)
+    }
   })
 })
 
