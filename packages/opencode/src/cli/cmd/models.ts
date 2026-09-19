@@ -1,4 +1,5 @@
 import { EOL } from "os"
+import path from "path"
 import { Effect } from "effect"
 import { ModelsDev } from "@opencode-ai/core/models-dev"
 import { effectCmd, fail } from "../effect-cmd"
@@ -179,7 +180,7 @@ export function resolveVerify(
 
 // ─── verify subcommand ───────────────────────────────────────────────────────
 
-const ModelsVerifyCommand = effectCmd({
+export const ModelsVerifyCommand = effectCmd({
   command: "verify <model>",
   describe: "verify a model is known and available; exit non-zero with a reason if not",
   instance: false,
@@ -194,8 +195,22 @@ const ModelsVerifyCommand = effectCmd({
         alias: "e",
         describe: "effort/variant to validate (e.g. low, medium, high, xhigh, max)",
         type: "string",
+      })
+      .option("json", {
+        describe: "output JSON",
+        type: "boolean",
+      })
+      .option("output", {
+        alias: "o",
+        describe: "write verify report to output file path",
+        type: "string",
       }),
-  handler: Effect.fn("Cli.models.verify")(function* (args) {
+  handler: Effect.fn("Cli.models.verify")(function* (args: {
+    model: string
+    effort?: string
+    json?: boolean
+    output?: string
+  }) {
     const modelId = args.model!
     const modelsDev = yield* ModelsDev.Service
     const database = yield* modelsDev.get()
@@ -217,6 +232,36 @@ const ModelsVerifyCommand = effectCmd({
     }
 
     const result = resolveVerify(modelId, args.effort, database, allCreds, builtProvider)
+    if (args.json) {
+      const payload = result.ok
+        ? { ok: true, model: modelId, effort: args.effort ?? null }
+        : { ok: false, model: modelId, effort: args.effort ?? null, reason: result.reason }
+      const jsonOut = JSON.stringify(payload, null, 2)
+      if (args.output) {
+        const resolved = path.resolve(args.output)
+        yield* Effect.promise(async () => {
+          const fs = await import("fs/promises")
+          await fs.mkdir(path.dirname(resolved), { recursive: true })
+          await fs.writeFile(resolved, jsonOut + EOL, "utf-8")
+        })
+      }
+      process.stdout.write(jsonOut + EOL)
+      if (!result.ok) {
+        process.exitCode = 1
+      }
+      return
+    }
+
+    if (args.output) {
+      const textOut = result.ok ? `ok: ${modelId} is available${EOL}` : `error: ${result.reason}${EOL}`
+      const resolved = path.resolve(args.output)
+      yield* Effect.promise(async () => {
+        const fs = await import("fs/promises")
+        await fs.mkdir(path.dirname(resolved), { recursive: true })
+        await fs.writeFile(resolved, textOut, "utf-8")
+      })
+    }
+
     if (!result.ok) {
       process.stderr.write(`error: ${result.reason}\n`)
       process.exitCode = 1

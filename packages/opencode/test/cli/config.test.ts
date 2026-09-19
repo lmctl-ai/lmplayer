@@ -328,5 +328,47 @@ describe("opencode config (cli command)", () => {
       }),
     60_000,
   )
+
+  cliIt.concurrent(
+    "supports --json and --output for config verify, get, and list",
+    ({ home, opencode }) =>
+      Effect.gen(function* () {
+        // Set model in global config
+        const setRes = yield* run(opencode, ["config", "set", "model", "test-provider/test-model"])
+        opencode.expectExit(setRes, 0)
+
+        // 1. config verify --json
+        const verifyJsonRes = yield* run(opencode, ["config", "verify", "--json"])
+        opencode.expectExit(verifyJsonRes, 0)
+        const parsedVerify = JSON.parse(verifyJsonRes.stdout)
+        expect(parsedVerify.ok).toBe(true)
+        expect(Array.isArray(parsedVerify.sources)).toBe(true)
+        expect(parsedVerify.model).toBe("test-provider/test-model")
+
+        // 2. config verify --output
+        const verifyOutFile = path.join(home, "verify-report.json")
+        const verifyOutRes = yield* run(opencode, ["config", "verify", "--json", "-o", verifyOutFile])
+        opencode.expectExit(verifyOutRes, 0)
+        const verifyFileContent = JSON.parse(yield* Effect.promise(() => fs.readFile(verifyOutFile, "utf-8")))
+        expect(verifyFileContent.ok).toBe(true)
+        expect(verifyFileContent.model).toBe("test-provider/test-model")
+
+        // 3. config get --output
+        const getOutFile = path.join(home, "model-val.txt")
+        const getOutRes = yield* run(opencode, ["config", "get", "model", "-o", getOutFile])
+        opencode.expectExit(getOutRes, 0)
+        const getFileContent = (yield* Effect.promise(() => fs.readFile(getOutFile, "utf-8"))).trim()
+        expect(getFileContent).toBe("test-provider/test-model")
+
+        // 4. config list --output
+        const listOutFile = path.join(home, "config-list.json")
+        const listOutRes = yield* run(opencode, ["config", "list", "-o", listOutFile])
+        opencode.expectExit(listOutRes, 0)
+        const listFileContent = JSON.parse(yield* Effect.promise(() => fs.readFile(listOutFile, "utf-8")))
+        expect(listFileContent.model).toBe("test-provider/test-model")
+      }),
+    60_000,
+  )
 })
+
 
