@@ -1,5 +1,5 @@
 import { Effect } from "effect"
-import { effectCmd } from "../effect-cmd"
+import { effectCmd, fail } from "../effect-cmd"
 import { Session } from "@/session/session"
 import { NotFoundError } from "@/storage/storage"
 import { Database } from "@opencode-ai/core/database/database"
@@ -44,6 +44,28 @@ export interface SessionStats {
   costPerDay: number
   tokensPerSession: number
   medianTokensPerSession: number
+}
+
+export interface BudgetStats {
+  limit: number
+  used: number
+  remaining: number
+  percentage: number
+  exceeded: boolean
+}
+
+export function computeBudgetStats(totalCost: number, budgetLimit: number): BudgetStats {
+  const used = isNaN(totalCost) ? 0 : totalCost
+  const remaining = Math.max(0, budgetLimit - used)
+  const percentage = budgetLimit > 0 ? (used / budgetLimit) * 100 : 0
+  const exceeded = budgetLimit > 0 ? used >= budgetLimit : used > 0
+  return {
+    limit: budgetLimit,
+    used,
+    remaining,
+    percentage: Math.round(percentage * 100) / 100,
+    exceeded,
+  }
 }
 
 export type StatsJson = {
@@ -93,6 +115,7 @@ export type StatsJson = {
     provider?: string
     model?: string
   }
+  budget?: BudgetStats
 }
 
 export function formatStatsJson(
@@ -105,6 +128,7 @@ export function formatStatsJson(
     provider?: string
     model?: string
   },
+  budget?: BudgetStats,
 ): StatsJson {
   const totalTokens =
     stats.totalTokens.input +
@@ -173,6 +197,7 @@ export function formatStatsJson(
     tool_usage: toolUsage,
     model_usage: Object.fromEntries(modelUsageEntries),
     ...(filters && Object.values(filters).some((v) => v !== undefined) ? { filters } : {}),
+    ...(budget ? { budget } : {}),
   }
 }
 
@@ -183,8 +208,16 @@ export const runStats = Effect.fn("Cli.stats.run")(function* (args: {
   project?: string
   provider?: string
   model?: string
+  budget?: number
+  budgetCheck?: boolean
   json?: boolean
 }) {
+  if (args.budgetCheck && args.budget === undefined) {
+    yield* fail("--budget-check requires --budget <amount> to be specified")
+  }
+  if (args.budget !== undefined && (isNaN(args.budget) || args.budget < 0)) {
+    yield* fail("--budget must be a non-negative number")
+  }
   const ctx = yield* InstanceRef
   if (!ctx) return
   const stats = yield* aggregateSessionStats(args.days, args.project, ctx.project, args.provider, args.model)
@@ -194,22 +227,47 @@ export const runStats = Effect.fn("Cli.stats.run")(function* (args: {
   } else if (typeof args.models === "number") {
     modelLimit = args.models
   }
+  const budgetInfo = args.budget !== undefined ? computeBudgetStats(stats.totalCost, args.budget) : undefined
   if (args.json) {
-    const out = formatStatsJson(stats, args.tools, modelLimit, {
+    const out = formatStatsJson(
+      stats,
+      args.tools,
+      modelLimit,
+      {
+        days: args.days,
+        project: args.project,
+        provider: args.provider,
+        model: args.model,
+      },
+      budgetInfo,
+    )
+    process.stdout.write(JSON.stringify(out, null, 2) + "\n")
+    if (args.budgetCheck && budgetInfo?.exceeded) {
+      yield* fail(
+        `Budget limit exceeded: spent $${budgetInfo.used.toFixed(2)} of $${budgetInfo.limit.toFixed(2)} budget (${budgetInfo.percentage.toFixed(1)}%)`,
+        2,
+      )
+    }
+    return out
+  }
+  displayStats(
+    stats,
+    args.tools,
+    modelLimit,
+    {
       days: args.days,
       project: args.project,
       provider: args.provider,
       model: args.model,
-    })
-    process.stdout.write(JSON.stringify(out, null, 2) + "\n")
-    return out
+    },
+    budgetInfo,
+  )
+  if (args.budgetCheck && budgetInfo?.exceeded) {
+    yield* fail(
+      `Budget limit exceeded: spent $${budgetInfo.used.toFixed(2)} of $${budgetInfo.limit.toFixed(2)} budget (${budgetInfo.percentage.toFixed(1)}%)`,
+      2,
+    )
   }
-  displayStats(stats, args.tools, modelLimit, {
-    days: args.days,
-    project: args.project,
-    provider: args.provider,
-    model: args.model,
-  })
   return stats
 })
 
@@ -241,6 +299,14 @@ export const StatsCommand = effectCmd({
         describe: "filter by model ID or provider/model (e.g. deepseek-v4.1-flash, kimi-k2.7-code)",
         type: "string",
       })
+      .option("budget", {
+        describe: "budget limit in USD to compare spend against (e.g. 10.00)",
+        type: "number",
+      })
+      .option("budget-check", {
+        describe: "exit with code 2 if total spend exceeds budget limit",
+        type: "boolean",
+      })
       .option("json", {
         describe: "output as JSON",
         type: "boolean",
@@ -253,6 +319,8 @@ export const StatsCommand = effectCmd({
       project: args.project,
       provider: args.provider,
       model: args.model,
+      budget: args.budget,
+      budgetCheck: Boolean(args["budget-check"] ?? args.budgetCheck),
       json: Boolean(args.json),
     })
   }),
@@ -534,6 +602,7 @@ export function displayStats(
     provider?: string
     model?: string
   },
+  budget?: BudgetStats,
 ) {
   const width = 56
 
@@ -582,6 +651,25 @@ export function displayStats(
   console.log(renderRow("Cache Write", formatNumber(stats.totalTokens.cache.write)))
   console.log("└────────────────────────────────────────────────────────┘")
   console.log()
+
+  // Budget section
+  if (budget) {
+    console.log("┌────────────────────────────────────────────────────────┐")
+    console.log("│                         BUDGET                         │")
+    console.log("├────────────────────────────────────────────────────────┤")
+    console.log(renderRow("Budget Limit", `$${budget.limit.toFixed(2)}`))
+    console.log(renderRow("Total Spend", `$${budget.used.toFixed(2)}`))
+    console.log(renderRow("Remaining", `$${budget.remaining.toFixed(2)}`))
+    console.log(renderRow("Usage", `${budget.percentage.toFixed(2)}%`))
+    console.log(
+      renderRow(
+        "Status",
+        budget.exceeded ? "EXCEEDED [ALERT]" : "WITHIN BUDGET",
+      ),
+    )
+    console.log("└────────────────────────────────────────────────────────┘")
+    console.log()
+  }
 
   // Model Usage section
   if (modelLimit !== undefined && Object.keys(stats.modelUsage).length > 0) {

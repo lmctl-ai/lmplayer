@@ -328,20 +328,23 @@ exports[`opencode CLI help-text snapshots every documented command emits stable 
 show token usage and cost statistics
 
 Options:
-  -h, --help        show help                                                              [boolean]
-  -v, --version     show version number                                                    [boolean]
-      --print-logs  print logs to stderr                                                   [boolean]
-      --log-level   log level                   [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
-      --pure        run without external plugins                                           [boolean]
-      --days        show stats for the last N days (default: all time)                      [number]
-      --tools       number of tools to show (default: all)                                  [number]
-      --models      show model statistics (default: hidden). Pass a number to show top N, otherwise
-                    shows all
-      --project     filter by project (default: all projects, empty string: current project)[string]
-      --provider    filter by provider ID (e.g. ollama-cloud, deepseek)                     [string]
-      --model       filter by model ID or provider/model (e.g. deepseek-v4.1-flash, kimi-k2.7-code)
+  -h, --help          show help                                                            [boolean]
+  -v, --version       show version number                                                  [boolean]
+      --print-logs    print logs to stderr                                                 [boolean]
+      --log-level     log level                 [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
+      --pure          run without external plugins                                         [boolean]
+      --days          show stats for the last N days (default: all time)                    [number]
+      --tools         number of tools to show (default: all)                                [number]
+      --models        show model statistics (default: hidden). Pass a number to show top N,
+                      otherwise shows all
+      --project       filter by project (default: all projects, empty string: current project)
                                                                                             [string]
-      --json        output as JSON                                                         [boolean]"
+      --provider      filter by provider ID (e.g. ollama-cloud, deepseek)                   [string]
+      --model         filter by model ID or provider/model (e.g. deepseek-v4.1-flash,
+                      kimi-k2.7-code)                                                       [string]
+      --budget        budget limit in USD to compare spend against (e.g. 10.00)             [number]
+      --budget-check  exit with code 2 if total spend exceeds budget limit                 [boolean]
+      --json          output as JSON                                                       [boolean]"
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode export --help 1`] = `
