@@ -484,11 +484,20 @@ export const SessionReportCommand = effectCmd({
         type: "string",
         demandOption: true,
       })
+      .option("output", {
+        alias: "o",
+        describe: "write report to output file path",
+        type: "string",
+      })
       .option("json", {
         describe: "output JSON",
         type: "boolean",
       }),
-  handler: Effect.fn("Cli.session.report")(function* (args) {
+  handler: Effect.fn("Cli.session.report")(function* (args: {
+    sessionID: string
+    output?: string
+    json?: boolean
+  }) {
     const sdk = yield* localSdk()
     const info = yield* Effect.promise(() => sdk.session.get({ sessionID: args.sessionID }).then((r) => r.data))
     if (!info) return yield* fail(`Session not found: ${args.sessionID}`)
@@ -497,11 +506,30 @@ export const SessionReportCommand = effectCmd({
       const report = createSessionReport(args.sessionID, response.data ?? [])
 
       if (args.json) {
-        console.log(JSON.stringify(report, null, 2))
+        const jsonOutput = JSON.stringify(report, null, 2)
+        if (args.output) {
+          const resolved = path.resolve(args.output)
+          const fs = await import("fs/promises")
+          await fs.mkdir(path.dirname(resolved), { recursive: true })
+          await fs.writeFile(resolved, jsonOutput + EOL, "utf-8")
+          console.log(JSON.stringify({ ok: true, file: resolved }, null, 2))
+          return
+        }
+        console.log(jsonOutput)
         return
       }
 
-      console.log(formatSessionReport(report))
+      const outputText = formatSessionReport(report)
+      if (args.output) {
+        const resolved = path.resolve(args.output)
+        const fs = await import("fs/promises")
+        await fs.mkdir(path.dirname(resolved), { recursive: true })
+        await fs.writeFile(resolved, outputText + EOL, "utf-8")
+        UI.println(`Wrote report to ${resolved}`)
+        return
+      }
+
+      console.log(outputText)
     })
   }),
 })
@@ -516,11 +544,20 @@ export const SessionMetricsCommand = effectCmd({
         type: "string",
         demandOption: true,
       })
+      .option("output", {
+        alias: "o",
+        describe: "write metrics to output file path",
+        type: "string",
+      })
       .option("json", {
         describe: "output JSON",
         type: "boolean",
       }),
-  handler: Effect.fn("Cli.session.metrics")(function* (args) {
+  handler: Effect.fn("Cli.session.metrics")(function* (args: {
+    sessionID: string
+    output?: string
+    json?: boolean
+  }) {
     const sdk = yield* localSdk()
     const { Provider } = yield* Effect.promise(() => import("@/provider/provider"))
     // FIX 1: fetch session info first and fail fast if not found
@@ -555,9 +592,29 @@ export const SessionMetricsCommand = effectCmd({
     yield* Effect.promise(async () => {
       const metrics = createSessionMetrics(args.sessionID, msgs, { session: info, pricing, jobs, crons })
       if (args.json) {
-        console.log(JSON.stringify(metrics, null, 2))
+        const jsonOutput = JSON.stringify(metrics, null, 2)
+        if (args.output) {
+          const resolved = path.resolve(args.output)
+          const fs = await import("fs/promises")
+          await fs.mkdir(path.dirname(resolved), { recursive: true })
+          await fs.writeFile(resolved, jsonOutput + EOL, "utf-8")
+          console.log(JSON.stringify({ ok: true, file: resolved }, null, 2))
+          return
+        }
+        console.log(jsonOutput)
         return
       }
+
+      const outputText = formatSessionMetrics(metrics)
+      if (args.output) {
+        const resolved = path.resolve(args.output)
+        const fs = await import("fs/promises")
+        await fs.mkdir(path.dirname(resolved), { recursive: true })
+        await fs.writeFile(resolved, outputText + EOL, "utf-8")
+        UI.println(`Wrote metrics to ${resolved}`)
+        return
+      }
+
       console.log(formatSessionMetrics(metrics))
     })
   }),
@@ -980,6 +1037,14 @@ export const SessionJobsCommand = effectCmd({
       }),
   handler: Effect.fn("Cli.session.jobs")(function* (args) {
     const sdk = yield* localSdk()
+    const sessionRes = yield* Effect.promise(async () => {
+      return sdk.session.get({ sessionID: args.sessionID })
+    })
+    if (sessionRes.error || !sessionRes.data) {
+      return yield* fail(
+        (sessionRes.error as { message?: string } | undefined)?.message ?? `Session not found: ${args.sessionID}`,
+      )
+    }
 
     if (args.output) {
       const result = yield* Effect.promise(async () => {
@@ -1144,11 +1209,38 @@ export const SessionTodoCommand = effectCmd({
         type: "string",
         demandOption: true,
       })
+      .option("status", {
+        alias: "s",
+        describe: "filter todos by status",
+        type: "string",
+      })
+      .option("priority", {
+        alias: "p",
+        describe: "filter todos by priority",
+        type: "string",
+      })
+      .option("search", {
+        alias: ["q", "query"],
+        describe: "search todos matching text query",
+        type: "string",
+      })
+      .option("output", {
+        alias: "o",
+        describe: "write todos to output file path",
+        type: "string",
+      })
       .option("json", {
         describe: "output JSON",
         type: "boolean",
       }),
-  handler: Effect.fn("Cli.session.todo")(function* (args) {
+  handler: Effect.fn("Cli.session.todo")(function* (args: {
+    sessionID: string
+    status?: string
+    priority?: string
+    search?: string
+    output?: string
+    json?: boolean
+  }) {
     const sdk = yield* localSdk()
     const sessionRes = yield* Effect.promise(async () => {
       return sdk.session.get({ sessionID: args.sessionID })
@@ -1169,12 +1261,54 @@ export const SessionTodoCommand = effectCmd({
       )
     }
 
+    let todos = (result.data ?? []) as SessionTodoItem[]
+
+    if (args.status) {
+      const statusFilter = args.status.toLowerCase()
+      todos = todos.filter((t) => t.status && t.status.toLowerCase() === statusFilter)
+    }
+
+    if (args.priority) {
+      const priorityFilter = args.priority.toLowerCase()
+      todos = todos.filter((t) => t.priority && t.priority.toLowerCase() === priorityFilter)
+    }
+
+    if (args.search) {
+      const query = args.search.toLowerCase()
+      todos = todos.filter((t) => t.content && t.content.toLowerCase().includes(query))
+    }
+
     if (args.json) {
-      console.log(JSON.stringify(result.data, null, 2))
+      const jsonOutput = JSON.stringify(todos, null, 2)
+      if (args.output) {
+        const resolved = path.resolve(args.output)
+        yield* Effect.promise(async () => {
+          const fs = await import("fs/promises")
+          await fs.mkdir(path.dirname(resolved), { recursive: true })
+          await fs.writeFile(resolved, jsonOutput + EOL, "utf-8")
+        })
+        console.log(JSON.stringify({ ok: true, file: resolved, count: todos.length }, null, 2))
+        return
+      }
+      console.log(jsonOutput)
       return
     }
 
-    console.log(formatSessionTodos(args.sessionID, result.data))
+    const hasFilter = Boolean(args.status || args.priority || args.search)
+    const outputText = formatSessionTodos(args.sessionID, todos, hasFilter)
+
+    if (args.output) {
+      const resolved = path.resolve(args.output)
+      yield* Effect.promise(async () => {
+        const fs = await import("fs/promises")
+        await fs.mkdir(path.dirname(resolved), { recursive: true })
+        await fs.writeFile(resolved, outputText + EOL, "utf-8")
+      })
+      UI.println(`Wrote ${todos.length} todo(s) to ${resolved}`)
+      return
+    }
+
+    console.log(outputText)
   }),
 })
 
@@ -1698,12 +1832,17 @@ export type SessionTodoItem = {
   priority: string
 }
 
-export function formatSessionTodos(sessionID: string, todos: SessionTodoItem[]): string {
+export function formatSessionTodos(sessionID: string, todos: SessionTodoItem[], filtered = false): string {
   if (todos.length === 0) {
-    return `No todos found for session ${sessionID}`
+    return filtered
+      ? `No todos matching filters found for session ${sessionID}`
+      : `No todos found for session ${sessionID}`
   }
   const completed = todos.filter((t) => t.status === "completed").length
-  const lines = [`Todos for session ${sessionID} (${completed}/${todos.length} completed):`]
+  const header = filtered
+    ? `Todos for session ${sessionID} (${completed}/${todos.length} completed, filtered):`
+    : `Todos for session ${sessionID} (${completed}/${todos.length} completed):`
+  const lines = [header]
   for (const todo of todos) {
     const marker =
       todo.status === "completed"
