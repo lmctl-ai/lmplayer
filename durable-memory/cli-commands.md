@@ -4,7 +4,12 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
 (PATH=/tmp/opencode/.bun/bin). Once the binary is renamed/installed: `lmcode <cmd>`.
 
 ## Discover models & entitlements
-- `models [provider]` — list models (text).
+- `models [provider]` (and `models list [provider]`, alias `models ls`) — list models (text).
+- `models [provider] --search <query>` (aliases `-q`, `--query`) — filter models matching query substring in model ID, model name, or provider ID.
+- `models [provider] --reasoning` (alias `-r`) — filter models supporting reasoning effort / thinking.
+- `models [provider] --toolcall` (alias `--tools`) — filter models supporting tool calling.
+- `models [provider] --attachment` (alias `--attachments`) — filter models supporting image and file attachments.
+- `models [provider] --min-context <tokens>` — filter models with context window at least `<tokens>`.
 - `models [provider] --json` — machine-readable array: {id, provider, name, limit, capabilities, variants[]}.
   `variants[]` are the reasoning-EFFORT choices for that model (low/medium/high/xhigh/max).
 - `models show <model>` (alias `get`) `[--json]` — inspect detailed configuration, limits, capabilities, reasoning-effort variants, and token pricing rates for a specific model.

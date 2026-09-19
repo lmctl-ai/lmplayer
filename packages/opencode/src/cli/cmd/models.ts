@@ -9,6 +9,7 @@ import * as Prompt from "../effect/prompt"
 import { createOpencodeClient, type OpencodeClient } from "@opencode-ai/sdk/v2"
 import { Auth } from "../../auth"
 import type { Provider } from "@/provider/provider"
+import type { Argv } from "yargs"
 
 // ─── --json wire shape ───────────────────────────────────────────────────────
 
@@ -418,130 +419,286 @@ export const ModelsShowCommand = effectCmd({
 
 // ─── models list ─────────────────────────────────────────────────────────────
 
+export type ModelFilterOptions = {
+  search?: string
+  reasoning?: boolean
+  toolcall?: boolean
+  attachment?: boolean
+  minContext?: number
+}
+
+/**
+ * Pure predicate to filter models by query, reasoning capabilities,
+ * tool calling support, attachment support, and minimum context tokens.
+ */
+export function filterModel(
+  providerID: string,
+  modelID: string,
+  model: Provider.Model,
+  filters: ModelFilterOptions,
+): boolean {
+  if (filters.search && filters.search.trim()) {
+    const q = filters.search.trim().toLowerCase()
+    const fullId = `${providerID}/${modelID}`.toLowerCase()
+    const name = (model.name ?? "").toLowerCase()
+    const pId = providerID.toLowerCase()
+    const mId = modelID.toLowerCase()
+    if (!fullId.includes(q) && !name.includes(q) && !pId.includes(q) && !mId.includes(q)) {
+      return false
+    }
+  }
+
+  if (filters.reasoning && !model.capabilities?.reasoning) {
+    return false
+  }
+
+  if (filters.toolcall && !model.capabilities?.toolcall) {
+    return false
+  }
+
+  if (filters.attachment && !model.capabilities?.attachment) {
+    return false
+  }
+
+  if (filters.minContext !== undefined && filters.minContext > 0) {
+    const context = model.limit?.context ?? 0
+    if (context < filters.minContext) {
+      return false
+    }
+  }
+
+  return true
+}
+
+export function parseModelFilterOptions(args: {
+  search?: string
+  q?: string
+  query?: string
+  reasoning?: boolean
+  r?: boolean
+  toolcall?: boolean
+  tools?: boolean
+  attachment?: boolean
+  attachments?: boolean
+  "min-context"?: number
+  minContext?: number
+}): ModelFilterOptions {
+  const minContext = args.minContext ?? args["min-context"]
+  return {
+    search: args.search ?? args.q ?? args.query,
+    reasoning: Boolean(args.reasoning ?? args.r),
+    toolcall: Boolean(args.toolcall ?? args.tools),
+    attachment: Boolean(args.attachment ?? args.attachments),
+    minContext: typeof minContext === "number" && !isNaN(minContext) ? minContext : undefined,
+  }
+}
+
+export const addModelsListOptions = <T>(yargs: Argv<T>) =>
+  yargs
+    .positional("provider", {
+      describe: "provider ID to filter models by",
+      type: "string",
+      array: false,
+    })
+    .option("search", {
+      alias: ["q", "query"],
+      describe: "filter models by query matching ID, name, or provider",
+      type: "string",
+      global: false,
+    })
+    .option("reasoning", {
+      alias: ["r"],
+      describe: "filter models supporting reasoning effort / thinking",
+      type: "boolean",
+      global: false,
+    })
+    .option("toolcall", {
+      alias: ["tools"],
+      describe: "filter models supporting tool calling",
+      type: "boolean",
+      global: false,
+    })
+    .option("attachment", {
+      alias: ["attachments"],
+      describe: "filter models supporting image and file attachments",
+      type: "boolean",
+      global: false,
+    })
+    .option("min-context", {
+      describe: "filter models with context window at least this many tokens",
+      type: "number",
+      global: false,
+    })
+    .option("verbose", {
+      describe: "use more verbose model output (includes metadata like costs)",
+      type: "boolean",
+      global: false,
+    })
+    .option("json", {
+      describe: "output models as a JSON array (id, limits, capabilities, reasoning-effort variants)",
+      type: "boolean",
+      global: false,
+    })
+    .option("refresh", {
+      describe: "refresh the models cache from models.dev",
+      type: "boolean",
+      global: false,
+    })
+
+export const modelsList = Effect.fn("Cli.models.list")(function* (args: {
+  provider?: string
+  search?: string
+  q?: string
+  query?: string
+  reasoning?: boolean
+  r?: boolean
+  toolcall?: boolean
+  tools?: boolean
+  attachment?: boolean
+  attachments?: boolean
+  "min-context"?: number
+  minContext?: number
+  verbose?: boolean
+  json?: boolean
+  refresh?: boolean
+  test?: boolean
+  timeout?: number
+  concurrency?: number
+}) {
+  const { Provider } = yield* Effect.promise(() => import("@/provider/provider"))
+  if (args.refresh) {
+    yield* ModelsDev.Service.use((s) => s.refresh(true))
+    UI.println(UI.Style.TEXT_SUCCESS_BOLD + "Models cache refreshed" + UI.Style.TEXT_NORMAL)
+  }
+
+  const provider = yield* Provider.Service
+  const providers = yield* provider.list()
+
+  const filterOptions = parseModelFilterOptions(args)
+
+  if (args.test) {
+    if (args.provider && !providers[ProviderV2.ID.make(args.provider)]) {
+      return yield* fail(`Provider not found: ${args.provider}`)
+    }
+    // When probing ALL providers (no explicit --provider filter), skip the
+    // local, config-free "ollama" provider: it may not even be running, so
+    // probing its handful of seeded models would just add noise/timeouts
+    // to an all-providers smoke test. `models --test ollama` (explicit)
+    // still probes it.
+    const targets = (args.provider ? [args.provider] : Object.keys(providers).filter((id) => id !== "ollama"))
+      .flatMap((providerID) =>
+        Object.entries(providers[ProviderV2.ID.make(providerID)].models)
+          .filter(([modelID, model]) => filterModel(providerID, modelID, model, filterOptions))
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([modelID]) => ({ providerID, modelID })),
+      )
+    yield* Effect.promise(() =>
+      runModelTests(targets, {
+        json: Boolean(args.json),
+        timeout: args.timeout ?? 60000,
+        concurrency: args.concurrency ?? 1,
+      }),
+    )
+    return
+  }
+
+  const getFilteredModels = (providerID: ProviderV2.ID) => {
+    const p = providers[providerID]
+    if (!p) return []
+    return Object.entries(p.models)
+      .filter(([modelID, model]) => filterModel(providerID as string, modelID, model, filterOptions))
+      .sort(([a], [b]) => a.localeCompare(b))
+  }
+
+  const print = (providerID: ProviderV2.ID, verbose?: boolean) => {
+    const models = getFilteredModels(providerID)
+    for (const [modelID, model] of models) {
+      process.stdout.write(`${providerID}/${modelID}`)
+      process.stdout.write(EOL)
+      if (verbose) {
+        process.stdout.write(JSON.stringify(model, null, 2))
+        process.stdout.write(EOL)
+      }
+    }
+  }
+
+  // --json wins over --verbose. `variants` keys are the reasoning-effort
+  // choices (e.g. low/medium/high/xhigh/max) an agent can select per model.
+  const toJson = (providerID: ProviderV2.ID) => {
+    const models = getFilteredModels(providerID)
+    return models.map(([modelID, model]) => modelToJsonEntry(providerID as string, modelID, model))
+  }
+
+  if (args.provider) {
+    const providerID = ProviderV2.ID.make(args.provider)
+    if (!providers[providerID]) return yield* fail(`Provider not found: ${args.provider}`)
+    if (args.json) {
+      process.stdout.write(JSON.stringify(toJson(providerID), null, 2))
+      process.stdout.write(EOL)
+      return
+    }
+    print(providerID, args.verbose)
+    return
+  }
+
+  const ids = Object.keys(providers).sort((a, b) => {
+    const aIsOpencode = a.startsWith("opencode")
+    const bIsOpencode = b.startsWith("opencode")
+    if (aIsOpencode && !bIsOpencode) return -1
+    if (!aIsOpencode && bIsOpencode) return 1
+    return a.localeCompare(b)
+  })
+
+  if (args.json) {
+    const all = ids.flatMap((providerID) => toJson(ProviderV2.ID.make(providerID)))
+    process.stdout.write(JSON.stringify(all, null, 2))
+    process.stdout.write(EOL)
+    return
+  }
+
+  for (const providerID of ids) print(ProviderV2.ID.make(providerID), args.verbose)
+})
+
+export const ModelsListCommand = effectCmd({
+  command: "list [provider]",
+  aliases: ["ls"],
+  describe: "list available models",
+  instance: true,
+  builder: (yargs) => addModelsListOptions(yargs),
+  handler: Effect.fn("Cli.models.list.cmd")(function* (args) {
+    yield* modelsList(args)
+  }),
+})
+
 export const ModelsCommand = effectCmd({
   command: "models [provider]",
   describe: "list all available models",
+  instance: true,
   builder: (yargs) =>
-    yargs
+    addModelsListOptions(yargs)
+      .command(ModelsListCommand)
       .command(ModelsVerifyCommand)
       .command(ModelsTestCommand)
       .command(ModelsShowCommand)
-      .positional("provider", {
-        describe: "provider ID to filter models by",
-        type: "string",
-        array: false,
-      })
-      .option("verbose", {
-        describe: "use more verbose model output (includes metadata like costs)",
-        type: "boolean",
-      })
-      .option("json", {
-        describe: "output models as a JSON array (id, limits, capabilities, reasoning-effort variants)",
-        type: "boolean",
-      })
-      .option("refresh", {
-        describe: "refresh the models cache from models.dev",
-        type: "boolean",
-      })
       .option("test", {
         describe: "probe each model with a tiny prompt and report which actually work end-to-end",
         type: "boolean",
+        global: false,
       })
       .option("timeout", {
         describe: "per-model timeout in milliseconds when using --test",
         type: "number",
         default: 60000,
+        global: false,
       })
       .option("concurrency", {
         describe: "number of models to probe in parallel when using --test (default 1, sequential)",
         type: "number",
         default: 1,
+        global: false,
       }),
-  handler: Effect.fn("Cli.models")(function* (args) {
-    const { Provider } = yield* Effect.promise(() => import("@/provider/provider"))
-    if (args.refresh) {
-      yield* ModelsDev.Service.use((s) => s.refresh(true))
-      UI.println(UI.Style.TEXT_SUCCESS_BOLD + "Models cache refreshed" + UI.Style.TEXT_NORMAL)
-    }
-
-    const provider = yield* Provider.Service
-    const providers = yield* provider.list()
-
-    if (args.test) {
-      if (args.provider && !providers[ProviderV2.ID.make(args.provider)]) {
-        return yield* fail(`Provider not found: ${args.provider}`)
-      }
-      // When probing ALL providers (no explicit --provider filter), skip the
-      // local, config-free "ollama" provider: it may not even be running, so
-      // probing its handful of seeded models would just add noise/timeouts
-      // to an all-providers smoke test. `models --test ollama` (explicit)
-      // still probes it.
-      const targets = (args.provider ? [args.provider] : Object.keys(providers).filter((id) => id !== "ollama"))
-        .flatMap((providerID) =>
-          Object.keys(providers[ProviderV2.ID.make(providerID)].models)
-            .sort((a, b) => a.localeCompare(b))
-            .map((modelID) => ({ providerID, modelID })),
-        )
-      yield* Effect.promise(() =>
-        runModelTests(targets, {
-          json: Boolean(args.json),
-          timeout: args.timeout,
-          concurrency: args.concurrency,
-        }),
-      )
-      return
-    }
-
-    const print = (providerID: ProviderV2.ID, verbose?: boolean) => {
-      const p = providers[providerID]
-      const sorted = Object.entries(p.models).sort(([a], [b]) => a.localeCompare(b))
-      for (const [modelID, model] of sorted) {
-        process.stdout.write(`${providerID}/${modelID}`)
-        process.stdout.write(EOL)
-        if (verbose) {
-          process.stdout.write(JSON.stringify(model, null, 2))
-          process.stdout.write(EOL)
-        }
-      }
-    }
-
-    // --json wins over --verbose. `variants` keys are the reasoning-effort
-    // choices (e.g. low/medium/high/xhigh/max) an agent can select per model.
-    const toJson = (providerID: ProviderV2.ID) => {
-      const p = providers[providerID]
-      return Object.entries(p.models)
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([modelID, model]) => modelToJsonEntry(providerID as string, modelID, model))
-    }
-
-    if (args.provider) {
-      const providerID = ProviderV2.ID.make(args.provider)
-      if (!providers[providerID]) return yield* fail(`Provider not found: ${args.provider}`)
-      if (args.json) {
-        process.stdout.write(JSON.stringify(toJson(providerID), null, 2))
-        process.stdout.write(EOL)
-        return
-      }
-      print(providerID, args.verbose)
-      return
-    }
-
-    const ids = Object.keys(providers).sort((a, b) => {
-      const aIsOpencode = a.startsWith("opencode")
-      const bIsOpencode = b.startsWith("opencode")
-      if (aIsOpencode && !bIsOpencode) return -1
-      if (!aIsOpencode && bIsOpencode) return 1
-      return a.localeCompare(b)
-    })
-
-    if (args.json) {
-      const all = ids.flatMap((providerID) => toJson(ProviderV2.ID.make(providerID)))
-      process.stdout.write(JSON.stringify(all, null, 2))
-      process.stdout.write(EOL)
-      return
-    }
-
-    for (const providerID of ids) print(ProviderV2.ID.make(providerID), args.verbose)
+  handler: Effect.fn("Cli.models.cmd")(function* (args) {
+    yield* modelsList(args)
   }),
 })
 

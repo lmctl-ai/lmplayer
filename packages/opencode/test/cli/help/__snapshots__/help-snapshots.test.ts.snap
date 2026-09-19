@@ -298,6 +298,7 @@ exports[`opencode CLI help-text snapshots every documented command emits stable 
 list all available models
 
 Commands:
+  lmplayer models list [provider]  list available models                               [aliases: ls]
   lmplayer models verify <model>   verify a model is known and available; exit non-zero with a
                                    reason if not
   lmplayer models test [provider]  probe each model with a tiny prompt and report which actually
@@ -308,20 +309,28 @@ Positionals:
   provider  provider ID to filter models by                                                 [string]
 
 Options:
-  -h, --help         show help                                                             [boolean]
-  -v, --version      show version number                                                   [boolean]
-      --print-logs   print logs to stderr                                                  [boolean]
-      --log-level    log level                  [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
-      --pure         run without external plugins                                          [boolean]
-      --verbose      use more verbose model output (includes metadata like costs)          [boolean]
-      --json         output models as a JSON array (id, limits, capabilities, reasoning-effort
-                     variants)                                                             [boolean]
-      --refresh      refresh the models cache from models.dev                              [boolean]
-      --test         probe each model with a tiny prompt and report which actually work end-to-end
+  -h, --help                       show help                                               [boolean]
+  -v, --version                    show version number                                     [boolean]
+      --print-logs                 print logs to stderr                                    [boolean]
+      --log-level                  log level    [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
+      --pure                       run without external plugins                            [boolean]
+  -q, --search, --query            filter models by query matching ID, name, or provider    [string]
+  -r, --reasoning                  filter models supporting reasoning effort / thinking    [boolean]
+      --toolcall, --tools          filter models supporting tool calling                   [boolean]
+      --attachment, --attachments  filter models supporting image and file attachments     [boolean]
+      --min-context                filter models with context window at least this many tokens
+                                                                                            [number]
+      --verbose                    use more verbose model output (includes metadata like costs)
                                                                                            [boolean]
-      --timeout      per-model timeout in milliseconds when using --test   [number] [default: 60000]
-      --concurrency  number of models to probe in parallel when using --test (default 1, sequential)
-                                                                               [number] [default: 1]"
+      --json                       output models as a JSON array (id, limits, capabilities,
+                                   reasoning-effort variants)                              [boolean]
+      --refresh                    refresh the models cache from models.dev                [boolean]
+      --test                       probe each model with a tiny prompt and report which actually
+                                   work end-to-end                                         [boolean]
+      --timeout                    per-model timeout in milliseconds when using --test
+                                                                           [number] [default: 60000]
+      --concurrency                number of models to probe in parallel when using --test (default
+                                   1, sequential)                              [number] [default: 1]"
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode stats --help 1`] = `
@@ -709,6 +718,33 @@ Options:
       --pure        run without external plugins                                           [boolean]
   -f, --force       ignore non-existent sessions, never error                              [boolean]
       --json        output JSON                                                            [boolean]"
+`;
+
+exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode models list --help 1`] = `
+"lmplayer models list [provider]
+
+list available models
+
+Positionals:
+  provider  provider ID to filter models by                                                 [string]
+
+Options:
+  -h, --help                       show help                                               [boolean]
+  -v, --version                    show version number                                     [boolean]
+      --print-logs                 print logs to stderr                                    [boolean]
+      --log-level                  log level    [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
+      --pure                       run without external plugins                            [boolean]
+  -q, --search, --query            filter models by query matching ID, name, or provider    [string]
+  -r, --reasoning                  filter models supporting reasoning effort / thinking    [boolean]
+      --toolcall, --tools          filter models supporting tool calling                   [boolean]
+      --attachment, --attachments  filter models supporting image and file attachments     [boolean]
+      --min-context                filter models with context window at least this many tokens
+                                                                                            [number]
+      --verbose                    use more verbose model output (includes metadata like costs)
+                                                                                           [boolean]
+      --json                       output models as a JSON array (id, limits, capabilities,
+                                   reasoning-effort variants)                              [boolean]
+      --refresh                    refresh the models cache from models.dev                [boolean]"
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode github install --help 1`] = `
