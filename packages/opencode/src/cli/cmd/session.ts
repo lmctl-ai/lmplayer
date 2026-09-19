@@ -720,6 +720,11 @@ export const SessionForkCommand = effectCmd({
         type: "string",
         demandOption: true,
       })
+      .option("title", {
+        alias: "t",
+        describe: "custom title for the forked session",
+        type: "string",
+      })
       .option("message", {
         alias: "m",
         describe: "message ID up to which to fork",
@@ -729,7 +734,12 @@ export const SessionForkCommand = effectCmd({
         describe: "output JSON",
         type: "boolean",
       }),
-  handler: Effect.fn("Cli.session.fork")(function* (args) {
+  handler: Effect.fn("Cli.session.fork")(function* (args: {
+    sessionID: string
+    title?: string
+    message?: string
+    json?: boolean
+  }) {
     const sdk = yield* localSdk()
     const result = yield* Effect.promise(async () => {
       return sdk.session.fork({
@@ -742,6 +752,21 @@ export const SessionForkCommand = effectCmd({
         (result.error as { message?: string } | undefined)?.message ?? `Session not found: ${args.sessionID}`,
       )
     }
+
+    if (args.title) {
+      const updateRes = yield* Effect.promise(async () => {
+        return sdk.session.update({
+          sessionID: result.data.id,
+          title: args.title!,
+        })
+      })
+      if (!updateRes.error && updateRes.data) {
+        result.data = updateRes.data
+      } else if (!updateRes.error) {
+        result.data.title = args.title
+      }
+    }
+
     if (args.json) {
       console.log(JSON.stringify(result.data, null, 2))
     } else {
@@ -1163,6 +1188,16 @@ export const SessionDiffCommand = effectCmd({
         type: "string",
         demandOption: true,
       })
+      .option("file", {
+        alias: "path",
+        describe: "filter diffs by file path",
+        type: "string",
+      })
+      .option("output", {
+        alias: "o",
+        describe: "write diff to output file path",
+        type: "string",
+      })
       .option("message", {
         alias: "m",
         describe: "message ID to diff",
@@ -1176,7 +1211,14 @@ export const SessionDiffCommand = effectCmd({
         describe: "output JSON",
         type: "boolean",
       }),
-  handler: Effect.fn("Cli.session.diff")(function* (args) {
+  handler: Effect.fn("Cli.session.diff")(function* (args: {
+    sessionID: string
+    file?: string
+    output?: string
+    message?: string
+    stat?: boolean
+    json?: boolean
+  }) {
     const sdk = yield* localSdk()
     const sessionRes = yield* Effect.promise(async () => {
       return sdk.session.get({ sessionID: args.sessionID })
@@ -1200,17 +1242,46 @@ export const SessionDiffCommand = effectCmd({
       )
     }
 
+    let diffs = result.data as SessionFileDiff[]
+    if (args.file) {
+      const query = args.file.toLowerCase()
+      diffs = diffs.filter(
+        (d) => d.file && (d.file.toLowerCase().includes(query) || path.basename(d.file).toLowerCase() === query),
+      )
+    }
+
     if (args.json) {
-      console.log(JSON.stringify(result.data, null, 2))
+      const jsonOutput = JSON.stringify(diffs, null, 2)
+      if (args.output) {
+        const resolved = path.resolve(args.output)
+        yield* Effect.promise(async () => {
+          const fs = await import("fs/promises")
+          await fs.mkdir(path.dirname(resolved), { recursive: true })
+          await fs.writeFile(resolved, jsonOutput + EOL, "utf-8")
+        })
+        console.log(JSON.stringify({ ok: true, file: resolved, count: diffs.length }, null, 2))
+        return
+      }
+      console.log(jsonOutput)
       return
     }
 
-    if (args.stat) {
-      console.log(formatSessionDiffStat(args.sessionID, result.data))
+    const outputText = args.stat
+      ? formatSessionDiffStat(args.sessionID, diffs)
+      : formatSessionDiff(args.sessionID, diffs)
+
+    if (args.output) {
+      const resolved = path.resolve(args.output)
+      yield* Effect.promise(async () => {
+        const fs = await import("fs/promises")
+        await fs.mkdir(path.dirname(resolved), { recursive: true })
+        await fs.writeFile(resolved, outputText + EOL, "utf-8")
+      })
+      UI.println(`Wrote diff for ${diffs.length} file(s) to ${resolved}`)
       return
     }
 
-    console.log(formatSessionDiff(args.sessionID, result.data))
+    console.log(outputText)
   }),
 })
 

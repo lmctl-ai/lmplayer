@@ -100,6 +100,21 @@ describe("opencode session commands (CLI)", () => {
         expect(forkData.id).not.toBe(sessionID)
         expect(forkData.title).toContain("Second Title (fork")
 
+        // 4a. Fork session with custom --title
+        const forkCustomRes = yield* opencode.spawn([
+          "session",
+          "fork",
+          sessionID,
+          "--title",
+          "Custom Forked Title",
+          "--json",
+        ])
+        opencode.expectExit(forkCustomRes, 0)
+        const forkCustomData = JSON.parse(forkCustomRes.stdout)
+        expect(forkCustomData.id).toBeDefined()
+        expect(forkCustomData.id).not.toBe(sessionID)
+        expect(forkCustomData.title).toBe("Custom Forked Title")
+
         // 5. Verify session list shows the sessions and includes cost and tokens
         const lsRes = yield* opencode.spawn(["session", "ls", "--json"])
         opencode.expectExit(lsRes, 0)
