@@ -299,11 +299,32 @@ export const ProvidersListCommand = effectCmd({
   // entitled models via Provider.Service.list() (needs config/instance).
   instance: true,
   builder: (yargs) =>
-    yargs.option("json", {
-      type: "boolean",
-      describe: "output as JSON (machine-readable; suppresses human output)",
-    }),
-  handler: Effect.fn("Cli.providers.list")(function* (args) {
+    yargs
+      .option("json", {
+        type: "boolean",
+        describe: "output as JSON (machine-readable; suppresses human output)",
+      })
+      .option("output", {
+        alias: "o",
+        type: "string",
+        describe: "write providers list to output file path",
+      })
+      .option("search", {
+        alias: ["q", "query"],
+        type: "string",
+        describe: "filter providers by ID or name substring",
+      })
+      .option("all", {
+        alias: "a",
+        type: "boolean",
+        describe: "list all known providers in catalog, not only authenticated ones",
+      }),
+  handler: Effect.fn("Cli.providers.list")(function* (args: {
+    json?: boolean
+    output?: string
+    search?: string
+    all?: boolean
+  }) {
     const authSvc = yield* Auth.Service
     const modelsDev = yield* ModelsDev.Service
     const { Provider } = yield* Effect.promise(() => import("@/provider/provider"))
@@ -340,31 +361,114 @@ export const ProvidersListCommand = effectCmd({
 
     const authIDs = new Set(results.map(([id]) => id))
 
+    const query = args.search?.trim().toLowerCase()
+    const matchSearch = (id: string, name?: string) => {
+      if (!query) return true
+      return id.toLowerCase().includes(query) || (name ? name.toLowerCase().includes(query) : false)
+    }
+
+    const filteredCreds = results.filter(([id]) => matchSearch(id, database[id]?.name))
+    const filteredEnvOnly = activeEnvVars
+      .filter((e) => !authIDs.has(e.providerID))
+      .filter((e) => matchSearch(e.providerID, e.name))
+
+    const catalogExtras: Array<{ providerID: string; name: string; env: readonly string[] }> = []
+    if (args.all) {
+      const activeEnvSet = new Set(activeEnvVars.map((e) => e.providerID))
+      for (const [id, pDef] of Object.entries(database)) {
+        if (!authIDs.has(id) && !activeEnvSet.has(id) && matchSearch(id, pDef.name)) {
+          catalogExtras.push({ providerID: id, name: pDef.name || id, env: pDef.env })
+        }
+      }
+      catalogExtras.sort((a, b) => a.name.localeCompare(b.name))
+    }
+
     if (args.json) {
       const out = {
         credentials_path: displayPath,
         providers: [
-          ...results.map(([id, result]) => ({
+          ...filteredCreds.map(([id, result]) => ({
             id,
             name: database[id]?.name || id,
             type: result.type,
             source: "auth" as const,
+            authenticated: true,
             models: modelsFor(id),
           })),
-          // env-only providers (auth wins when a provider is both authed and env)
-          ...activeEnvVars
-            .filter((e) => !authIDs.has(e.providerID))
-            .map((e) => ({
-              id: e.providerID,
-              name: database[e.providerID]?.name,
-              type: "env" as const,
-              source: "env" as const,
-              envVar: e.envVar,
-              models: modelsFor(e.providerID),
-            })),
+          ...filteredEnvOnly.map((e) => ({
+            id: e.providerID,
+            name: database[e.providerID]?.name,
+            type: "env" as const,
+            source: "env" as const,
+            authenticated: true,
+            envVar: e.envVar,
+            models: modelsFor(e.providerID),
+          })),
+          ...(args.all
+            ? catalogExtras.map((e) => ({
+                id: e.providerID,
+                name: e.name,
+                type: "catalog" as const,
+                source: "catalog" as const,
+                authenticated: false,
+                env: e.env,
+                models: [],
+              }))
+            : []),
         ],
       }
-      process.stdout.write(JSON.stringify(out, null, 2) + "\n")
+      const jsonStr = JSON.stringify(out, null, 2) + "\n"
+      if (args.output) {
+        const resolved = path.resolve(args.output)
+        yield* Effect.promise(async () => {
+          const fs = await import("fs/promises")
+          await fs.mkdir(path.dirname(resolved), { recursive: true })
+          await fs.writeFile(resolved, jsonStr, "utf-8")
+        })
+        UI.println(`Wrote providers list to ${resolved}`)
+        return
+      }
+      process.stdout.write(jsonStr)
+      return
+    }
+
+    if (args.output) {
+      const lines: string[] = []
+      lines.push(`Credentials ${displayPath}`)
+      for (const [providerID, result] of filteredCreds) {
+        const name = database[providerID]?.name || providerID
+        lines.push(`${name} (${result.type})`)
+        const models = modelsFor(providerID)
+        if (models.length === 0) lines.push("    (no models)")
+        else for (const model of models) lines.push(`    ${model.id}`)
+      }
+      lines.push(`${filteredCreds.length} credentials`)
+      if (filteredEnvOnly.length > 0) {
+        lines.push("")
+        lines.push("Environment")
+        for (const { providerID, name, envVar } of filteredEnvOnly) {
+          lines.push(`${name} (${envVar})`)
+          const models = modelsFor(providerID)
+          if (models.length === 0) lines.push("    (no models)")
+          else for (const model of models) lines.push(`    ${model.id}`)
+        }
+        lines.push(`${filteredEnvOnly.length} environment variable` + (filteredEnvOnly.length === 1 ? "" : "s"))
+      }
+      if (catalogExtras.length > 0) {
+        lines.push("")
+        lines.push("Other Catalog Providers (unauthenticated)")
+        for (const { providerID, name, env } of catalogExtras) {
+          lines.push(`${name} (${providerID}) - env: ${env.join(", ") || "(none)"}`)
+        }
+        lines.push(`${catalogExtras.length} catalog providers`)
+      }
+      const resolved = path.resolve(args.output)
+      yield* Effect.promise(async () => {
+        const fs = await import("fs/promises")
+        await fs.mkdir(path.dirname(resolved), { recursive: true })
+        await fs.writeFile(resolved, lines.join("\n") + "\n", "utf-8")
+      })
+      UI.println(`Wrote providers list to ${resolved}`)
       return
     }
 
@@ -378,31 +482,44 @@ export const ProvidersListCommand = effectCmd({
     UI.empty()
     yield* Prompt.intro(`Credentials ${UI.Style.TEXT_DIM}${displayPath}`)
 
-    for (const [providerID, result] of results) {
+    for (const [providerID, result] of filteredCreds) {
       const name = database[providerID]?.name || providerID
       yield* Prompt.log.info(`${name} ${UI.Style.TEXT_DIM}${result.type}`)
       yield* printModels(providerID)
     }
 
-    yield* Prompt.outro(`${results.length} credentials`)
+    yield* Prompt.outro(`${filteredCreds.length} credentials`)
 
     // auth wins on overlap: only list providers that are env-only here.
-    const envOnly = activeEnvVars.filter((e) => !authIDs.has(e.providerID))
-    if (envOnly.length > 0) {
+    if (filteredEnvOnly.length > 0) {
       UI.empty()
       yield* Prompt.intro("Environment")
 
-      for (const { providerID, name, envVar } of envOnly) {
+      for (const { providerID, name, envVar } of filteredEnvOnly) {
         yield* Prompt.log.info(`${name} ${UI.Style.TEXT_DIM}${envVar}`)
         yield* printModels(providerID)
       }
 
-      yield* Prompt.outro(`${envOnly.length} environment variable` + (envOnly.length === 1 ? "" : "s"))
+      yield* Prompt.outro(`${filteredEnvOnly.length} environment variable` + (filteredEnvOnly.length === 1 ? "" : "s"))
+    }
+
+    if (catalogExtras.length > 0) {
+      UI.empty()
+      yield* Prompt.intro("Other Catalog Providers (unauthenticated)")
+      for (const { providerID, name, env } of catalogExtras) {
+        const envHint = env.length > 0 ? ` ${UI.Style.TEXT_DIM}[${env.join(", ")}]` : ""
+        yield* Prompt.log.info(`${name} ${UI.Style.TEXT_DIM}(${providerID})${envHint}`)
+      }
+      yield* Prompt.outro(`${catalogExtras.length} catalog providers`)
     }
   }),
 })
 
-export const providersShow = Effect.fn("Cli.providers.show")(function* (args: { provider: string; json?: boolean }) {
+export const providersShow = Effect.fn("Cli.providers.show")(function* (args: {
+  provider: string
+  json?: boolean
+  output?: string
+}) {
   const authSvc = yield* Auth.Service
   const modelsDev = yield* ModelsDev.Service
   const database = yield* modelsDev.get()
@@ -479,7 +596,56 @@ export const providersShow = Effect.fn("Cli.providers.show")(function* (args: { 
       models_count: models.length,
       models,
     }
-    process.stdout.write(JSON.stringify(out, null, 2) + "\n")
+    const jsonStr = JSON.stringify(out, null, 2) + "\n"
+    if (args.output) {
+      const resolved = path.resolve(args.output)
+      yield* Effect.promise(async () => {
+        const fs = await import("fs/promises")
+        await fs.mkdir(path.dirname(resolved), { recursive: true })
+        await fs.writeFile(resolved, jsonStr, "utf-8")
+      })
+      UI.println(`Wrote provider details to ${resolved}`)
+      return
+    }
+    process.stdout.write(jsonStr)
+    return
+  }
+
+  if (args.output) {
+    const displayName = catalogEntry?.name || providerID
+    const lines: string[] = [
+      `${displayName} (${providerID})`,
+      `Status: ${status}`,
+      `Authenticated: ${isAuthed ? "yes" : "no"}`,
+    ]
+    if (cred) lines.push(`Credential: ${cred.type} (${displayPath})`)
+    if (activeEnv.length > 0) lines.push(`Active Environment: ${activeEnv.join(", ")}`)
+    else if (catalogEntry && catalogEntry.env.length > 0 && !cred) {
+      lines.push(`Environment: (none - supported: ${catalogEntry.env.join(", ")})`)
+    }
+    if (providerConfig && Object.keys(providerConfig).length > 0) {
+      lines.push(`Config options: ${JSON.stringify(providerConfig)}`)
+    }
+    lines.push(`Models (${models.length}):`)
+    if (models.length === 0) {
+      if (!isAuthed) {
+        lines.push(`    (not authenticated; log in with: lmplayer auth login --provider ${providerID})`)
+      } else {
+        lines.push(`    (no models available)`)
+      }
+    } else {
+      for (const m of models) {
+        const variantsText = m.variants.length > 0 ? ` [variants: ${m.variants.join(", ")}]` : ""
+        lines.push(`    ${m.id}${variantsText}`)
+      }
+    }
+    const resolved = path.resolve(args.output)
+    yield* Effect.promise(async () => {
+      const fs = await import("fs/promises")
+      await fs.mkdir(path.dirname(resolved), { recursive: true })
+      await fs.writeFile(resolved, lines.join("\n") + "\n", "utf-8")
+    })
+    UI.println(`Wrote provider details to ${resolved}`)
     return
   }
 
@@ -532,11 +698,21 @@ export const ProvidersShowCommand = effectCmd({
       .option("json", {
         describe: "output as JSON",
         type: "boolean",
+      })
+      .option("output", {
+        alias: "o",
+        describe: "write provider details to output file path",
+        type: "string",
       }),
-  handler: Effect.fn("Cli.providers.show.cmd")(function* (args) {
+  handler: Effect.fn("Cli.providers.show.cmd")(function* (args: {
+    provider: string
+    json?: boolean
+    output?: string
+  }) {
     yield* providersShow({
       provider: args.provider!,
       json: Boolean(args.json),
+      output: args.output,
     })
   }),
 })
@@ -750,23 +926,105 @@ export const ProvidersLogoutCommand = effectCmd({
   command: "logout [provider]",
   describe: "log out from a configured provider",
   builder: (yargs) =>
-    yargs.positional("provider", {
-      describe: "provider id or name to log out from",
-      type: "string",
-    }),
+    yargs
+      .positional("provider", {
+        describe: "provider id or name to log out from",
+        type: "string",
+      })
+      .option("force", {
+        alias: "f",
+        describe: "do not exit non-zero if provider credential is not found",
+        type: "boolean",
+      })
+      .option("json", {
+        describe: "output JSON result",
+        type: "boolean",
+      })
+      .option("output", {
+        alias: "o",
+        describe: "write logout result to output file path",
+        type: "string",
+      }),
   // Removes a global auth credential; no project instance needed.
   instance: false,
-  handler: Effect.fn("Cli.providers.logout")(function* (args) {
+  handler: Effect.fn("Cli.providers.logout")(function* (args: {
+    provider?: string
+    force?: boolean
+    json?: boolean
+    output?: string
+  }) {
     const authSvc = yield* Auth.Service
     const modelsDev = yield* ModelsDev.Service
 
-    UI.empty()
+    if (!args.provider && !process.stdin.isTTY) {
+      if (args.json) {
+        const payload = { ok: false, error: "Provider name or ID is required in non-interactive mode" }
+        const jsonStr = JSON.stringify(payload, null, 2) + "\n"
+        if (args.output) {
+          const resolved = path.resolve(args.output)
+          yield* Effect.promise(async () => {
+            const fs = await import("fs/promises")
+            await fs.mkdir(path.dirname(resolved), { recursive: true })
+            await fs.writeFile(resolved, jsonStr, "utf-8")
+          })
+        }
+        process.stdout.write(jsonStr)
+        if (!args.force) process.exitCode = 1
+        return
+      }
+      return yield* fail("Provider name or ID is required in non-interactive mode. Specify a provider ID or name.")
+    }
+
     const credentials: Array<[string, Auth.Info]> = Object.entries(yield* Effect.orDie(authSvc.all()))
-    yield* Prompt.intro("Remove credential")
     if (credentials.length === 0) {
+      if (args.force) {
+        if (args.json) {
+          const payload = { ok: true, provider: args.provider, removed: false, message: "No credentials found" }
+          const jsonStr = JSON.stringify(payload, null, 2) + "\n"
+          if (args.output) {
+            const resolved = path.resolve(args.output)
+            yield* Effect.promise(async () => {
+              const fs = await import("fs/promises")
+              await fs.mkdir(path.dirname(resolved), { recursive: true })
+              await fs.writeFile(resolved, jsonStr, "utf-8")
+            })
+          }
+          process.stdout.write(jsonStr)
+          return
+        }
+        if (args.output) {
+          const resolved = path.resolve(args.output)
+          yield* Effect.promise(async () => {
+            const fs = await import("fs/promises")
+            await fs.mkdir(path.dirname(resolved), { recursive: true })
+            await fs.writeFile(resolved, "No credentials found\n", "utf-8")
+          })
+        }
+        UI.println("No credentials found")
+        return
+      }
+      if (args.json) {
+        const payload = { ok: false, error: "No credentials found" }
+        const jsonStr = JSON.stringify(payload, null, 2) + "\n"
+        if (args.output) {
+          const resolved = path.resolve(args.output)
+          yield* Effect.promise(async () => {
+            const fs = await import("fs/promises")
+            await fs.mkdir(path.dirname(resolved), { recursive: true })
+            await fs.writeFile(resolved, jsonStr, "utf-8")
+          })
+        }
+        process.stdout.write(jsonStr)
+        process.exitCode = 1
+        return
+      }
+      UI.empty()
+      yield* Prompt.intro("Remove credential")
       yield* Prompt.log.error("No credentials found")
+      process.exitCode = 1
       return
     }
+
     const database = yield* modelsDev.get()
     const options = credentials.map(([key, value]) => ({
       label: (database[key]?.name || key) + UI.Style.TEXT_DIM + " (" + value.type + ")",
@@ -785,8 +1043,78 @@ export const ProvidersLogoutCommand = effectCmd({
             options,
           }),
         )
-    if (!provider) return yield* fail(`Unknown configured provider "${args.provider}"`)
+
+    if (!provider) {
+      if (args.force) {
+        if (args.json) {
+          const payload = { ok: true, provider: args.provider, removed: false }
+          const jsonStr = JSON.stringify(payload, null, 2) + "\n"
+          if (args.output) {
+            const resolved = path.resolve(args.output)
+            yield* Effect.promise(async () => {
+              const fs = await import("fs/promises")
+              await fs.mkdir(path.dirname(resolved), { recursive: true })
+              await fs.writeFile(resolved, jsonStr, "utf-8")
+            })
+          }
+          process.stdout.write(jsonStr)
+          return
+        }
+        if (args.output) {
+          const resolved = path.resolve(args.output)
+          yield* Effect.promise(async () => {
+            const fs = await import("fs/promises")
+            await fs.mkdir(path.dirname(resolved), { recursive: true })
+            await fs.writeFile(resolved, `Provider "${args.provider}" was not logged in\n`, "utf-8")
+          })
+        }
+        UI.println(`Provider "${args.provider}" was not logged in`)
+        return
+      }
+      if (args.json) {
+        const payload = { ok: false, error: `Unknown configured provider "${args.provider}"` }
+        const jsonStr = JSON.stringify(payload, null, 2) + "\n"
+        if (args.output) {
+          const resolved = path.resolve(args.output)
+          yield* Effect.promise(async () => {
+            const fs = await import("fs/promises")
+            await fs.mkdir(path.dirname(resolved), { recursive: true })
+            await fs.writeFile(resolved, jsonStr, "utf-8")
+          })
+        }
+        process.stdout.write(jsonStr)
+        process.exitCode = 1
+        return
+      }
+      return yield* fail(`Unknown configured provider "${args.provider}"`)
+    }
+
     yield* Effect.orDie(authSvc.remove(provider))
+    if (args.json) {
+      const payload = { ok: true, provider, removed: true }
+      const jsonStr = JSON.stringify(payload, null, 2) + "\n"
+      if (args.output) {
+        const resolved = path.resolve(args.output)
+        yield* Effect.promise(async () => {
+          const fs = await import("fs/promises")
+          await fs.mkdir(path.dirname(resolved), { recursive: true })
+          await fs.writeFile(resolved, jsonStr, "utf-8")
+        })
+      }
+      process.stdout.write(jsonStr)
+      return
+    }
+
+    if (args.output) {
+      const resolved = path.resolve(args.output)
+      yield* Effect.promise(async () => {
+        const fs = await import("fs/promises")
+        await fs.mkdir(path.dirname(resolved), { recursive: true })
+        await fs.writeFile(resolved, `Logout successful: ${provider}\n`, "utf-8")
+      })
+    }
+    UI.empty()
+    yield* Prompt.intro("Remove credential")
     yield* Prompt.outro("Logout successful")
   }),
 })

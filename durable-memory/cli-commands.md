@@ -16,10 +16,11 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
 - `models [provider] --refresh` — refresh models.dev cache.
 - `models verify <model> [--effort <tier>] [--output file|-o file] [--json]` — verify a model is known and available (format, provider, auth, effort), with structured JSON output and file export.
 - `models test [provider] [--json] [--timeout ms] [--concurrency n]` — probe each entitled model with a single turn prompt, reporting OK/FAIL (exit non-zero on any fail). Also accepts `--test` flag on `models`.
-- `auth list` (alias `providers list`, `providers ls`) — authed providers, each with its entitled model ids indented.
-- `auth list --json` (alias `providers list --json`) — {credentials_path, providers:[{id,name,type,source,models:[{id,variants}]}]}.
+- `auth list` (alias `providers list`, `providers ls`) `[--search q|-q q] [--all|-a] [--output file|-o file] [--json]` — authed providers (or all catalog providers with `--all`), each with its entitled model ids indented, search filtering, and file export.
+- `auth list --json` (alias `providers list --json`) — {credentials_path, providers:[{id,name,type,source,authenticated,models:[{id,variants}]}]}.
   "Authed" = credentials in auth.json + active provider env vars (auth wins on overlap). Needs an instance.
-- `auth show <provider>` (alias `providers show`, `auth get`, `providers get`) `[--json]` — inspect detailed provider authentication status, active env vars, configuration options, and entitled models.
+- `auth show <provider>` (alias `providers show`, `auth get`, `providers get`) `[--output file|-o file] [--json]` — inspect detailed provider authentication status, active env vars, configuration options, entitled models, and direct file export.
+- `auth logout [provider]` (alias `providers logout`) `[--force|-f] [--output file|-o file] [--json]` — log out from a configured provider with non-interactive guard, force flag, and structured JSON result.
 
 ## Choose model + effort when prompting
 - `run --model <provider/model> --effort <tier> "<prompt>"` — `--effort` is an alias of `--variant`.
