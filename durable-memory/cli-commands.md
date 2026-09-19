@@ -58,7 +58,7 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
 - `session tail <id> [--lines n] [-n n] [--limit n] [--json]` — inspect recent session messages with verified session lookup, lines/limit bounding, and structured JSON output containing message ID, role, text, timestamp, and assistant model/cost/tokens metadata.
 - `session report <id> [--output file|-o file] [--json]` — report session activity, tokens, text sizes, duration, and touched files, with direct file export (`--output`).
 - `session metrics <id> [--output file|-o file] [--json]` — stable `session-metrics/v1` per-session machine-queryable metrics (tokens, write-time/persisted cost, latencies, tools, files, jobs, crons), with direct file export (`--output`).
-- `session health <id> [--json]` — inspect session context usage and headroom against model limit.
+- `session health <id> [--output file|-o file] [--threshold pct|-t pct] [--check] [--json]` — inspect session context usage and headroom against model limit, with direct file export (`--output`), configurable warning threshold (`--threshold`, default 80%), and threshold check (`--check`, exits with code 2 if context usage exceeds threshold).
 - `session todo <id> [--status s] [--priority p] [--search q] [--output file|-o file] [--json]` — list todo tasks for a session with status checkboxes (`[x]`, `[>]`, `[-]`, `[ ]`) and priority tags, filtering by status (`--status`) and priority (`--priority`), text query search (`--search`), and direct file export (`--output`).
 - `session diff <id> [--message msgID] [--file file|--path file] [--output file|-o file] [--stat] [--json]` — inspect file diffs and patches resulting from session turns, with file path filtering (`--file`), direct file export (`--output`), diffstat summary (`--stat`), and structured JSON output (`--json`).
 - `session export [id] [--output file|-o file|--file file] [--sanitize] [--json]` — export session data as JSON to stdout or directly to a file, with optional sensitive transcript sanitization (`--sanitize`) and structured JSON summary (`--json`).
@@ -70,7 +70,7 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
 - `session share <id> [--unshare] [--json]` / `session unshare <id> [--json]` — create or revoke public share links.
 - `session compact <id> [--model provider/model] [--auto] [--json]` (alias `summarize`) — trigger session compaction/summarization.
 - `session delete <sessionID...> [extraSessionIDs...] [-f|--force] [--json]` (alias `rm`) — delete one or more sessions and permanently remove their messages and history, with `--force` to ignore non-existent sessions and `--json` structured response.
-- `session memory <id> [--json] [--write <text>] [--append <text>] [--file <path>] [--clear]` (alias `brain`) — view, update, append, or clear persistent durable memory for a session.
+- `session memory <id> [--output file|-o file] [--write <text>] [--append <text>] [--file <path>] [--clear] [--json]` (alias `brain`) — view, export (`--output`), update, append, or clear persistent durable memory for a session.
 
 ## Agent management
 - `agent list` (alias `ls`) `[--json] [--mode all|primary|subagent]` — list all registered agents (built-in and custom) with their mode, model, and tool provision allowlists, sorted with built-ins first.

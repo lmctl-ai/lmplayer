@@ -10,6 +10,7 @@ import {
   SessionTodoCommand,
   SessionReportCommand,
   SessionMetricsCommand,
+  SessionHealthCommand,
   type SessionTodoItem,
   type SessionFileDiff,
 } from "@/cli/cmd/session"
@@ -219,6 +220,37 @@ describe("opencode session todo, diff, and export CLI commands", () => {
         expect(metricsOutData.ok).toBe(true)
         expect(metricsOutData.file).toContain("test-metrics.json")
 
+        // 2f. session health with --check and --threshold
+        const healthCheckRes = yield* opencode.spawn([
+          "session",
+          "health",
+          sessionID,
+          "--check",
+          "--threshold",
+          "90",
+          "--json",
+        ])
+        opencode.expectExit(healthCheckRes, 0)
+        const healthCheckData = JSON.parse(healthCheckRes.stdout)
+        expect(healthCheckData.sessionID).toBe(sessionID)
+        expect(healthCheckData.healthCheck).toBeDefined()
+        expect(healthCheckData.healthCheck.exceeded).toBe(false)
+        expect(healthCheckData.healthCheck.status).toBe("ok")
+
+        // 2g. session health with -o and --json
+        const healthOutJsonRes = yield* opencode.spawn([
+          "session",
+          "health",
+          sessionID,
+          "-o",
+          "test-health.json",
+          "--json",
+        ])
+        opencode.expectExit(healthOutJsonRes, 0)
+        const healthOutData = JSON.parse(healthOutJsonRes.stdout)
+        expect(healthOutData.ok).toBe(true)
+        expect(healthOutData.file).toContain("test-health.json")
+
         // 3. session diff (empty or diff array)
         const diffJsonRes = yield* opencode.spawn(["session", "diff", sessionID, "--json"])
         opencode.expectExit(diffJsonRes, 0)
@@ -317,6 +349,19 @@ describe("session diff & fork command definitions & builders", () => {
     const options = (parser as any).getOptions()
     expect(options.key.output).toBeDefined()
     expect(options.key.o).toBeDefined()
+    expect(options.key.json).toBeDefined()
+  })
+
+  test("SessionHealthCommand registers health, output, threshold, and check options", () => {
+    expect(SessionHealthCommand.command).toBe("health <sessionID>")
+    const builder = SessionHealthCommand.builder as (y: Argv) => Argv<any>
+    const parser = builder(yargs())
+    const options = (parser as any).getOptions()
+    expect(options.key.output).toBeDefined()
+    expect(options.key.o).toBeDefined()
+    expect(options.key.threshold).toBeDefined()
+    expect(options.key.t).toBeDefined()
+    expect(options.key.check).toBeDefined()
     expect(options.key.json).toBeDefined()
   })
 })

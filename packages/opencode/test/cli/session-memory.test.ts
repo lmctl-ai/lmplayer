@@ -16,6 +16,8 @@ describe("SessionMemoryCommand options and builder", () => {
     const builder = SessionMemoryCommand.builder as (y: Argv) => Argv<any>
     const parser = builder(yargs())
     const options = (parser as any).getOptions()
+    expect(options.key.output).toBeDefined()
+    expect(options.key.o).toBeDefined()
     expect(options.key.json).toBeDefined()
     expect(options.key.write).toBeDefined()
     expect(options.key.append).toBeDefined()
@@ -161,6 +163,30 @@ describe("SessionMemoryCommand handler", () => {
       // 8. Mutual exclusion check
       const conflictExit = await runMemoryExit({ sessionID, write: "text", clear: true }, ctx)
       expect(Exit.isFailure(conflictExit)).toBe(true)
+
+      // 8a. Write to file via --output
+      const outTextFile = path.join(tmp.path, "exported-memory.md")
+      await runMemory({ sessionID, output: outTextFile }, ctx)
+      const exportedContent = await fs.readFile(outTextFile, "utf-8")
+      expect(exportedContent).toContain("## External")
+
+      // 8b. Write to file via --output and --json
+      const outJsonFile = path.join(tmp.path, "exported-memory.json")
+      captured = ""
+      process.stdout.write = ((chunk: any) => {
+        captured += String(chunk)
+        return true
+      }) as any
+      try {
+        await runMemory({ sessionID, output: outJsonFile, json: true }, ctx)
+      } finally {
+        process.stdout.write = originalWrite
+      }
+      const outJsonData = JSON.parse(captured)
+      expect(outJsonData.ok).toBe(true)
+      const exportedJsonFileContent = JSON.parse(await fs.readFile(outJsonFile, "utf-8"))
+      expect(exportedJsonFileContent.sessionID).toBe(sessionID)
+      expect(exportedJsonFileContent.content).toContain("## External")
 
       // 9. Clear memory
       captured = ""
