@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
-import { modelToJsonEntry, resolveVerify } from "../../src/cli/cmd/models"
+import { modelToDetailJson, modelToJsonEntry, ModelsShowCommand, resolveVerify } from "../../src/cli/cmd/models"
 import { ProviderTest } from "../fake/provider"
+import yargs, { type Argv } from "yargs"
 import type { ModelsDev } from "@opencode-ai/core/models-dev"
 import type { Auth } from "../../src/auth"
 
@@ -33,6 +34,60 @@ describe("modelToJsonEntry", () => {
     const entry = modelToJsonEntry("p", String(model.id), model)
     expect(entry.variants).toEqual([])
     expect(entry.available).toBe(true)
+  })
+})
+
+// ─── modelToDetailJson shape ──────────────────────────────────────────────────
+
+describe("modelToDetailJson", () => {
+  test("emits detailed model JSON shape with cost, capabilities, limits, and variants", () => {
+    const model = ProviderTest.model({
+      family: "claude-sonnet",
+      status: "active",
+      release_date: "2025-02-24",
+      variants: { low: {}, medium: {}, high: {} },
+      cost: {
+        input: 3,
+        output: 15,
+        cache: { read: 0.3, write: 3.75 },
+      },
+    })
+    const detail = modelToDetailJson("github-copilot", String(model.id), model, "GitHub Copilot")
+
+    expect(detail.id).toBe(`github-copilot/${model.id}`)
+    expect(detail.provider).toEqual({ id: "github-copilot", name: "GitHub Copilot" })
+    expect(detail.name).toBe(model.name)
+    expect(detail.family).toBe("claude-sonnet")
+    expect(detail.status).toBe("active")
+    expect(detail.release_date).toBe("2025-02-24")
+    expect(detail.available).toBe(true)
+    expect(detail.variants).toEqual(["low", "medium", "high"])
+    expect(detail.cost).toEqual({
+      input: 3,
+      output: 15,
+      cache: { read: 0.3, write: 3.75 },
+    })
+    expect(detail.limit).toEqual({
+      context: model.limit.context ?? null,
+      input: model.limit.input ?? null,
+      output: model.limit.output ?? null,
+    })
+    expect(detail.capabilities.reasoning).toBe(model.capabilities.reasoning)
+    expect(detail.capabilities.toolcall).toBe(model.capabilities.toolcall)
+  })
+
+  test("handles model with null cost and no variants", () => {
+    const model = ProviderTest.model({
+      cost: undefined,
+      variants: undefined,
+      family: undefined,
+    })
+    const detail = modelToDetailJson("test-provider", String(model.id), model, "Test")
+
+    expect(detail.id).toBe(`test-provider/${model.id}`)
+    expect(detail.cost).toBeNull()
+    expect(detail.variants).toEqual([])
+    expect(detail.family).toBeUndefined()
   })
 })
 
@@ -175,4 +230,20 @@ describe("ModelsTestCommand definition", () => {
     expect(ModelsTestCommand.command).toBe("test [provider]")
   })
 })
+
+describe("ModelsShowCommand definition and builder", () => {
+  test("has command show <model> and alias get", () => {
+    expect(ModelsShowCommand.command).toBe("show <model>")
+    expect(ModelsShowCommand.aliases).toContain("get")
+  })
+
+  test("registers model positional and json option", () => {
+    const builder = ModelsShowCommand.builder as (y: Argv) => Argv<any>
+    const parser = builder(yargs())
+    const options = (parser as any).getOptions()
+    expect(options.key.json).toBeDefined()
+    expect(options.boolean).toContain("json")
+  })
+})
+
 

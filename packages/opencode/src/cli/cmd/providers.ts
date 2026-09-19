@@ -282,6 +282,7 @@ export const ProvidersCommand = cmd({
   builder: (yargs) =>
     yargs
       .command(ProvidersListCommand)
+      .command(ProvidersShowCommand)
       .command(ProvidersLoginCommand)
       .command(ProvidersLogoutCommand)
       .command(ProvidersEnableCommand)
@@ -398,6 +399,145 @@ export const ProvidersListCommand = effectCmd({
 
       yield* Prompt.outro(`${envOnly.length} environment variable` + (envOnly.length === 1 ? "" : "s"))
     }
+  }),
+})
+
+export const providersShow = Effect.fn("Cli.providers.show")(function* (args: { provider: string; json?: boolean }) {
+  const authSvc = yield* Auth.Service
+  const modelsDev = yield* ModelsDev.Service
+  const database = yield* modelsDev.get()
+  const allCreds = yield* Effect.orDie(authSvc.all())
+  const { Provider } = yield* Effect.promise(() => import("@/provider/provider"))
+  const providerSvc = yield* Provider.Service
+  const providers = yield* providerSvc.list()
+
+  const inputID = args.provider.trim()
+  let providerID = inputID
+  if (!database[providerID]) {
+    const lower = inputID.toLowerCase()
+    for (const [id, entry] of Object.entries(database)) {
+      if (id.toLowerCase() === lower || entry.name?.toLowerCase() === lower) {
+        providerID = id
+        break
+      }
+    }
+  }
+
+  const catalogEntry = database[providerID]
+  const cred = allCreds[providerID]
+  const activeEnv = catalogEntry ? catalogEntry.env.filter((e) => Boolean(process.env[e])) : []
+  const isAuthed = Boolean(cred) || activeEnv.length > 0 || providerID === "ollama"
+
+  // Check config status (disabled/enabled)
+  const effectiveCfg = yield* Config.Service.use((cfg) => cfg.get())
+  const isDisabled = effectiveCfg.disabled_providers?.includes(providerID) ?? false
+  const status = isDisabled ? "disabled" : "enabled"
+
+  // Models for this provider
+  const pInfo = providers[ProviderV2.ID.make(providerID)]
+  const models = pInfo
+    ? Object.entries(pInfo.models)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([modelID, m]) => ({
+          id: `${providerID}/${modelID}`,
+          name: m.name,
+          variants: Object.keys(m.variants ?? {}),
+        }))
+    : []
+
+  if (!catalogEntry && !cred && !pInfo) {
+    return yield* fail(`Unknown provider "${args.provider}"`)
+  }
+
+  const authPath = path.join(Global.Path.data, "auth.json")
+  const homedir = os.homedir()
+  const displayPath = authPath.startsWith(homedir) ? authPath.replace(homedir, "~") : authPath
+
+  const providerConfig = effectiveCfg.provider?.[providerID]
+
+  const authSource =
+    cred && activeEnv.length > 0
+      ? "both"
+      : cred
+        ? "credentials"
+        : activeEnv.length > 0
+          ? "environment"
+          : providerID === "ollama"
+            ? "local"
+            : "none"
+
+  if (args.json) {
+    const out = {
+      id: providerID,
+      name: catalogEntry?.name || providerID,
+      authenticated: isAuthed,
+      auth_source: authSource,
+      credentials: cred ? { type: cred.type, path: displayPath } : null,
+      environment: activeEnv,
+      status,
+      config: providerConfig ?? {},
+      models_count: models.length,
+      models,
+    }
+    process.stdout.write(JSON.stringify(out, null, 2) + "\n")
+    return
+  }
+
+  UI.empty()
+  const displayName = catalogEntry?.name || providerID
+  yield* Prompt.intro(`${displayName} ${UI.Style.TEXT_DIM}(${providerID})`)
+  yield* Prompt.log.info(
+    `Status: ${status === "enabled" ? UI.Style.TEXT_SUCCESS + "enabled" + UI.Style.TEXT_NORMAL : UI.Style.TEXT_DANGER + "disabled" + UI.Style.TEXT_NORMAL}`,
+  )
+  yield* Prompt.log.info(`Authenticated: ${isAuthed ? "yes" : "no"}`)
+  if (cred) {
+    yield* Prompt.log.info(`Credential: ${cred.type} (${displayPath})`)
+  }
+  if (activeEnv.length > 0) {
+    yield* Prompt.log.info(`Active Environment: ${activeEnv.join(", ")}`)
+  } else if (catalogEntry && catalogEntry.env.length > 0 && !cred) {
+    yield* Prompt.log.info(`Environment: (none - supported: ${catalogEntry.env.join(", ")})`)
+  }
+  if (providerConfig && Object.keys(providerConfig).length > 0) {
+    yield* Prompt.log.info(`Config options: ${JSON.stringify(providerConfig)}`)
+  }
+  yield* Prompt.log.info(`Models (${models.length}):`)
+  if (models.length === 0) {
+    if (!isAuthed) {
+      yield* Prompt.log.info(`    (not authenticated; log in with: lmplayer auth login --provider ${providerID})`)
+    } else {
+      yield* Prompt.log.info(`    (no models available)`)
+    }
+  } else {
+    for (const m of models) {
+      const variantsText = m.variants.length > 0 ? ` ${UI.Style.TEXT_DIM}[variants: ${m.variants.join(", ")}]` : ""
+      yield* Prompt.log.info(`    ${m.id}${variantsText}`)
+    }
+  }
+  yield* Prompt.outro("Done")
+})
+
+export const ProvidersShowCommand = effectCmd({
+  command: "show <provider>",
+  aliases: ["get"],
+  describe: "show detailed information for an AI provider",
+  instance: true,
+  builder: (yargs) =>
+    yargs
+      .positional("provider", {
+        describe: "provider ID or name to show",
+        type: "string",
+        demandOption: true,
+      })
+      .option("json", {
+        describe: "output as JSON",
+        type: "boolean",
+      }),
+  handler: Effect.fn("Cli.providers.show.cmd")(function* (args) {
+    yield* providersShow({
+      provider: args.provider!,
+      json: Boolean(args.json),
+    })
   }),
 })
 
