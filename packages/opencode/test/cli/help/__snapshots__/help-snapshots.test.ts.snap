@@ -420,6 +420,8 @@ manage sessions
 
 Commands:
   lmplayer session ls                                 list sessions
+  lmplayer session show <sessionID>                   show detailed session information
+                                                                                      [aliases: get]
   lmplayer session tail <sessionID>                   print recent session messages
   lmplayer session report <sessionID>                 report session metrics
   lmplayer session metrics <sessionID>                report machine-queryable session metrics
