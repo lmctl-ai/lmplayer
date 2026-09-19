@@ -2,7 +2,7 @@ import type { Session as SDKSession, Message, Part } from "@opencode-ai/sdk/v2"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
 import { Session } from "@/session/session"
 import { MessageV2 } from "../../session/message-v2"
-import { CliError, effectCmd } from "../effect-cmd"
+import { CliError, effectCmd, fail } from "../effect-cmd"
 import { Database } from "@opencode-ai/core/database/database"
 import { SessionTable, MessageTable, PartTable } from "@opencode-ai/core/session/sql"
 import { InstanceRef } from "@/effect/instance-ref"
@@ -91,23 +91,52 @@ export function transformShareData(shareData: ShareData[]): {
 
 type ExportData = { info: SDKSession; messages: Array<{ info: Message; parts: Part[] }> }
 
+export type ImportArgs = {
+  file: string
+  title?: string
+  json?: boolean
+}
+
+export type ImportResultJson = {
+  ok: boolean
+  id: string
+  title: string
+  messages: number
+  parts: number
+  file: string
+}
+
 export const ImportCommand = effectCmd({
   command: "import <file>",
   describe: "import session data from JSON file or URL",
   builder: (yargs) =>
-    yargs.positional("file", {
-      describe: "path to JSON file or share URL",
-      type: "string",
-      demandOption: true,
-    }),
-  handler: Effect.fn("Cli.import")(function* (args) {
+    yargs
+      .positional("file", {
+        describe: "path to JSON file or share URL",
+        type: "string",
+        demandOption: true,
+      })
+      .option("title", {
+        describe: "override title of imported session",
+        type: "string",
+      })
+      .option("json", {
+        describe: "output as JSON",
+        type: "boolean",
+      }),
+  handler: Effect.fn("Cli.import")(function* (args: ImportArgs) {
     const ctx = yield* InstanceRef
     if (!ctx) return yield* Effect.die("InstanceRef not provided")
-    return yield* runImport(args.file, ctx)
+    return yield* runImport(args, ctx)
   }),
 })
 
-const runImport = Effect.fn("Cli.import.body")(function* (file: string, ctx: InstanceContext) {
+export const runImport = Effect.fn("Cli.import.body")(function* (
+  args: ImportArgs | string,
+  ctx: InstanceContext,
+) {
+  const file = typeof args === "string" ? args : args.file
+  const options: Partial<ImportArgs> = typeof args === "string" ? {} : args
   const share = yield* ShareNext.Service
   const fs = yield* FSUtil.Service
   const { db } = yield* Database.Service
@@ -120,9 +149,7 @@ const runImport = Effect.fn("Cli.import.body")(function* (file: string, ctx: Ins
     const slug = parseShareUrl(file)
     if (!slug) {
       const baseUrl = yield* Effect.orDie(share.url())
-      process.stdout.write(`Invalid URL format. Expected: ${baseUrl}/share/<slug>`)
-      process.stdout.write(EOL)
-      return
+      return yield* fail(`Invalid URL format. Expected: ${baseUrl}/share/<slug>`)
     }
 
     const baseUrl = new URL(file).origin
@@ -146,9 +173,7 @@ const runImport = Effect.fn("Cli.import.body")(function* (file: string, ctx: Ins
     }
 
     if (!response.ok) {
-      process.stdout.write(`Failed to fetch share data: ${response.statusText}`)
-      process.stdout.write(EOL)
-      return
+      return yield* fail(`Failed to fetch share data: ${response.statusText} (${response.status})`)
     }
 
     const shareData = yield* Effect.tryPromise({
@@ -158,9 +183,7 @@ const runImport = Effect.fn("Cli.import.body")(function* (file: string, ctx: Ins
     const transformed = transformShareData(shareData)
 
     if (!transformed) {
-      process.stdout.write(`Share not found or empty: ${slug}`)
-      process.stdout.write(EOL)
-      return
+      return yield* fail(`Share not found or empty: ${slug}`)
     }
 
     exportData = transformed
@@ -170,10 +193,12 @@ const runImport = Effect.fn("Cli.import.body")(function* (file: string, ctx: Ins
       .pipe(Effect.mapError((error) => new CliError({ message: formatImportFileError(file, error) })))) as ExportData
   }
 
-  if (!exportData) {
-    process.stdout.write(`Failed to read session data`)
-    process.stdout.write(EOL)
-    return
+  if (!exportData || !exportData.info) {
+    return yield* fail(`Failed to read session data from ${file}`)
+  }
+
+  if (options.title) {
+    exportData.info.title = options.title
   }
 
   const info = Schema.decodeUnknownSync(Session.Info)({
@@ -188,12 +213,13 @@ const runImport = Effect.fn("Cli.import.body")(function* (file: string, ctx: Ins
     .values(row)
     .onConflictDoUpdate({
       target: SessionTable.id,
-      set: { project_id: row.project_id, directory: row.directory, path: row.path },
+      set: { project_id: row.project_id, directory: row.directory, path: row.path, title: row.title },
     })
     .run()
     .pipe(Effect.orDie)
 
-  for (const msg of exportData.messages) {
+  let partCount = 0
+  for (const msg of exportData.messages ?? []) {
     const msgInfo = decodeMessageInfo(msg.info) as SessionV1.Info
     const { id, sessionID: _, ...msgData } = msgInfo
     yield* db
@@ -208,7 +234,8 @@ const runImport = Effect.fn("Cli.import.body")(function* (file: string, ctx: Ins
       .run()
       .pipe(Effect.orDie)
 
-    for (const part of msg.parts) {
+    for (const part of msg.parts ?? []) {
+      partCount++
       const partInfo = decodePart(part) as SessionV1.Part
       const { id: partId, sessionID: _s, messageID, ...partData } = partInfo
       yield* db
@@ -225,6 +252,19 @@ const runImport = Effect.fn("Cli.import.body")(function* (file: string, ctx: Ins
     }
   }
 
-  process.stdout.write(`Imported session: ${exportData.info.id}`)
-  process.stdout.write(EOL)
+  if (options.json) {
+    const result: ImportResultJson = {
+      ok: true,
+      id: row.id,
+      title: row.title,
+      messages: exportData.messages?.length ?? 0,
+      parts: partCount,
+      file,
+    }
+    process.stdout.write(JSON.stringify(result, null, 2) + EOL)
+    return result
+  }
+
+  process.stdout.write(`Imported session: ${row.id}${EOL}`)
+  return { ok: true, id: row.id }
 })

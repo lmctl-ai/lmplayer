@@ -52,6 +52,14 @@ describe("opencode session commands (CLI)", () => {
         const tailRes = yield* opencode.spawn(["session", "tail", notFound])
         opencode.expectExit(tailRes, 1)
         expect(tailRes.stderr).toContain(`Session not found: ${notFound}`)
+
+        const reportRes = yield* opencode.spawn(["session", "report", notFound])
+        opencode.expectExit(reportRes, 1)
+        expect(reportRes.stderr).toContain(`Session not found: ${notFound}`)
+
+        const healthRes = yield* opencode.spawn(["session", "health", notFound])
+        opencode.expectExit(healthRes, 1)
+        expect(healthRes.stderr).toContain(`Session not found: ${notFound}`)
       }),
     60_000,
   )

@@ -367,12 +367,14 @@ Positionals:
   sessionID  session id to export                                                           [string]
 
 Options:
-  -h, --help        show help                                                              [boolean]
-  -v, --version     show version number                                                    [boolean]
-      --print-logs  print logs to stderr                                                   [boolean]
-      --log-level   log level                   [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
-      --pure        run without external plugins                                           [boolean]
-      --sanitize    redact sensitive transcript and file data                              [boolean]"
+  -h, --help            show help                                                          [boolean]
+  -v, --version         show version number                                                [boolean]
+      --print-logs      print logs to stderr                                               [boolean]
+      --log-level       log level               [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
+      --pure            run without external plugins                                       [boolean]
+  -o, --output, --file  write export JSON to file path                                      [string]
+      --sanitize        redact sensitive transcript and file data                          [boolean]
+      --json            output summary as JSON when exporting to file                      [boolean]"
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode import --help 1`] = `
@@ -388,7 +390,9 @@ Options:
   -v, --version     show version number                                                    [boolean]
       --print-logs  print logs to stderr                                                   [boolean]
       --log-level   log level                   [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
-      --pure        run without external plugins                                           [boolean]"
+      --pure        run without external plugins                                           [boolean]
+      --title       override title of imported session                                      [string]
+      --json        output as JSON                                                         [boolean]"
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode github --help 1`] = `

@@ -61,8 +61,8 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
 - `session health <id> [--json]` — inspect session context usage and headroom against model limit.
 - `session todo <id> [--json]` — list todo tasks for a session with status checkboxes (`[x]`, `[>]`, `[-]`, `[ ]`) and priority tags.
 - `session diff <id> [--message msgID] [--stat] [--json]` — inspect file diffs and patches resulting from session turns, with optional diffstat summary (`--stat`).
-- `session export [id] [--sanitize]` — export session data as JSON with optional sensitive transcript sanitization.
-- `session import <file>` — import session data from a file or share URL.
+- `session export [id] [--output file|-o file|--file file] [--sanitize] [--json]` — export session data as JSON to stdout or directly to a file, with optional sensitive transcript sanitization (`--sanitize`) and structured JSON summary (`--json`).
+- `session import <file> [--title title] [--json]` — import session data from a JSON file or share URL with fail-fast validation, optional title override (`--title`), and structured JSON response (`--json`).
 - `session jobs <id> [--json] [--output jobID] [--job jobID] [--status s]` — list and inspect background jobs.
 - `session crons <id> [--json] [--cron cronID] [--delete cronID]` — list, inspect, and delete scheduled cron jobs.
 - `session rename <id> <title> [--json]` — rename a session.
