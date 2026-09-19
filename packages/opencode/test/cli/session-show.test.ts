@@ -66,6 +66,35 @@ describe("opencode session show / get (CLI)", () => {
         const showWithMemData = JSON.parse(showWithMemRes.stdout)
         expect(showWithMemData.memory.exists).toBe(true)
         expect(showWithMemData.memory.bytes).toBeGreaterThan(0)
+        expect(showWithMemData.status).toBeDefined()
+        expect(showWithMemData.status.type).toBe("idle")
+
+        // 5. Test session status command
+        // 5a. Non-existent session status fails cleanly
+        const statusNotFoundRes = yield* opencode.spawn(["session", "status", notFound])
+        opencode.expectExit(statusNotFoundRes, 1)
+        expect(statusNotFoundRes.stderr).toContain(`Session not found: ${notFound}`)
+
+        // 5b. All sessions status (human and JSON)
+        const statusAllRes = yield* opencode.spawn(["session", "status"])
+        opencode.expectExit(statusAllRes, 0)
+        expect(statusAllRes.stderr).toBeDefined()
+
+        const statusAllJsonRes = yield* opencode.spawn(["session", "status", "--json"])
+        opencode.expectExit(statusAllJsonRes, 0)
+        const statusAllData = JSON.parse(statusAllJsonRes.stdout)
+        expect(typeof statusAllData).toBe("object")
+
+        // 5c. Specific session status (human and JSON)
+        const statusSingleRes = yield* opencode.spawn(["session", "status", sessionID])
+        opencode.expectExit(statusSingleRes, 0)
+        expect(statusSingleRes.stderr).toContain(`Session ${sessionID}: idle`)
+
+        const statusSingleJsonRes = yield* opencode.spawn(["session", "status", sessionID, "--json"])
+        opencode.expectExit(statusSingleJsonRes, 0)
+        const statusSingleData = JSON.parse(statusSingleJsonRes.stdout)
+        expect(statusSingleData.id).toBe(sessionID)
+        expect(statusSingleData.status.type).toBe("idle")
       }),
     60_000,
   )
