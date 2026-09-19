@@ -14,7 +14,7 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
   `variants[]` are the reasoning-EFFORT choices for that model (low/medium/high/xhigh/max).
 - `models show <model>` (alias `get`) `[--json]` — inspect detailed configuration, limits, capabilities, reasoning-effort variants, and token pricing rates for a specific model.
 - `models [provider] --refresh` — refresh models.dev cache.
-- `models verify <model>` — verify a model is known and available (format, provider, auth, effort).
+- `models verify <model> [--effort <tier>] [--output file|-o file] [--json]` — verify a model is known and available (format, provider, auth, effort), with structured JSON output and file export.
 - `models test [provider] [--json] [--timeout ms] [--concurrency n]` — probe each entitled model with a single turn prompt, reporting OK/FAIL (exit non-zero on any fail). Also accepts `--test` flag on `models`.
 - `auth list` (alias `providers list`, `providers ls`) — authed providers, each with its entitled model ids indented.
 - `auth list --json` (alias `providers list --json`) — {credentials_path, providers:[{id,name,type,source,models:[{id,variants}]}]}.
@@ -28,14 +28,14 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
 
 ## Configure (editable file + CLI + verify)
 - Global config file: `~/.config/lmcode/opencode.jsonc` (jsonc; comments preserved by writers).
-- `config get [key]` — effective value by dotted key (or whole config). Missing key -> exit 1.
+- `config get [key] [--output file|-o file]` — effective value by dotted key (or whole config), with direct file export. Missing key -> exit 1.
 - `config set <key> <value> [--json]` — write global config, jsonc-preserving, schema-validated
   (invalid write -> readable error, file unchanged). Value coercion: bool/number/json/string;
   `--json` parses value as JSON (subtree). e.g. `config set model github-copilot/gpt-5.4`.
 - `config unset <key>` — delete a key (validate-before-write).
-- `config list` (alias `ls`) — list merged effective or scoped configuration.
+- `config list` (alias `ls`) `[--output file|-o file]` — list merged effective or scoped configuration, with direct file export.
 - `config path [--scope project|global] [--project|-p] [--global|-g] [--json]` — print resolved configuration file path(s) (project candidate in cwd, global config in `~/.config/lmplayer`, or active sources provenance).
-- `config verify` — validate effective config; prints "Config OK" + model/small_model/default_agent/default_variant,
+- `config verify [--output file|-o file] [--json]` — validate effective config; prints "Config OK" + model/small_model/default_agent/default_variant (or writes report / outputs structured JSON with sources and defaults),
   or readable issues (file + `dot.path: message`) with exit 1. Same readable error fails fast at launch.
 - Dotted-key limitation: keys containing literal dots (some mcp names) need `--json` subtree set.
 

@@ -72,11 +72,23 @@ export const ConfigGetCommand = effectCmd({
   command: "get [key]",
   describe: "read config value(s), optionally a single dotted key",
   builder: (yargs) =>
-    addScopeOptions(yargs).positional("key", {
-      describe: "dotted config key (e.g. compaction.auto); omit to print the whole config",
-      type: "string",
-    }),
-  handler: Effect.fn("Cli.config.get")(function* (args) {
+    addScopeOptions(yargs)
+      .positional("key", {
+        describe: "dotted config key (e.g. compaction.auto); omit to print the whole config",
+        type: "string",
+      })
+      .option("output", {
+        alias: "o",
+        describe: "write output to file path",
+        type: "string",
+      }),
+  handler: Effect.fn("Cli.config.get")(function* (args: {
+    key?: string
+    output?: string
+    project?: boolean
+    global?: boolean
+    scope?: "project" | "global"
+  }) {
     const { Config } = yield* Effect.promise(() => import("@/config/config"))
     const isProject = args.project || args.scope === "project"
     const isGlobal = args.global || args.scope === "global"
@@ -90,7 +102,18 @@ export const ConfigGetCommand = effectCmd({
     )
 
     if (!args.key) {
-      process.stdout.write(JSON.stringify(config, null, 2) + EOL)
+      const jsonOut = JSON.stringify(config, null, 2)
+      if (args.output) {
+        const resolved = path.resolve(args.output)
+        yield* Effect.promise(async () => {
+          const fs = await import("fs/promises")
+          await fs.mkdir(path.dirname(resolved), { recursive: true })
+          await fs.writeFile(resolved, jsonOut + EOL, "utf-8")
+        })
+        UI.println(`Wrote config to ${resolved}`)
+        return
+      }
+      process.stdout.write(jsonOut + EOL)
       return
     }
 
@@ -103,6 +126,16 @@ export const ConfigGetCommand = effectCmd({
     }
 
     const out = value !== null && typeof value === "object" ? JSON.stringify(value, null, 2) : String(value)
+    if (args.output) {
+      const resolved = path.resolve(args.output)
+      yield* Effect.promise(async () => {
+        const fs = await import("fs/promises")
+        await fs.mkdir(path.dirname(resolved), { recursive: true })
+        await fs.writeFile(resolved, out + EOL, "utf-8")
+      })
+      UI.println(`Wrote config value to ${resolved}`)
+      return
+    }
     process.stdout.write(out + EOL)
   }),
 })
@@ -111,8 +144,18 @@ export const ConfigListCommand = effectCmd({
   command: "list",
   aliases: ["ls"],
   describe: "list configuration (merged effective, or scoped)",
-  builder: (yargs) => addScopeOptions(yargs),
-  handler: Effect.fn("Cli.config.list")(function* (args) {
+  builder: (yargs) =>
+    addScopeOptions(yargs).option("output", {
+      alias: "o",
+      describe: "write configuration list to file path",
+      type: "string",
+    }),
+  handler: Effect.fn("Cli.config.list")(function* (args: {
+    output?: string
+    project?: boolean
+    global?: boolean
+    scope?: "project" | "global"
+  }) {
     const { Config } = yield* Effect.promise(() => import("@/config/config"))
     const isProject = args.project || args.scope === "project"
     const isGlobal = args.global || args.scope === "global"
@@ -125,7 +168,18 @@ export const ConfigListCommand = effectCmd({
       }),
     )
 
-    process.stdout.write(JSON.stringify(config, null, 2) + EOL)
+    const jsonOut = JSON.stringify(config, null, 2)
+    if (args.output) {
+      const resolved = path.resolve(args.output)
+      yield* Effect.promise(async () => {
+        const fs = await import("fs/promises")
+        await fs.mkdir(path.dirname(resolved), { recursive: true })
+        await fs.writeFile(resolved, jsonOut + EOL, "utf-8")
+      })
+      UI.println(`Wrote config list to ${resolved}`)
+      return
+    }
+    process.stdout.write(jsonOut + EOL)
   }),
 })
 
@@ -246,8 +300,21 @@ function coerceValue(value: string): unknown {
 export const ConfigVerifyCommand = effectCmd({
   command: "verify",
   describe: "validate the effective configuration and report errors",
-  builder: (yargs) => yargs,
-  handler: Effect.fn("Cli.config.verify")(function* () {
+  builder: (yargs) =>
+    yargs
+      .option("output", {
+        alias: "o",
+        describe: "write verify report to output file path",
+        type: "string",
+      })
+      .option("json", {
+        describe: "output JSON",
+        type: "boolean",
+      }),
+  handler: Effect.fn("Cli.config.verify")(function* (args: {
+    output?: string
+    json?: boolean
+  }) {
     const { Config } = yield* Effect.promise(() => import("@/config/config"))
 
     // Load the effective config exactly like the app does. JSONC parsing and
@@ -264,6 +331,50 @@ export const ConfigVerifyCommand = effectCmd({
     )
 
     const sources = configSources(process.cwd())
+
+    if (args.json) {
+      const result = {
+        ok: true,
+        sources,
+        model: config.model ?? null,
+        small_model: config.small_model ?? null,
+        default_agent: config.default_agent ?? null,
+        default_variant: config.default_variant ?? config.variant ?? null,
+      }
+      const jsonOut = JSON.stringify(result, null, 2)
+      if (args.output) {
+        const resolved = path.resolve(args.output)
+        yield* Effect.promise(async () => {
+          const fs = await import("fs/promises")
+          await fs.mkdir(path.dirname(resolved), { recursive: true })
+          await fs.writeFile(resolved, jsonOut + EOL, "utf-8")
+        })
+        UI.println(`Wrote verify report to ${resolved}`)
+        return
+      }
+      process.stdout.write(jsonOut + EOL)
+      return
+    }
+
+    if (args.output) {
+      const plainReport = [
+        "Config OK",
+        ...sources.map((s) => `  ${s}`),
+        `  model: ${config.model ?? "(default)"}`,
+        `  small_model: ${config.small_model ?? "(default)"}`,
+        `  default_agent: ${config.default_agent ?? "(default)"}`,
+        `  default_variant: ${config.default_variant ?? config.variant ?? "(default)"}`,
+      ].join(EOL) + EOL
+      const resolved = path.resolve(args.output)
+      yield* Effect.promise(async () => {
+        const fs = await import("fs/promises")
+        await fs.mkdir(path.dirname(resolved), { recursive: true })
+        await fs.writeFile(resolved, plainReport, "utf-8")
+      })
+      UI.println(`Wrote verify report to ${resolved}`)
+      return
+    }
+
     UI.println(UI.Style.TEXT_SUCCESS_BOLD + "Config OK" + UI.Style.TEXT_NORMAL)
     for (const source of sources) process.stdout.write(`  ${source}${EOL}`)
     process.stdout.write(`  model: ${config.model ?? "(default)"}${EOL}`)
