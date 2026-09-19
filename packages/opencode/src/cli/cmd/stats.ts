@@ -7,7 +7,7 @@ import { SessionTable } from "@opencode-ai/core/session/sql"
 import { Project } from "@/project/project"
 import { InstanceRef } from "@/effect/instance-ref"
 
-interface SessionStats {
+export interface SessionStats {
   totalSessions: number
   totalMessages: number
   totalCost: number
@@ -46,6 +46,148 @@ interface SessionStats {
   medianTokensPerSession: number
 }
 
+export type StatsJson = {
+  total_sessions: number
+  total_messages: number
+  total_cost: number
+  total_tokens: {
+    input: number
+    output: number
+    reasoning: number
+    cache: {
+      read: number
+      write: number
+    }
+    total: number
+  }
+  averages: {
+    cost_per_day: number
+    tokens_per_session: number
+    median_tokens_per_session: number
+  }
+  days: number
+  date_range: {
+    earliest: number
+    latest: number
+  }
+  tool_usage: Record<string, number>
+  model_usage: Record<
+    string,
+    {
+      messages: number
+      tokens: {
+        input: number
+        output: number
+        cache: {
+          read: number
+          write: number
+        }
+        total: number
+      }
+      cost: number
+    }
+  >
+}
+
+export function formatStatsJson(
+  stats: SessionStats,
+  toolLimit?: number,
+  modelLimit?: number,
+): StatsJson {
+  const totalTokens =
+    stats.totalTokens.input +
+    stats.totalTokens.output +
+    stats.totalTokens.reasoning +
+    stats.totalTokens.cache.read +
+    stats.totalTokens.cache.write
+
+  let toolUsage = stats.toolUsage
+  if (toolLimit !== undefined) {
+    const sorted = Object.entries(stats.toolUsage).sort(([, a], [, b]) => b - a)
+    toolUsage = Object.fromEntries(sorted.slice(0, toolLimit))
+  }
+
+  let modelUsageEntries = Object.entries(stats.modelUsage).map(([model, usage]) => {
+    const modelTotalTokens =
+      usage.tokens.input + usage.tokens.output + usage.tokens.cache.read + usage.tokens.cache.write
+    return [
+      model,
+      {
+        messages: usage.messages,
+        tokens: {
+          input: usage.tokens.input,
+          output: usage.tokens.output,
+          cache: {
+            read: usage.tokens.cache.read,
+            write: usage.tokens.cache.write,
+          },
+          total: modelTotalTokens,
+        },
+        cost: usage.cost,
+      },
+    ] as const
+  })
+
+  if (modelLimit !== undefined && modelLimit !== Infinity) {
+    modelUsageEntries = modelUsageEntries
+      .sort(([, a], [, b]) => b.messages - a.messages)
+      .slice(0, modelLimit)
+  }
+
+  return {
+    total_sessions: stats.totalSessions,
+    total_messages: stats.totalMessages,
+    total_cost: stats.totalCost,
+    total_tokens: {
+      input: stats.totalTokens.input,
+      output: stats.totalTokens.output,
+      reasoning: stats.totalTokens.reasoning,
+      cache: {
+        read: stats.totalTokens.cache.read,
+        write: stats.totalTokens.cache.write,
+      },
+      total: totalTokens,
+    },
+    averages: {
+      cost_per_day: stats.costPerDay,
+      tokens_per_session: stats.tokensPerSession,
+      median_tokens_per_session: stats.medianTokensPerSession,
+    },
+    days: stats.days,
+    date_range: {
+      earliest: stats.dateRange.earliest,
+      latest: stats.dateRange.latest,
+    },
+    tool_usage: toolUsage,
+    model_usage: Object.fromEntries(modelUsageEntries),
+  }
+}
+
+export const runStats = Effect.fn("Cli.stats.run")(function* (args: {
+  days?: number
+  tools?: number
+  models?: boolean | number
+  project?: string
+  json?: boolean
+}) {
+  const ctx = yield* InstanceRef
+  if (!ctx) return
+  const stats = yield* aggregateSessionStats(args.days, args.project, ctx.project)
+  let modelLimit: number | undefined
+  if (args.models === true) {
+    modelLimit = Infinity
+  } else if (typeof args.models === "number") {
+    modelLimit = args.models
+  }
+  if (args.json) {
+    const out = formatStatsJson(stats, args.tools, modelLimit)
+    process.stdout.write(JSON.stringify(out, null, 2) + "\n")
+    return out
+  }
+  displayStats(stats, args.tools, modelLimit)
+  return stats
+})
+
 export const StatsCommand = effectCmd({
   command: "stats",
   describe: "show token usage and cost statistics",
@@ -65,18 +207,19 @@ export const StatsCommand = effectCmd({
       .option("project", {
         describe: "filter by project (default: all projects, empty string: current project)",
         type: "string",
+      })
+      .option("json", {
+        describe: "output as JSON",
+        type: "boolean",
       }),
   handler: Effect.fn("Cli.stats")(function* (args) {
-    const ctx = yield* InstanceRef
-    if (!ctx) return
-    const stats = yield* aggregateSessionStats(args.days, args.project, ctx.project)
-    let modelLimit: number | undefined
-    if (args.models === true) {
-      modelLimit = Infinity
-    } else if (typeof args.models === "number") {
-      modelLimit = args.models
-    }
-    displayStats(stats, args.tools, modelLimit)
+    yield* runStats({
+      days: args.days,
+      tools: args.tools,
+      models: args.models as boolean | number | undefined,
+      project: args.project,
+      json: Boolean(args.json),
+    })
   }),
 })
 
