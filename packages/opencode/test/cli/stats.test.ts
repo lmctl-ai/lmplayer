@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { Effect } from "effect"
 import { StatsCommand, formatStatsJson, runStats, type SessionStats } from "../../src/cli/cmd/stats"
 import { Session } from "../../src/session/session"
+import { MessageID } from "../../src/session/schema"
 import { InstanceRef } from "../../src/effect/instance-ref"
 import { InstanceRuntime } from "../../src/project/instance-runtime"
 import { AppRuntime } from "../../src/effect/app-runtime"
@@ -20,6 +21,8 @@ describe("StatsCommand options and builder", () => {
     expect(options.key.tools).toBeDefined()
     expect(options.key.models).toBeDefined()
     expect(options.key.project).toBeDefined()
+    expect(options.key.provider).toBeDefined()
+    expect(options.key.model).toBeDefined()
   })
 })
 
@@ -135,6 +138,21 @@ describe("formatStatsJson", () => {
     expect(json.tool_usage).toEqual({})
     expect(json.model_usage).toEqual({})
   })
+
+  test("includes filters in json output when specified", () => {
+    const json = formatStatsJson(sampleStats, undefined, undefined, {
+      days: 7,
+      project: "test-proj",
+      provider: "ollama-cloud",
+      model: "deepseek-v4.1-flash",
+    })
+    expect(json.filters).toEqual({
+      days: 7,
+      project: "test-proj",
+      provider: "ollama-cloud",
+      model: "deepseek-v4.1-flash",
+    })
+  })
 })
 
 describe("StatsCommand in-process execution", () => {
@@ -176,6 +194,106 @@ describe("StatsCommand in-process execution", () => {
       const withSession = JSON.parse(captured)
       expect(withSession.total_sessions).toBe(1)
       expect(typeof withSession.total_tokens).toBe("object")
+    } finally {
+      process.stdout.write = originalWrite
+      await InstanceRuntime.disposeInstance(ctx)
+    }
+  })
+
+  test("filters sessions and metrics by provider and model", async () => {
+    const tmp = await tmpdir({ git: true })
+    const ctx = await InstanceRuntime.load({ directory: tmp.path })
+
+    let captured = ""
+    const originalWrite = process.stdout.write
+    process.stdout.write = ((chunk: any) => {
+      captured += String(chunk)
+      return true
+    }) as any
+
+    try {
+      const session = await AppRuntime.runPromise(
+        Session.Service.use((svc) => svc.create({ title: "Test Filter Session" })).pipe(
+          Effect.provideService(InstanceRef, ctx),
+        ),
+      )
+
+      await AppRuntime.runPromise(
+        Session.Service.use((svc) =>
+          svc.updateMessage({
+            id: MessageID.ascending(),
+            sessionID: session.id,
+            parentID: MessageID.ascending(),
+            role: "assistant",
+            time: { created: Date.now() },
+            providerID: "ollama-cloud",
+            modelID: "deepseek-v4.1-flash",
+            mode: "",
+            agent: "agent",
+            path: { cwd: "/", root: "/" },
+            cost: 0.005,
+            tokens: {
+              input: 100,
+              output: 50,
+              reasoning: 20,
+              cache: { read: 10, write: 5 },
+            },
+          } as any),
+        ).pipe(Effect.provideService(InstanceRef, ctx)),
+      )
+
+      // 1. Filter by matching provider
+      captured = ""
+      await AppRuntime.runPromise(
+        runStats({ provider: "ollama-cloud", json: true }).pipe(
+          Effect.provideService(InstanceRef, ctx),
+        ),
+      )
+      const providerData = JSON.parse(captured)
+      expect(providerData.total_sessions).toBe(1)
+      expect(providerData.total_messages).toBe(1)
+      expect(providerData.total_cost).toBe(0.005)
+      expect(providerData.total_tokens.input).toBe(100)
+      expect(providerData.total_tokens.output).toBe(50)
+      expect(providerData.total_tokens.reasoning).toBe(20)
+      expect(providerData.filters?.provider).toBe("ollama-cloud")
+      expect(providerData.model_usage["ollama-cloud/deepseek-v4.1-flash"]).toBeDefined()
+
+      // 2. Filter by non-matching provider
+      captured = ""
+      await AppRuntime.runPromise(
+        runStats({ provider: "openai", json: true }).pipe(
+          Effect.provideService(InstanceRef, ctx),
+        ),
+      )
+      const nonMatching = JSON.parse(captured)
+      expect(nonMatching.total_sessions).toBe(0)
+      expect(nonMatching.total_messages).toBe(0)
+      expect(nonMatching.total_cost).toBe(0)
+      expect(nonMatching.filters?.provider).toBe("openai")
+
+      // 3. Filter by model ID
+      captured = ""
+      await AppRuntime.runPromise(
+        runStats({ model: "deepseek-v4.1-flash", json: true }).pipe(
+          Effect.provideService(InstanceRef, ctx),
+        ),
+      )
+      const modelData = JSON.parse(captured)
+      expect(modelData.total_sessions).toBe(1)
+      expect(modelData.total_messages).toBe(1)
+      expect(modelData.filters?.model).toBe("deepseek-v4.1-flash")
+
+      // 4. Filter by full provider/model ID
+      captured = ""
+      await AppRuntime.runPromise(
+        runStats({ model: "ollama-cloud/deepseek-v4.1-flash", json: true }).pipe(
+          Effect.provideService(InstanceRef, ctx),
+        ),
+      )
+      const fullModelData = JSON.parse(captured)
+      expect(fullModelData.total_sessions).toBe(1)
+      expect(fullModelData.total_messages).toBe(1)
     } finally {
       process.stdout.write = originalWrite
       await InstanceRuntime.disposeInstance(ctx)

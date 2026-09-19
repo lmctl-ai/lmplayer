@@ -82,7 +82,7 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
 - `mcp debug <name>` — debug OAuth connection and test server info / tools.
 
 ## Token usage & statistics
-- `stats [--days n] [--tools [n]] [--models [n]] [--project p] [--json]` — aggregate and inspect token usage, write-time costs, and daily/per-session averages across sessions, with optional machine-readable JSON output (`--json`).
+- `stats [--days n] [--tools [n]] [--models [n]] [--project p] [--provider <id>] [--model <id>] [--json]` — aggregate and inspect token usage, write-time costs, tool call counts, and daily/per-session averages across sessions. Supports granular provider (`--provider`) and model (`--model`) filtering for unmetered cloud ledgering (e.g. Ollama Cloud) and machine-readable structured JSON output (`--json`).
 
 ## Known gaps / TODO (not yet built)
 - `models test [provider]` (probe each entitled model) — SHIPPED (with `--json`, `--timeout`, `--concurrency`).

@@ -20,7 +20,7 @@ the default.
 - `provider-openai-astra.md` — verified `openai/gpt-6-astra` via Codex OAuth, exact-name filter fix, older-binary declaration workaround, published example, and clean diagram lint.
 - `direction.md` — operator north star: CLI + single-user sequential REST microservice, file-based permissions (no popup), standalone config (no parent/sibling merge).
 - `runbook.md` — how to run/auth/test lmcode in dev (toolchain, copilot OAuth device flow, default model, wrapper).
-- `cli-commands.md` — the agent-facing CLI surface added in this work (models, auth list, run --effort, config, default command).
+- `cli-commands.md` — the agent-facing CLI surface added in this work (models, auth list, run --effort, config, default command, session commands, stats with provider/model filters and JSON).
 - `models-and-effort.md` — model selection, variants/effort tiers (xhigh = "extra high"), entitled list + which models actually work.
 - `config-cli.md` — config schema, writers (updateGlobal/patchJsonc), precedence/shadowing, effort-default decision, non-interactive gaps.
 - `build.md` — the single source of truth for XDG app dirs (global.ts:10) + rename notes.
