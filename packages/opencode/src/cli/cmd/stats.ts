@@ -204,7 +204,12 @@ export const runStats = Effect.fn("Cli.stats.run")(function* (args: {
     process.stdout.write(JSON.stringify(out, null, 2) + "\n")
     return out
   }
-  displayStats(stats, args.tools, modelLimit)
+  displayStats(stats, args.tools, modelLimit, {
+    days: args.days,
+    project: args.project,
+    provider: args.provider,
+    model: args.model,
+  })
   return stats
 })
 
@@ -421,8 +426,14 @@ const aggregateSessionStats = Effect.fn("Cli.stats.aggregate")(function* (
           return null
         }
 
-        const effectiveCost = isFiltered ? filteredCost : sessionCost
-        const effectiveTokens = isFiltered ? filteredTokens : sessionTokens
+        const sessionSum =
+          sessionTokens.input +
+          sessionTokens.output +
+          sessionTokens.reasoning +
+          sessionTokens.cache.read +
+          sessionTokens.cache.write
+        const effectiveCost = isFiltered ? filteredCost : sessionCost > 0 ? sessionCost : filteredCost
+        const effectiveTokens = isFiltered ? filteredTokens : sessionSum > 0 ? sessionTokens : filteredTokens
         const effectiveMessageCount = isFiltered ? matchingAssistantCount : messages.length
 
         return {
@@ -513,14 +524,25 @@ const aggregateSessionStats = Effect.fn("Cli.stats.aggregate")(function* (
   return stats
 })
 
-export function displayStats(stats: SessionStats, toolLimit?: number, modelLimit?: number) {
+export function displayStats(
+  stats: SessionStats,
+  toolLimit?: number,
+  modelLimit?: number,
+  filters?: {
+    days?: number
+    project?: string
+    provider?: string
+    model?: string
+  },
+) {
   const width = 56
 
   function renderRow(label: string, value: string): string {
+    const formattedLabel = label.startsWith(" ") ? label : ` ${label}`
     const availableWidth = width - 1
-    const paddingNeeded = availableWidth - label.length - value.length
+    const paddingNeeded = availableWidth - formattedLabel.length - value.length
     const padding = Math.max(0, paddingNeeded)
-    return `│${label}${" ".repeat(padding)}${value} │`
+    return `│${formattedLabel}${" ".repeat(padding)}${value} │`
   }
 
   // Overview section
@@ -530,6 +552,15 @@ export function displayStats(stats: SessionStats, toolLimit?: number, modelLimit
   console.log(renderRow("Sessions", stats.totalSessions.toLocaleString()))
   console.log(renderRow("Messages", stats.totalMessages.toLocaleString()))
   console.log(renderRow("Days", stats.days.toString()))
+  if (filters?.project !== undefined) {
+    console.log(renderRow("Project", filters.project === "" ? "(current)" : filters.project))
+  }
+  if (filters?.provider) {
+    console.log(renderRow("Provider", filters.provider))
+  }
+  if (filters?.model) {
+    console.log(renderRow("Model", filters.model))
+  }
   console.log("└────────────────────────────────────────────────────────┘")
   console.log()
 
