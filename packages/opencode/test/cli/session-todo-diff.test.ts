@@ -7,6 +7,9 @@ import {
   formatSessionDiff,
   SessionForkCommand,
   SessionDiffCommand,
+  SessionTodoCommand,
+  SessionReportCommand,
+  SessionMetricsCommand,
   type SessionTodoItem,
   type SessionFileDiff,
 } from "@/cli/cmd/session"
@@ -16,6 +19,25 @@ describe("session todo formatting", () => {
   test("formatSessionTodos: formats empty todo list", () => {
     const output = formatSessionTodos("ses_123", [])
     expect(output).toBe("No todos found for session ses_123")
+  })
+
+  test("formatSessionTodos: formats empty filtered todo list", () => {
+    const output = formatSessionTodos("ses_123", [], true)
+    expect(output).toBe("No todos matching filters found for session ses_123")
+  })
+
+  test("formatSessionTodos: formats filtered populated todo list", () => {
+    const todos: SessionTodoItem[] = [
+      {
+        id: "todo_1",
+        content: "Design new feature",
+        status: "completed",
+        priority: "high",
+      },
+    ]
+    const output = formatSessionTodos("ses_test", todos, true)
+    expect(output).toContain("Todos for session ses_test (1/1 completed, filtered):")
+    expect(output).toContain("[x] [high] Design new feature")
   })
 
   test("formatSessionTodos: formats populated todo list with statuses and priorities", () => {
@@ -152,6 +174,51 @@ describe("opencode session todo, diff, and export CLI commands", () => {
         const todos = JSON.parse(todoJsonRes.stdout)
         expect(Array.isArray(todos)).toBe(true)
 
+        // 2a. session todo with --status filter
+        const todoStatusRes = yield* opencode.spawn(["session", "todo", sessionID, "--status", "completed"])
+        opencode.expectExit(todoStatusRes, 0)
+        expect(todoStatusRes.stdout).toContain(`No todos matching filters found for session ${sessionID}`)
+
+        // 2b. session todo with -o file output
+        const todoOutRes = yield* opencode.spawn(["session", "todo", sessionID, "-o", "test-todos.txt"])
+        opencode.expectExit(todoOutRes, 0)
+        expect(todoOutRes.stderr).toContain("Wrote 0 todo(s) to")
+
+        // 2c. session todo with -o and --json
+        const todoOutJsonRes = yield* opencode.spawn(["session", "todo", sessionID, "-o", "test-todos.json", "--json"])
+        opencode.expectExit(todoOutJsonRes, 0)
+        const todoOutData = JSON.parse(todoOutJsonRes.stdout)
+        expect(todoOutData.ok).toBe(true)
+        expect(todoOutData.file).toContain("test-todos.json")
+
+        // 2d. session report with -o and --json
+        const reportOutJsonRes = yield* opencode.spawn([
+          "session",
+          "report",
+          sessionID,
+          "-o",
+          "test-report.json",
+          "--json",
+        ])
+        opencode.expectExit(reportOutJsonRes, 0)
+        const reportOutData = JSON.parse(reportOutJsonRes.stdout)
+        expect(reportOutData.ok).toBe(true)
+        expect(reportOutData.file).toContain("test-report.json")
+
+        // 2e. session metrics with -o and --json
+        const metricsOutJsonRes = yield* opencode.spawn([
+          "session",
+          "metrics",
+          sessionID,
+          "-o",
+          "test-metrics.json",
+          "--json",
+        ])
+        opencode.expectExit(metricsOutJsonRes, 0)
+        const metricsOutData = JSON.parse(metricsOutJsonRes.stdout)
+        expect(metricsOutData.ok).toBe(true)
+        expect(metricsOutData.file).toContain("test-metrics.json")
+
         // 3. session diff (empty or diff array)
         const diffJsonRes = yield* opencode.spawn(["session", "diff", sessionID, "--json"])
         opencode.expectExit(diffJsonRes, 0)
@@ -214,6 +281,42 @@ describe("session diff & fork command definitions & builders", () => {
     expect(options.key.output).toBeDefined()
     expect(options.key.o).toBeDefined()
     expect(options.key.stat).toBeDefined()
+    expect(options.key.json).toBeDefined()
+  })
+
+  test("SessionTodoCommand registers todo, status, priority, search, and output options", () => {
+    expect(SessionTodoCommand.command).toBe("todo <sessionID>")
+    const builder = SessionTodoCommand.builder as (y: Argv) => Argv<any>
+    const parser = builder(yargs())
+    const options = (parser as any).getOptions()
+    expect(options.key.status).toBeDefined()
+    expect(options.key.s).toBeDefined()
+    expect(options.key.priority).toBeDefined()
+    expect(options.key.p).toBeDefined()
+    expect(options.key.search).toBeDefined()
+    expect(options.key.q).toBeDefined()
+    expect(options.key.output).toBeDefined()
+    expect(options.key.o).toBeDefined()
+    expect(options.key.json).toBeDefined()
+  })
+
+  test("SessionReportCommand registers report and output options", () => {
+    expect(SessionReportCommand.command).toBe("report <sessionID>")
+    const builder = SessionReportCommand.builder as (y: Argv) => Argv<any>
+    const parser = builder(yargs())
+    const options = (parser as any).getOptions()
+    expect(options.key.output).toBeDefined()
+    expect(options.key.o).toBeDefined()
+    expect(options.key.json).toBeDefined()
+  })
+
+  test("SessionMetricsCommand registers metrics and output options", () => {
+    expect(SessionMetricsCommand.command).toBe("metrics <sessionID>")
+    const builder = SessionMetricsCommand.builder as (y: Argv) => Argv<any>
+    const parser = builder(yargs())
+    const options = (parser as any).getOptions()
+    expect(options.key.output).toBeDefined()
+    expect(options.key.o).toBeDefined()
     expect(options.key.json).toBeDefined()
   })
 })
