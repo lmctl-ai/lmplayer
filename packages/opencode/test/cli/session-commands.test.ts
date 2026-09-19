@@ -88,12 +88,15 @@ describe("opencode session commands (CLI)", () => {
         expect(forkData.id).not.toBe(sessionID)
         expect(forkData.title).toContain("Second Title (fork")
 
-        // 5. Verify session list shows the sessions
+        // 5. Verify session list shows the sessions and includes cost and tokens
         const lsRes = yield* opencode.spawn(["session", "ls", "--json"])
         opencode.expectExit(lsRes, 0)
         const lsData = JSON.parse(lsRes.stdout)
         expect(lsData.some((s: any) => s.id === sessionID && s.title === "Second Title")).toBe(true)
         expect(lsData.some((s: any) => s.id === forkData.id)).toBe(true)
+        const matched = lsData.find((s: any) => s.id === sessionID)
+        expect(matched.cost).toBeDefined()
+        expect(matched.created).toBeDefined()
 
         // 5a. Verify limit/max-count flag
         const limitRes = yield* opencode.spawn(["session", "ls", "--limit", "1", "--json"])
@@ -123,17 +126,42 @@ describe("opencode session commands (CLI)", () => {
         opencode.expectExit(listAllRes, 0)
         const listAllData = JSON.parse(listAllRes.stdout)
         expect(listAllData.some((s: any) => s.id === sessionID)).toBe(true)
+        expect(listAllData[0].cost).toBeDefined()
 
         // 6. Delete the forked session
         const deleteRes = yield* opencode.spawn(["session", "delete", forkData.id])
         opencode.expectExit(deleteRes, 0)
         expect(deleteRes.stderr).toContain(`Session ${forkData.id} deleted`)
 
-        // 7. Verify session list no longer shows the deleted session
+        // 6a. Fork two more sessions to test rm alias, multi-delete, and --json
+        const fork2Res = yield* opencode.spawn(["session", "fork", sessionID, "--json"])
+        opencode.expectExit(fork2Res, 0)
+        const fork2 = JSON.parse(fork2Res.stdout)
+
+        const fork3Res = yield* opencode.spawn(["session", "fork", sessionID, "--json"])
+        opencode.expectExit(fork3Res, 0)
+        const fork3 = JSON.parse(fork3Res.stdout)
+
+        // 6b. Delete multiple sessions with `session rm` and --json
+        const rmMultiRes = yield* opencode.spawn(["session", "rm", fork2.id, fork3.id, "--json"])
+        opencode.expectExit(rmMultiRes, 0)
+        const rmMultiData = JSON.parse(rmMultiRes.stdout)
+        expect(rmMultiData.deleted).toContain(fork2.id)
+        expect(rmMultiData.deleted).toContain(fork3.id)
+
+        // 6c. Test deleting non-existent session with --force (should exit 0)
+        const rmForceRes = yield* opencode.spawn(["session", "rm", "ses_nonexistent999", "--force", "--json"])
+        opencode.expectExit(rmForceRes, 0)
+        const rmForceData = JSON.parse(rmForceRes.stdout)
+        expect(rmForceData.notFound).toContain("ses_nonexistent999")
+
+        // 7. Verify session list no longer shows the deleted sessions
         const afterDeleteRes = yield* opencode.spawn(["session", "ls", "--json"])
         opencode.expectExit(afterDeleteRes, 0)
         const afterDeleteData = JSON.parse(afterDeleteRes.stdout)
         expect(afterDeleteData.some((s: any) => s.id === forkData.id)).toBe(false)
+        expect(afterDeleteData.some((s: any) => s.id === fork2.id)).toBe(false)
+        expect(afterDeleteData.some((s: any) => s.id === fork3.id)).toBe(false)
         expect(afterDeleteData.some((s: any) => s.id === sessionID)).toBe(true)
 
         // 8. Compact the session

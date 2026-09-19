@@ -47,7 +47,7 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
   postinstall.mjs, ASCII logo + "opencode" describe strings remain (branding follow-up).
 
 ## Session management
-- `session ls [--limit n] [-n n] [--roots] [-a|--all] [--search q] [--json]` / `session list [--max-count n] [--limit n] [-n n] [--roots] [-a|--all] [--search q] [--format table|json]` — list active and recent sessions with server-side limit bounding and message fanout reduction, root-session filtering, cross-project global listing (`-a` / `--all`), and title search.
+- `session ls [--limit n] [-n n] [--roots] [-a|--all] [--search q] [--json]` / `session list [--max-count n] [--limit n] [-n n] [--roots] [-a|--all] [--search q] [--format table|json]` — list active and recent sessions with server-side limit bounding and message fanout reduction, root-session filtering, cross-project global listing (`-a` / `--all`), title search, and token/cost accounting in JSON payloads (`cost`, `tokens`, `created`).
 - `session tail <id> [--lines n] [--format text|json]` — tail/stream messages from a session.
 - `session report <id> [--json]` — report session activity, tokens, text sizes, duration, and touched files.
 - `session metrics <id> [--json]` — stable `session-metrics/v1` per-session machine-queryable metrics (tokens, write-time/persisted cost, latencies, tools, files, jobs, crons).
@@ -62,7 +62,7 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
 - `session fork <id> [--message msgID] [--json]` — fork a session at a specific message boundary.
 - `session share <id> [--unshare] [--json]` / `session unshare <id> [--json]` — create or revoke public share links.
 - `session compact <id> [--model provider/model] [--auto] [--json]` (alias `summarize`) — trigger session compaction/summarization.
-- `session delete <id>` — delete a session and all its messages and parts.
+- `session delete <sessionID...> [extraSessionIDs...] [-f|--force] [--json]` (alias `rm`) — delete one or more sessions and permanently remove their messages and history, with `--force` to ignore non-existent sessions and `--json` structured response.
 - `session memory <id> [--json] [--write <text>] [--append <text>] [--file <path>] [--clear]` (alias `brain`) — view, update, append, or clear persistent durable memory for a session.
 
 ## Agent management

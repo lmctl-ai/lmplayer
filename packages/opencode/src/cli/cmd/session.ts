@@ -147,6 +147,9 @@ export const SessionLsCommand = effectCmd({
             title: row.session.title,
             directory: row.session.directory,
             updated: row.session.time.updated,
+            created: row.session.time.created,
+            cost: row.session.cost ?? 0,
+            tokens: row.session.tokens,
             messageCount: row.messageCount,
           })),
           null,
@@ -326,27 +329,71 @@ export const SessionHealthCommand = effectCmd({
 })
 
 export const SessionDeleteCommand = effectCmd({
-  command: "delete <sessionID>",
-  describe: "delete a session",
+  command: "delete <sessionID> [extraSessionIDs..]",
+  aliases: ["rm"],
+  describe: "delete one or more sessions",
   builder: (yargs) =>
-    yargs.positional("sessionID", {
-      describe: "session ID to delete",
-      type: "string",
-      demandOption: true,
-    }),
-  handler: Effect.fn("Cli.session.delete")(function* (args) {
-    const sdk = yield* localSdk()
-    const result = yield* Effect.promise(async () => {
-      return sdk.session.delete({
-        sessionID: args.sessionID,
+    yargs
+      .positional("sessionID", {
+        describe: "session ID to delete",
+        type: "string",
+        demandOption: true,
       })
-    })
-    if (result.error) {
-      return yield* fail(
-        (result.error as { message?: string } | undefined)?.message ?? `Session not found: ${args.sessionID}`,
-      )
+      .positional("extraSessionIDs", {
+        describe: "additional session IDs to delete",
+        type: "string",
+      })
+      .option("force", {
+        alias: ["f"],
+        describe: "ignore non-existent sessions, never error",
+        type: "boolean",
+      })
+      .option("json", {
+        describe: "output JSON",
+        type: "boolean",
+      }),
+  handler: Effect.fn("Cli.session.delete")(function* (args) {
+    const ids = [args.sessionID, ...((args.extraSessionIDs as string[] | undefined) ?? [])]
+    const sdk = yield* localSdk()
+
+    const deleted: string[] = []
+    const notFound: string[] = []
+    const errors: Array<{ id: string; error: string }> = []
+
+    for (const id of ids) {
+      const result = yield* Effect.promise(async () => {
+        return sdk.session.delete({
+          sessionID: id,
+        })
+      })
+      if (result.error) {
+        const msg =
+          (result.error as { message?: string } | undefined)?.message ?? `Session not found: ${id}`
+        if (args.force) {
+          notFound.push(id)
+        } else {
+          errors.push({ id, error: msg })
+        }
+      } else {
+        deleted.push(id)
+      }
     }
-    UI.println(UI.Style.TEXT_SUCCESS_BOLD + `Session ${args.sessionID} deleted` + UI.Style.TEXT_NORMAL)
+
+    if (errors.length > 0) {
+      if (args.json) {
+        process.stdout.write(JSON.stringify({ deleted, notFound, errors }, null, 2) + "\n")
+      }
+      return yield* fail(errors.map((e) => e.error).join(", "))
+    }
+
+    if (args.json) {
+      process.stdout.write(JSON.stringify({ deleted, notFound }, null, 2) + "\n")
+      return
+    }
+
+    for (const id of deleted) {
+      UI.println(UI.Style.TEXT_SUCCESS_BOLD + `Session ${id} deleted` + UI.Style.TEXT_NORMAL)
+    }
   }),
 })
 
@@ -1192,6 +1239,8 @@ function formatSessionJSON(sessions: Session.Info[]): string {
     created: session.time.created,
     projectId: session.projectID,
     directory: session.directory,
+    cost: session.cost ?? 0,
+    tokens: session.tokens,
   }))
   return JSON.stringify(jsonData, null, 2)
 }
