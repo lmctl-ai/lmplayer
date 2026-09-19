@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { Effect } from "effect"
-import { StatsCommand, formatStatsJson, runStats, type SessionStats } from "../../src/cli/cmd/stats"
+import { StatsCommand, displayStats, formatStatsJson, runStats, type SessionStats } from "../../src/cli/cmd/stats"
 import { Session } from "../../src/session/session"
 import { MessageID } from "../../src/session/schema"
 import { InstanceRef } from "../../src/effect/instance-ref"
@@ -26,8 +26,7 @@ describe("StatsCommand options and builder", () => {
   })
 })
 
-describe("formatStatsJson", () => {
-  const sampleStats: SessionStats = {
+const sampleStats: SessionStats = {
     totalSessions: 3,
     totalMessages: 12,
     totalCost: 0.045,
@@ -76,6 +75,7 @@ describe("formatStatsJson", () => {
     medianTokensPerSession: 650,
   }
 
+describe("formatStatsJson", () => {
   test("formats complete structured JSON payload", () => {
     const json = formatStatsJson(sampleStats)
     expect(json.total_sessions).toBe(3)
@@ -152,6 +152,39 @@ describe("formatStatsJson", () => {
       provider: "ollama-cloud",
       model: "deepseek-v4.1-flash",
     })
+  })
+})
+
+describe("displayStats", () => {
+  test("prints formatted overview, metrics, tool and model sections with filters", () => {
+    const logs: string[] = []
+    const originalLog = console.log
+    console.log = (...args: any[]) => {
+      logs.push(args.map(String).join(" "))
+    }
+
+    try {
+      displayStats(sampleStats, undefined, undefined, {
+        provider: "ollama-cloud",
+        model: "deepseek-v4.1-flash",
+        project: "test-proj",
+      })
+
+      const joined = logs.join("\n")
+      expect(joined).toContain("OVERVIEW")
+      expect(joined).toContain("Sessions")
+      expect(joined).toContain("Provider")
+      expect(joined).toContain("ollama-cloud")
+      expect(joined).toContain("Model")
+      expect(joined).toContain("deepseek-v4.1-flash")
+      expect(joined).toContain("Project")
+      expect(joined).toContain("test-proj")
+      expect(joined).toContain("COST & TOKENS")
+      expect(joined).toContain("Total Cost")
+      expect(joined).toContain("TOOL USAGE")
+    } finally {
+      console.log = originalLog
+    }
   })
 })
 
