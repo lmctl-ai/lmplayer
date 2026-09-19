@@ -81,6 +81,9 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
 - `mcp logout [name]` — remove stored OAuth credentials for an MCP server.
 - `mcp debug <name>` — debug OAuth connection and test server info / tools.
 
+## Token usage & statistics
+- `stats [--days n] [--tools [n]] [--models [n]] [--project p] [--json]` — aggregate and inspect token usage, write-time costs, and daily/per-session averages across sessions, with optional machine-readable JSON output (`--json`).
+
 ## Known gaps / TODO (not yet built)
 - `models test [provider]` (probe each entitled model) — SHIPPED (with `--json`, `--timeout`, `--concurrency`).
 - Persistent default effort relies on per-run `--effort` (persisted to model.json state), no config field. (CLOSED: added top-level `default_variant` and `variant` alias to ConfigV1.Info schema, prompt fallback, and config verify).
