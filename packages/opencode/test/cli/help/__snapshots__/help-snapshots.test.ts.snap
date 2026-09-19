@@ -677,6 +677,7 @@ Options:
       --pure                run without external plugins                                   [boolean]
   -n, --max-count, --limit  limit to N most recent sessions                                 [number]
       --roots               only show root sessions                        [boolean] [default: true]
+  -a, --all                 show sessions across all projects (global)                     [boolean]
   -q, --search              filter sessions by title                                        [string]
       --format              output format              [choices: "table", "json"] [default: "table"]"
 `;

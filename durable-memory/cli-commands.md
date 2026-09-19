@@ -47,7 +47,7 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
   postinstall.mjs, ASCII logo + "opencode" describe strings remain (branding follow-up).
 
 ## Session management
-- `session ls [--limit n] [-n n] [--roots] [--search q] [--json]` / `session list [--max-count n] [--limit n] [-n n] [--roots] [--search q] [--format table|json]` — list active and recent sessions with server-side limit bounding and message fanout reduction, root-session filtering, and title search.
+- `session ls [--limit n] [-n n] [--roots] [-a|--all] [--search q] [--json]` / `session list [--max-count n] [--limit n] [-n n] [--roots] [-a|--all] [--search q] [--format table|json]` — list active and recent sessions with server-side limit bounding and message fanout reduction, root-session filtering, cross-project global listing (`-a` / `--all`), and title search.
 - `session tail <id> [--lines n] [--format text|json]` — tail/stream messages from a session.
 - `session report <id> [--json]` — report session activity, tokens, text sizes, duration, and touched files.
 - `session metrics <id> [--json]` — stable `session-metrics/v1` per-session machine-queryable metrics (tokens, write-time/persisted cost, latencies, tools, files, jobs, crons).
