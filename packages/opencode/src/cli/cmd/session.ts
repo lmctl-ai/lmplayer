@@ -490,6 +490,8 @@ export const SessionReportCommand = effectCmd({
       }),
   handler: Effect.fn("Cli.session.report")(function* (args) {
     const sdk = yield* localSdk()
+    const info = yield* Effect.promise(() => sdk.session.get({ sessionID: args.sessionID }).then((r) => r.data))
+    if (!info) return yield* fail(`Session not found: ${args.sessionID}`)
     yield* Effect.promise(async () => {
       const response = await sdk.session.messages({ sessionID: args.sessionID })
       const report = createSessionReport(args.sessionID, response.data ?? [])
@@ -577,6 +579,8 @@ export const SessionHealthCommand = effectCmd({
       }),
   handler: Effect.fn("Cli.session.health")(function* (args) {
     const sdk = yield* localSdk()
+    const info = yield* Effect.promise(() => sdk.session.get({ sessionID: args.sessionID }).then((r) => r.data))
+    if (!info) return yield* fail(`Session not found: ${args.sessionID}`)
     const { Provider } = yield* Effect.promise(() => import("@/provider/provider"))
     const providers = yield* Provider.Service.use((provider) => provider.list()).pipe(
       Effect.orElseSucceed(() => undefined),

@@ -6,6 +6,8 @@ import { effectCmd, fail } from "../effect-cmd"
 import { UI } from "../ui"
 import * as prompts from "@clack/prompts"
 import { EOL } from "os"
+import path from "path"
+import fs from "fs/promises"
 import { Effect } from "effect"
 
 function redact(kind: string, id: string, value: string) {
@@ -219,6 +221,23 @@ function sanitize(data: { info: Session.Info; messages: SessionV1.WithParts[] })
   }
 }
 
+export type ExportArgs = {
+  sessionID?: string
+  output?: string
+  file?: string
+  o?: string
+  sanitize?: boolean
+  json?: boolean
+}
+
+export type ExportSummaryJson = {
+  ok: boolean
+  session_id: string
+  file: string
+  messages: number
+  sanitized: boolean
+}
+
 export const ExportCommand = effectCmd({
   command: "export [sessionID]",
   describe: "export session data as JSON",
@@ -228,54 +247,64 @@ export const ExportCommand = effectCmd({
         describe: "session id to export",
         type: "string",
       })
+      .option("output", {
+        alias: ["o", "file"],
+        describe: "write export JSON to file path",
+        type: "string",
+      })
       .option("sanitize", {
         describe: "redact sensitive transcript and file data",
         type: "boolean",
+      })
+      .option("json", {
+        describe: "output summary as JSON when exporting to file",
+        type: "boolean",
       }),
-  handler: Effect.fn("Cli.export")(function* (args) {
-    return yield* run(args)
+  handler: Effect.fn("Cli.export")(function* (args: ExportArgs) {
+    return yield* runExport(args)
   }),
 })
 
-const run = Effect.fn("Cli.export.body")(function* (args: { sessionID?: string; sanitize?: boolean }) {
+export const runExport = Effect.fn("Cli.export.body")(function* (args: ExportArgs) {
   const svc = yield* Session.Service
   let sessionID = args.sessionID ? SessionID.make(args.sessionID) : undefined
-  process.stderr.write(`Exporting session: ${sessionID ?? "latest"}\n`)
+  const targetFile = args.output || args.file || (args as any).o
 
   if (!sessionID) {
-    UI.empty()
-    prompts.intro("Export session", { output: process.stderr })
-
     const sessions = yield* svc.list()
 
     if (sessions.length === 0) {
-      prompts.log.error("No sessions found", { output: process.stderr })
-      prompts.outro("Done", { output: process.stderr })
-      return
+      return yield* fail("No sessions found to export")
     }
 
     sessions.sort((a, b) => b.time.updated - a.time.updated)
 
-    const selectedSession = yield* Effect.promise(() =>
-      prompts.autocomplete({
-        message: "Select session to export",
-        maxItems: 10,
-        options: sessions.map((session) => ({
-          label: session.title,
-          value: session.id,
-          hint: `${new Date(session.time.updated).toLocaleString()} • ${session.id.slice(-8)}`,
-        })),
-        output: process.stderr,
-      }),
-    )
+    if (process.stdin.isTTY) {
+      UI.empty()
+      prompts.intro("Export session", { output: process.stderr })
 
-    if (prompts.isCancel(selectedSession)) {
-      return yield* Effect.die(new UI.CancelledError())
+      const selectedSession = yield* Effect.promise(() =>
+        prompts.autocomplete({
+          message: "Select session to export",
+          maxItems: 10,
+          options: sessions.map((session) => ({
+            label: session.title,
+            value: session.id,
+            hint: `${new Date(session.time.updated).toLocaleString()} • ${session.id.slice(-8)}`,
+          })),
+          output: process.stderr,
+        }),
+      )
+
+      if (prompts.isCancel(selectedSession)) {
+        return yield* Effect.die(new UI.CancelledError())
+      }
+
+      sessionID = selectedSession
+      prompts.outro("Exporting session...", { output: process.stderr })
+    } else {
+      sessionID = sessions[0].id
     }
-
-    sessionID = selectedSession
-
-    prompts.outro("Exporting session...", { output: process.stderr })
   }
 
   // Match legacy try/catch — catches both typed failures and defects
@@ -284,9 +313,42 @@ const run = Effect.fn("Cli.export.body")(function* (args: { sessionID?: string; 
     const sessionInfo = yield* svc.get(sessionID!)
     const messages = yield* svc.messages({ sessionID: sessionInfo.id })
 
-    const exportData = { info: sessionInfo, messages }
+    const rawData = { info: sessionInfo, messages }
+    const exportData = args.sanitize ? sanitize(rawData) : rawData
+    const jsonStr = JSON.stringify(exportData, null, 2) + EOL
 
-    process.stdout.write(JSON.stringify(args.sanitize ? sanitize(exportData) : exportData, null, 2))
-    process.stdout.write(EOL)
+    if (targetFile) {
+      const resolved = path.resolve(targetFile)
+      yield* Effect.promise(async () => {
+        await fs.mkdir(path.dirname(resolved), { recursive: true })
+        await fs.writeFile(resolved, jsonStr, "utf-8")
+      })
+
+      if (args.json) {
+        const result: ExportSummaryJson = {
+          ok: true,
+          session_id: sessionInfo.id,
+          file: resolved,
+          messages: messages.length,
+          sanitized: Boolean(args.sanitize),
+        }
+        process.stdout.write(JSON.stringify(result, null, 2) + EOL)
+        return result
+      }
+
+      process.stdout.write(`Exported session ${sessionInfo.id} to ${resolved} (${messages.length} messages)${EOL}`)
+      return {
+        ok: true,
+        session_id: sessionInfo.id,
+        file: resolved,
+        messages: messages.length,
+        sanitized: Boolean(args.sanitize),
+      }
+    }
+
+    process.stdout.write(jsonStr)
+    return exportData
   }).pipe(Effect.catchCause(() => fail(`Session not found: ${sessionID!}`)))
 })
+
+const run = runExport
