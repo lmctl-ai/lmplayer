@@ -87,12 +87,24 @@ export type StatsJson = {
       cost: number
     }
   >
+  filters?: {
+    days?: number
+    project?: string
+    provider?: string
+    model?: string
+  }
 }
 
 export function formatStatsJson(
   stats: SessionStats,
   toolLimit?: number,
   modelLimit?: number,
+  filters?: {
+    days?: number
+    project?: string
+    provider?: string
+    model?: string
+  },
 ): StatsJson {
   const totalTokens =
     stats.totalTokens.input +
@@ -160,6 +172,7 @@ export function formatStatsJson(
     },
     tool_usage: toolUsage,
     model_usage: Object.fromEntries(modelUsageEntries),
+    ...(filters && Object.values(filters).some((v) => v !== undefined) ? { filters } : {}),
   }
 }
 
@@ -168,19 +181,26 @@ export const runStats = Effect.fn("Cli.stats.run")(function* (args: {
   tools?: number
   models?: boolean | number
   project?: string
+  provider?: string
+  model?: string
   json?: boolean
 }) {
   const ctx = yield* InstanceRef
   if (!ctx) return
-  const stats = yield* aggregateSessionStats(args.days, args.project, ctx.project)
+  const stats = yield* aggregateSessionStats(args.days, args.project, ctx.project, args.provider, args.model)
   let modelLimit: number | undefined
-  if (args.models === true) {
+  if (args.models === true || ((args.provider || args.model) && args.models === undefined)) {
     modelLimit = Infinity
   } else if (typeof args.models === "number") {
     modelLimit = args.models
   }
   if (args.json) {
-    const out = formatStatsJson(stats, args.tools, modelLimit)
+    const out = formatStatsJson(stats, args.tools, modelLimit, {
+      days: args.days,
+      project: args.project,
+      provider: args.provider,
+      model: args.model,
+    })
     process.stdout.write(JSON.stringify(out, null, 2) + "\n")
     return out
   }
@@ -208,6 +228,14 @@ export const StatsCommand = effectCmd({
         describe: "filter by project (default: all projects, empty string: current project)",
         type: "string",
       })
+      .option("provider", {
+        describe: "filter by provider ID (e.g. ollama-cloud, deepseek)",
+        type: "string",
+      })
+      .option("model", {
+        describe: "filter by model ID or provider/model (e.g. deepseek-v4.1-flash, kimi-k2.7-code)",
+        type: "string",
+      })
       .option("json", {
         describe: "output as JSON",
         type: "boolean",
@@ -218,6 +246,8 @@ export const StatsCommand = effectCmd({
       tools: args.tools,
       models: args.models as boolean | number | undefined,
       project: args.project,
+      provider: args.provider,
+      model: args.model,
       json: Boolean(args.json),
     })
   }),
@@ -232,6 +262,8 @@ const aggregateSessionStats = Effect.fn("Cli.stats.aggregate")(function* (
   days?: number,
   projectFilter?: string,
   currentProject?: Project.Info,
+  providerFilter?: string,
+  modelFilter?: string,
 ) {
   const svc = yield* Session.Service
   const sessions = yield* getAllSessions()
@@ -264,8 +296,10 @@ const aggregateSessionStats = Effect.fn("Cli.stats.aggregate")(function* (
     }
   }
 
+  const isFiltered = Boolean(providerFilter || modelFilter)
+
   const stats: SessionStats = {
-    totalSessions: filteredSessions.length,
+    totalSessions: 0,
     totalMessages: 0,
     totalCost: 0,
     totalTokens: {
@@ -303,7 +337,7 @@ const aggregateSessionStats = Effect.fn("Cli.stats.aggregate")(function* (
 
   const sessionTotalTokens: number[] = []
 
-  const results = yield* Effect.forEach(
+  const rawResults = yield* Effect.forEach(
     filteredSessions,
     (session) =>
       Effect.gen(function* () {
@@ -323,9 +357,23 @@ const aggregateSessionStats = Effect.fn("Cli.stats.aggregate")(function* (
           }
         > = {}
 
+        let filteredCost = 0
+        let filteredTokens = { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }
+        let matchingAssistantCount = 0
+
         for (const message of messages) {
           if (message.info.role === "assistant") {
-            const modelKey = `${message.info.providerID}/${message.info.modelID}`
+            const providerID = message.info.providerID
+            const modelID = message.info.modelID
+            const modelKey = `${providerID}/${modelID}`
+
+            if (providerFilter && providerID !== providerFilter) continue
+            if (modelFilter && modelID !== modelFilter && modelKey !== modelFilter) continue
+
+            matchingAssistantCount++
+            const msgCost = message.info.cost || 0
+            filteredCost += msgCost
+
             if (!sessionModelUsage[modelKey]) {
               sessionModelUsage[modelKey] = {
                 messages: 0,
@@ -334,34 +382,59 @@ const aggregateSessionStats = Effect.fn("Cli.stats.aggregate")(function* (
               }
             }
             sessionModelUsage[modelKey].messages++
-            sessionModelUsage[modelKey].cost += message.info.cost || 0
+            sessionModelUsage[modelKey].cost += msgCost
 
             if (message.info.tokens) {
-              sessionModelUsage[modelKey].tokens.input += message.info.tokens.input || 0
-              sessionModelUsage[modelKey].tokens.output +=
-                (message.info.tokens.output || 0) + (message.info.tokens.reasoning || 0)
-              sessionModelUsage[modelKey].tokens.cache.read += message.info.tokens.cache?.read || 0
-              sessionModelUsage[modelKey].tokens.cache.write += message.info.tokens.cache?.write || 0
-            }
-          }
+              const input = message.info.tokens.input || 0
+              const output = message.info.tokens.output || 0
+              const reasoning = message.info.tokens.reasoning || 0
+              const cacheRead = message.info.tokens.cache?.read || 0
+              const cacheWrite = message.info.tokens.cache?.write || 0
 
-          for (const part of message.parts) {
-            if (part.type === "tool" && part.tool) {
-              sessionToolUsage[part.tool] = (sessionToolUsage[part.tool] || 0) + 1
+              filteredTokens.input += input
+              filteredTokens.output += output
+              filteredTokens.reasoning += reasoning
+              filteredTokens.cache.read += cacheRead
+              filteredTokens.cache.write += cacheWrite
+
+              sessionModelUsage[modelKey].tokens.input += input
+              sessionModelUsage[modelKey].tokens.output += output + reasoning
+              sessionModelUsage[modelKey].tokens.cache.read += cacheRead
+              sessionModelUsage[modelKey].tokens.cache.write += cacheWrite
+            }
+
+            for (const part of message.parts) {
+              if (part.type === "tool" && part.tool) {
+                sessionToolUsage[part.tool] = (sessionToolUsage[part.tool] || 0) + 1
+              }
+            }
+          } else if (!isFiltered) {
+            for (const part of message.parts) {
+              if (part.type === "tool" && part.tool) {
+                sessionToolUsage[part.tool] = (sessionToolUsage[part.tool] || 0) + 1
+              }
             }
           }
         }
 
+        if (isFiltered && matchingAssistantCount === 0) {
+          return null
+        }
+
+        const effectiveCost = isFiltered ? filteredCost : sessionCost
+        const effectiveTokens = isFiltered ? filteredTokens : sessionTokens
+        const effectiveMessageCount = isFiltered ? matchingAssistantCount : messages.length
+
         return {
-          messageCount: messages.length,
-          sessionCost,
-          sessionTokens,
+          messageCount: effectiveMessageCount,
+          sessionCost: effectiveCost,
+          sessionTokens: effectiveTokens,
           sessionTotalTokens:
-            sessionTokens.input +
-            sessionTokens.output +
-            sessionTokens.reasoning +
-            sessionTokens.cache.read +
-            sessionTokens.cache.write,
+            effectiveTokens.input +
+            effectiveTokens.output +
+            effectiveTokens.reasoning +
+            effectiveTokens.cache.read +
+            effectiveTokens.cache.write,
           sessionToolUsage,
           sessionModelUsage,
           earliestTime: cutoffTime > 0 ? session.time.updated : session.time.created,
@@ -370,6 +443,14 @@ const aggregateSessionStats = Effect.fn("Cli.stats.aggregate")(function* (
       }),
     { concurrency: 20 },
   )
+
+  const results = rawResults.filter((r): r is NonNullable<typeof r> => r !== null)
+  stats.totalSessions = results.length
+
+  if (results.length === 0) {
+    stats.days = windowDays ?? 0
+    return stats
+  }
 
   for (const result of results) {
     earliestTime = Math.min(earliestTime, result.earliestTime)
