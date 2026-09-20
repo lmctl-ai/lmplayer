@@ -367,6 +367,7 @@ export type AgentCloneArgs = {
   model?: string
   force?: boolean
   json?: boolean
+  output?: string
 }
 
 export const cloneAgent = Effect.fn("Cli.agent.clone")(function* (args: AgentCloneArgs) {
@@ -442,24 +443,36 @@ export const cloneAgent = Effect.fn("Cli.agent.clone")(function* (args: AgentClo
   const content = matter.stringify(promptContent ? `\n${promptContent}\n` : "", frontmatter)
   yield* Effect.promise(() => Filesystem.write(filePath, content))
 
-  if (args.json) {
-    process.stdout.write(
-      JSON.stringify(
-        {
-          source: args.source,
-          target,
-          file: filePath,
-          mode: frontmatter.mode,
-          model: frontmatter.model,
-        },
-        null,
-        2,
-      ) + EOL,
-    )
+  const summaryPayload = {
+    source: args.source,
+    target,
+    file: filePath,
+    mode: frontmatter.mode,
+    model: frontmatter.model,
+  }
+  const summaryText = `Agent "${args.source}" cloned to "${target}" (${filePath})`
+
+  if (args.output) {
+    const resolved = path.resolve(args.output)
+    yield* Effect.promise(async () => {
+      const fs = await import("fs/promises")
+      await fs.mkdir(path.dirname(resolved), { recursive: true })
+      if (args.json) {
+        await fs.writeFile(resolved, JSON.stringify(summaryPayload, null, 2) + EOL, "utf-8")
+      } else {
+        await fs.writeFile(resolved, summaryText + EOL, "utf-8")
+      }
+    })
+    UI.println(`Wrote clone result to ${resolved}`)
     return
   }
 
-  UI.println(UI.Style.TEXT_SUCCESS_BOLD + `Agent "${args.source}" cloned to "${target}" (${filePath})` + UI.Style.TEXT_NORMAL)
+  if (args.json) {
+    process.stdout.write(JSON.stringify(summaryPayload, null, 2) + EOL)
+    return
+  }
+
+  UI.println(UI.Style.TEXT_SUCCESS_BOLD + summaryText + UI.Style.TEXT_NORMAL)
 })
 
 export const AgentCloneCommand = effectCmd({
@@ -504,6 +517,11 @@ export const AgentCloneCommand = effectCmd({
       .option("json", {
         type: "boolean",
         describe: "output JSON",
+      })
+      .option("output", {
+        alias: "o",
+        type: "string",
+        describe: "write clone result to output file path",
       }),
   handler: cloneAgent,
 })
