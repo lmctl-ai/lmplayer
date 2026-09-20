@@ -813,6 +813,7 @@ Options:
       --print-logs  print logs to stderr                                                   [boolean]
       --log-level   log level                   [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
       --pure        run without external plugins                                           [boolean]
+  -o, --output      write database path to output file path                                 [string]
       --json        output as JSON                                                         [boolean]"
 `;
 
@@ -827,6 +828,7 @@ Options:
       --print-logs  print logs to stderr                                                   [boolean]
       --log-level   log level                   [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
       --pure        run without external plugins                                           [boolean]
+  -o, --output      write database info to output file path                                 [string]
       --json        output as JSON                                                         [boolean]"
 `;
 
@@ -841,6 +843,7 @@ Options:
       --print-logs  print logs to stderr                                                   [boolean]
       --log-level   log level                   [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
       --pure        run without external plugins                                           [boolean]
+  -o, --output      write check results to output file path                                 [string]
       --json        output as JSON                                                         [boolean]"
 `;
 
@@ -858,5 +861,6 @@ Options:
       --wal, --checkpoint  only checkpoint and truncate the WAL without rewriting the database file
                                                                                            [boolean]
       --analyze            run ANALYZE for query planner statistics                        [boolean]
+  -o, --output             write vacuum results to output file path                         [string]
       --json               output as JSON                                                  [boolean]"
 `;

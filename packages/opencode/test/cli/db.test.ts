@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { Effect } from "effect"
+import path from "path"
+import fs from "fs/promises"
 import { AppRuntime } from "../../src/effect/app-runtime"
 import {
   CheckCommand,
@@ -14,6 +16,7 @@ import {
   VacuumCommand,
 } from "../../src/cli/cmd/db"
 import { cliIt } from "../lib/cli-process"
+import { tmpdir } from "../fixture/fixture"
 import yargs, { type Argv } from "yargs"
 
 // ─── formatBytes helper ──────────────────────────────────────────────────────
@@ -32,31 +35,34 @@ describe("formatBytes", () => {
 // ─── Command definitions & builders ──────────────────────────────────────────
 
 describe("db command definitions & builders", () => {
-  test("PathCommand registers path and json option", () => {
+  test("PathCommand registers path, output, and json option", () => {
     expect(PathCommand.command).toBe("path")
     const builder = PathCommand.builder as (y: Argv) => Argv<any>
     const parser = builder(yargs())
     const options = (parser as any).getOptions()
+    expect(options.key.output).toBeDefined()
     expect(options.key.json).toBeDefined()
   })
 
-  test("InfoCommand registers info, aliases, and json option", () => {
+  test("InfoCommand registers info, aliases, output, and json option", () => {
     expect(InfoCommand.command).toBe("info")
     expect(InfoCommand.aliases).toContain("stats")
     expect(InfoCommand.aliases).toContain("status")
     const builder = InfoCommand.builder as (y: Argv) => Argv<any>
     const parser = builder(yargs())
     const options = (parser as any).getOptions()
+    expect(options.key.output).toBeDefined()
     expect(options.key.json).toBeDefined()
   })
 
-  test("CheckCommand registers check, aliases, and json option", () => {
+  test("CheckCommand registers check, aliases, output, and json option", () => {
     expect(CheckCommand.command).toBe("check")
     expect(CheckCommand.aliases).toContain("verify")
     expect(CheckCommand.aliases).toContain("integrity")
     const builder = CheckCommand.builder as (y: Argv) => Argv<any>
     const parser = builder(yargs())
     const options = (parser as any).getOptions()
+    expect(options.key.output).toBeDefined()
     expect(options.key.json).toBeDefined()
   })
 
@@ -69,6 +75,7 @@ describe("db command definitions & builders", () => {
     const options = (parser as any).getOptions()
     expect(options.key.wal).toBeDefined()
     expect(options.key.analyze).toBeDefined()
+    expect(options.key.output).toBeDefined()
     expect(options.key.json).toBeDefined()
   })
 
@@ -182,6 +189,77 @@ describe("db in-process execution", () => {
     } finally {
       process.stdout.write = originalWrite
     }
+  })
+
+  test("dbInfo exports metadata to file with output option", async () => {
+    const tmp = await tmpdir()
+    const jsonPath = path.join(tmp.path, "nested", "info.json")
+    const textPath = path.join(tmp.path, "reports", "info.txt")
+
+    // JSON export
+    const infoJson = await AppRuntime.runPromise(dbInfo({ json: true, output: jsonPath }))
+    expect(infoJson).toBeDefined()
+    const jsonExists = await fs.stat(jsonPath).then(() => true, () => false)
+    expect(jsonExists).toBe(true)
+    const parsed = JSON.parse(await fs.readFile(jsonPath, "utf-8"))
+    expect(parsed.path).toBe(infoJson.path)
+    expect(parsed.sqlite_version).toBe(infoJson.sqlite_version)
+
+    // Text export
+    const infoText = await AppRuntime.runPromise(dbInfo({ output: textPath }))
+    expect(infoText).toBeDefined()
+    const textExists = await fs.stat(textPath).then(() => true, () => false)
+    expect(textExists).toBe(true)
+    const content = await fs.readFile(textPath, "utf-8")
+    expect(content).toContain("Database:")
+    expect(content).toContain("SQLite Version:")
+    expect(content).toContain("Tables:")
+  })
+
+  test("dbCheck exports results to file with output option", async () => {
+    const tmp = await tmpdir()
+    const jsonPath = path.join(tmp.path, "nested", "check.json")
+    const textPath = path.join(tmp.path, "reports", "check.txt")
+
+    // JSON export
+    const checkJson = await AppRuntime.runPromise(dbCheck({ json: true, output: jsonPath }))
+    expect(checkJson.ok).toBe(true)
+    const jsonExists = await fs.stat(jsonPath).then(() => true, () => false)
+    expect(jsonExists).toBe(true)
+    const parsed = JSON.parse(await fs.readFile(jsonPath, "utf-8"))
+    expect(parsed.ok).toBe(true)
+
+    // Text export
+    const checkText = await AppRuntime.runPromise(dbCheck({ output: textPath }))
+    expect(checkText.ok).toBe(true)
+    const textExists = await fs.stat(textPath).then(() => true, () => false)
+    expect(textExists).toBe(true)
+    const content = await fs.readFile(textPath, "utf-8")
+    expect(content).toContain("Database:")
+    expect(content).toContain("Status: OK")
+  })
+
+  test("dbVacuum exports results to file with output option", async () => {
+    const tmp = await tmpdir()
+    const jsonPath = path.join(tmp.path, "nested", "vacuum.json")
+    const textPath = path.join(tmp.path, "reports", "vacuum.txt")
+
+    // JSON export
+    const vacuumJson = await AppRuntime.runPromise(dbVacuum({ json: true, output: jsonPath }))
+    expect(vacuumJson.wal_checkpoint).toBe(true)
+    const jsonExists = await fs.stat(jsonPath).then(() => true, () => false)
+    expect(jsonExists).toBe(true)
+    const parsed = JSON.parse(await fs.readFile(jsonPath, "utf-8"))
+    expect(parsed.wal_checkpoint).toBe(true)
+
+    // Text export
+    const vacuumText = await AppRuntime.runPromise(dbVacuum({ output: textPath }))
+    expect(vacuumText.wal_checkpoint).toBe(true)
+    const textExists = await fs.stat(textPath).then(() => true, () => false)
+    expect(textExists).toBe(true)
+    const content = await fs.readFile(textPath, "utf-8")
+    expect(content).toContain("Database:")
+    expect(content).toContain("Operation:")
   })
 })
 

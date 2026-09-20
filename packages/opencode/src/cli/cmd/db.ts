@@ -6,8 +6,18 @@ import { sql } from "drizzle-orm"
 import { effectCmd } from "../effect-cmd"
 import { EOL } from "os"
 import fs from "fs"
+import path from "path"
 import { UI } from "../ui"
 import * as Prompt from "../effect/prompt"
+
+function* writeOutputFile(filePath: string, content: string, label: string) {
+  const resolved = path.resolve(filePath)
+  yield* Effect.promise(async () => {
+    await fs.promises.mkdir(path.dirname(resolved), { recursive: true })
+    await fs.promises.writeFile(resolved, content, "utf-8")
+  })
+  UI.println(`Wrote ${label} to ${resolved}`)
+}
 
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -35,11 +45,17 @@ export const PathCommand = effectCmd({
   describe: "print the database path",
   instance: false,
   builder: (yargs: Argv) =>
-    yargs.option("json", {
-      type: "boolean",
-      describe: "output as JSON",
-    }),
-  handler: Effect.fn("Cli.db.path")(function* (args: { json?: boolean }) {
+    yargs
+      .option("output", {
+        alias: "o",
+        type: "string",
+        describe: "write database path to output file path",
+      })
+      .option("json", {
+        type: "boolean",
+        describe: "output as JSON",
+      }),
+  handler: Effect.fn("Cli.db.path")(function* (args: { json?: boolean; output?: string }) {
     const dbPath = Database.path()
     if (args.json) {
       const result: DbPathJson = {
@@ -47,7 +63,16 @@ export const PathCommand = effectCmd({
         wal: `${dbPath}-wal`,
         shm: `${dbPath}-shm`,
       }
-      process.stdout.write(JSON.stringify(result, null, 2) + EOL)
+      const jsonStr = JSON.stringify(result, null, 2) + EOL
+      if (args.output) {
+        yield* writeOutputFile(args.output, jsonStr, "database path")
+        return
+      }
+      process.stdout.write(jsonStr)
+      return
+    }
+    if (args.output) {
+      yield* writeOutputFile(args.output, dbPath + EOL, "database path")
       return
     }
     console.log(dbPath)
@@ -74,7 +99,7 @@ export type DbInfoJson = {
   tables: Record<string, number>
 }
 
-export const dbInfo = Effect.fn("Cli.db.info.fn")(function* (args?: { json?: boolean }) {
+export const dbInfo = Effect.fn("Cli.db.info.fn")(function* (args?: { json?: boolean; output?: string }) {
   const { db } = yield* Database.Service
   const dbPath = Database.path()
   const walPath = `${dbPath}-wal`
@@ -147,7 +172,29 @@ export const dbInfo = Effect.fn("Cli.db.info.fn")(function* (args?: { json?: boo
   }
 
   if (args?.json) {
-    process.stdout.write(JSON.stringify(info, null, 2) + EOL)
+    const jsonStr = JSON.stringify(info, null, 2) + EOL
+    if (args.output) {
+      yield* writeOutputFile(args.output, jsonStr, "database info")
+      return info
+    }
+    process.stdout.write(jsonStr)
+    return info
+  }
+
+  const tableEntries = Object.entries(tables).filter(([_, count]) => count > 0)
+  if (args?.output) {
+    const lines = [
+      `Database: ${dbPath}`,
+      `SQLite Version: ${sqliteVersion} (journal: ${journalMode})`,
+      `Size: ${info.size_formatted} (WAL: ${info.wal_formatted}, SHM: ${info.shm_formatted}, Total: ${info.total_formatted})`,
+      `Pages: ${pageCount.toLocaleString()} pages @ ${pageSize} bytes (freelist: ${freelistCount})`,
+      "",
+      "Tables:",
+      ...(tableEntries.length > 0
+        ? tableEntries.map(([table, count]) => `  ${table}: ${count.toLocaleString()} rows`)
+        : ["  (all empty)"]),
+    ]
+    yield* writeOutputFile(args.output, lines.join(EOL) + EOL, "database info")
     return info
   }
 
@@ -159,7 +206,6 @@ export const dbInfo = Effect.fn("Cli.db.info.fn")(function* (args?: { json?: boo
   )
   yield* Prompt.log.info(`Pages: ${pageCount.toLocaleString()} pages @ ${pageSize} bytes (freelist: ${freelistCount})`)
 
-  const tableEntries = Object.entries(tables).filter(([_, count]) => count > 0)
   if (tableEntries.length > 0) {
     yield* Prompt.log.info("Tables:")
     for (const [table, count] of tableEntries) {
@@ -179,11 +225,17 @@ export const InfoCommand = effectCmd({
   describe: "show database size, row counts, and storage metrics",
   instance: false,
   builder: (yargs: Argv) =>
-    yargs.option("json", {
-      type: "boolean",
-      describe: "output as JSON",
-    }),
-  handler: Effect.fn("Cli.db.info")(function* (args: { json?: boolean }) {
+    yargs
+      .option("output", {
+        alias: "o",
+        type: "string",
+        describe: "write database info to output file path",
+      })
+      .option("json", {
+        type: "boolean",
+        describe: "output as JSON",
+      }),
+  handler: Effect.fn("Cli.db.info")(function* (args: { json?: boolean; output?: string }) {
     yield* dbInfo(args)
   }),
 })
@@ -195,7 +247,7 @@ export type DbCheckJson = {
   foreign_keys: Array<Record<string, unknown>>
 }
 
-export const dbCheck = Effect.fn("Cli.db.check.fn")(function* (args?: { json?: boolean }) {
+export const dbCheck = Effect.fn("Cli.db.check.fn")(function* (args?: { json?: boolean; output?: string }) {
   const { db } = yield* Database.Service
   const dbPath = Database.path()
 
@@ -218,7 +270,30 @@ export const dbCheck = Effect.fn("Cli.db.check.fn")(function* (args?: { json?: b
   }
 
   if (args?.json) {
-    process.stdout.write(JSON.stringify(result, null, 2) + EOL)
+    const jsonStr = JSON.stringify(result, null, 2) + EOL
+    if (args.output) {
+      yield* writeOutputFile(args.output, jsonStr, "database check results")
+      if (!isOk) {
+        process.exitCode = 1
+      }
+      return result
+    }
+    process.stdout.write(jsonStr)
+    if (!isOk) {
+      process.exitCode = 1
+    }
+    return result
+  }
+
+  if (args?.output) {
+    const lines = [
+      `Database: ${dbPath}`,
+      `Status: ${isOk ? "OK" : "FAILED"}`,
+      `Integrity: ${integrity.join(", ")}`,
+      `Foreign Key Violations: ${fkRows.length}`,
+      ...(fkRows.length > 0 ? fkRows.map((r) => `  ${JSON.stringify(r)}`) : []),
+    ]
+    yield* writeOutputFile(args.output, lines.join(EOL) + EOL, "database check results")
     if (!isOk) {
       process.exitCode = 1
     }
@@ -256,11 +331,17 @@ export const CheckCommand = effectCmd({
   describe: "verify database integrity and foreign key constraints",
   instance: false,
   builder: (yargs: Argv) =>
-    yargs.option("json", {
-      type: "boolean",
-      describe: "output as JSON",
-    }),
-  handler: Effect.fn("Cli.db.check")(function* (args: { json?: boolean }) {
+    yargs
+      .option("output", {
+        alias: "o",
+        type: "string",
+        describe: "write check results to output file path",
+      })
+      .option("json", {
+        type: "boolean",
+        describe: "output as JSON",
+      }),
+  handler: Effect.fn("Cli.db.check")(function* (args: { json?: boolean; output?: string }) {
     yield* dbCheck(args)
   }),
 })
@@ -280,6 +361,7 @@ export const dbVacuum = Effect.fn("Cli.db.vacuum.fn")(function* (args?: {
   checkpoint?: boolean
   analyze?: boolean
   json?: boolean
+  output?: string
 }) {
   const { db } = yield* Database.Service
   const dbPath = Database.path()
@@ -318,7 +400,25 @@ export const dbVacuum = Effect.fn("Cli.db.vacuum.fn")(function* (args?: {
   }
 
   if (args?.json) {
-    process.stdout.write(JSON.stringify(result, null, 2) + EOL)
+    const jsonStr = JSON.stringify(result, null, 2) + EOL
+    if (args.output) {
+      yield* writeOutputFile(args.output, jsonStr, "vacuum results")
+      return result
+    }
+    process.stdout.write(jsonStr)
+    return result
+  }
+
+  if (args?.output) {
+    const lines = [
+      `Database: ${dbPath}`,
+      `Operation: ${walOnly ? "WAL checkpoint (TRUNCATE)" : "VACUUM and WAL checkpoint (TRUNCATE)"}`,
+      `Analyze: ${doAnalyze ? "yes" : "no"}`,
+      `Before Size: ${formatBytes(beforeTotal)}`,
+      `After Size: ${formatBytes(afterTotal)}`,
+      `Freed: ${formatBytes(freedBytes)}`,
+    ]
+    yield* writeOutputFile(args.output, lines.join(EOL) + EOL, "vacuum results")
     return result
   }
 
@@ -360,6 +460,11 @@ export const VacuumCommand = effectCmd({
         type: "boolean",
         describe: "run ANALYZE for query planner statistics",
       })
+      .option("output", {
+        alias: "o",
+        type: "string",
+        describe: "write vacuum results to output file path",
+      })
       .option("json", {
         type: "boolean",
         describe: "output as JSON",
@@ -369,6 +474,7 @@ export const VacuumCommand = effectCmd({
     checkpoint?: boolean
     analyze?: boolean
     json?: boolean
+    output?: string
   }) {
     yield* dbVacuum(args)
   }),
