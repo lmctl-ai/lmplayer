@@ -691,7 +691,9 @@ Options:
                                     todowrite, websearch, lsp, skill"                       [string]
       --provision                   comma-separated list of tools to provision (profile tool
                                     allowlist)                                              [string]
-  -m, --model                       model to use in the format of provider/model            [string]"
+  -m, --model                       model to use in the format of provider/model            [string]
+      --json                        output JSON                                            [boolean]
+  -o, --output                      write creation result to output file path               [string]"
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode agent list --help 1`] = `

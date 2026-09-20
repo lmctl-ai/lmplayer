@@ -40,6 +40,8 @@ export type AgentCreateArgs = {
   permissions?: string
   provision?: string
   model?: string
+  json?: boolean
+  output?: string
 }
 
 export const createAgent = Effect.fn("Cli.agent.create")(function* (args: AgentCreateArgs) {
@@ -73,7 +75,10 @@ export const createAgent = Effect.fn("Cli.agent.create")(function* (args: AgentC
   const perms = args.permissions
 
   const isFullyNonInteractive =
-    isBypass || !process.stdin.isTTY || Boolean(cliPath && cliDescription && cliMode && perms !== undefined)
+    isBypass ||
+    !process.stdin.isTTY ||
+    Boolean(cliPath && cliDescription && cliMode && perms !== undefined) ||
+    Boolean(args.json || args.output)
 
   if (!isFullyNonInteractive) {
     UI.empty()
@@ -302,6 +307,36 @@ export const createAgent = Effect.fn("Cli.agent.create")(function* (args: AgentC
 
   yield* Effect.promise(() => Filesystem.write(filePath, content))
 
+  const summaryPayload = {
+    name: identifier,
+    file: filePath,
+    mode,
+    model: frontmatter.model,
+    description: whenToUse,
+    provision: frontmatter.provision,
+  }
+  const summaryText = `Agent created: ${filePath}`
+
+  if (args.output) {
+    const resolved = path.resolve(args.output)
+    yield* Effect.promise(async () => {
+      const fs = await import("fs/promises")
+      await fs.mkdir(path.dirname(resolved), { recursive: true })
+      if (args.json) {
+        await fs.writeFile(resolved, JSON.stringify(summaryPayload, null, 2) + EOL, "utf-8")
+      } else {
+        await fs.writeFile(resolved, summaryText + EOL, "utf-8")
+      }
+    })
+    UI.println(`Wrote agent creation result to ${resolved}`)
+    return
+  }
+
+  if (args.json) {
+    process.stdout.write(JSON.stringify(summaryPayload, null, 2) + EOL)
+    return
+  }
+
   if (isFullyNonInteractive) {
     process.stdout.write(filePath + EOL)
   } else {
@@ -354,6 +389,15 @@ export const AgentCreateCommand = effectCmd({
         type: "string",
         alias: ["m"],
         describe: "model to use in the format of provider/model",
+      })
+      .option("json", {
+        type: "boolean",
+        describe: "output JSON",
+      })
+      .option("output", {
+        alias: "o",
+        type: "string",
+        describe: "write creation result to output file path",
       }),
   handler: createAgent,
 })
