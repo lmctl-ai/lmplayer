@@ -747,6 +747,61 @@ Options:
       --json        output JSON                                                            [boolean]"
 `;
 
+exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode session show --help 1`] = `
+"lmplayer session show <sessionID>
+
+show detailed session information
+
+Positionals:
+  sessionID  session ID to inspect                                               [string] [required]
+
+Options:
+  -h, --help        show help                                                              [boolean]
+  -v, --version     show version number                                                    [boolean]
+      --print-logs  print logs to stderr                                                   [boolean]
+      --log-level   log level                   [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
+      --pure        run without external plugins                                           [boolean]
+  -o, --output      write session details to output file path                               [string]
+      --json        output JSON                                                            [boolean]"
+`;
+
+exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode session status --help 1`] = `
+"lmplayer session status [sessionID]
+
+show runtime status of sessions
+
+Positionals:
+  sessionID  session ID to inspect status for                                               [string]
+
+Options:
+  -h, --help        show help                                                              [boolean]
+  -v, --version     show version number                                                    [boolean]
+      --print-logs  print logs to stderr                                                   [boolean]
+      --log-level   log level                   [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
+      --pure        run without external plugins                                           [boolean]
+  -o, --output      write status to output file path                                        [string]
+      --json        output JSON                                                            [boolean]"
+`;
+
+exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode session tail --help 1`] = `
+"lmplayer session tail <sessionID>
+
+print recent session messages
+
+Positionals:
+  sessionID  session ID to inspect                                               [string] [required]
+
+Options:
+  -h, --help            show help                                                          [boolean]
+  -v, --version         show version number                                                [boolean]
+      --print-logs      print logs to stderr                                               [boolean]
+      --log-level       log level               [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
+      --pure            run without external plugins                                       [boolean]
+  -n, --lines, --limit  number of messages to print                           [number] [default: 20]
+  -o, --output          write messages to output file path                                  [string]
+      --json            output JSON                                                        [boolean]"
+`;
+
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode models list --help 1`] = `
 "lmplayer models list [provider]
 
