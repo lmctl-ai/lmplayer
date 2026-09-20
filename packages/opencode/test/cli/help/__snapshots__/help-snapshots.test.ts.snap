@@ -355,6 +355,7 @@ Options:
                       kimi-k2.7-code)                                                       [string]
       --budget        budget limit in USD to compare spend against (e.g. 10.00)             [number]
       --budget-check  exit with code 2 if total spend exceeds budget limit                 [boolean]
+  -o, --output        write statistics to output file path                                  [string]
       --json          output as JSON                                                       [boolean]"
 `;
 

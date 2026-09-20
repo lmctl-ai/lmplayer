@@ -1,10 +1,14 @@
 import { describe, expect, test } from "bun:test"
 import { Effect } from "effect"
+import path from "path"
+import fs from "fs/promises"
 import {
   StatsCommand,
   computeBudgetStats,
   displayStats,
   formatStatsJson,
+  renderStatsLines,
+  renderStatsText,
   runStats,
   type SessionStats,
 } from "../../src/cli/cmd/stats"
@@ -17,13 +21,15 @@ import { tmpdir } from "../fixture/fixture"
 import yargs, { type Argv } from "yargs"
 
 describe("StatsCommand options and builder", () => {
-  test("StatsCommand registers days, tools, models, project, budget, and json options", () => {
+  test("StatsCommand registers days, tools, models, project, budget, output, and json options", () => {
     expect(StatsCommand.command).toBe("stats")
     const builder = StatsCommand.builder as (y: Argv) => Argv<any>
     const parser = builder(yargs())
     const options = (parser as any).getOptions()
     expect(options.key.json).toBeDefined()
     expect(options.boolean).toContain("json")
+    expect(options.key.output).toBeDefined()
+    expect(options.string).toContain("output")
     expect(options.key.days).toBeDefined()
     expect(options.key.tools).toBeDefined()
     expect(options.key.models).toBeDefined()
@@ -264,6 +270,47 @@ describe("displayStats", () => {
   })
 })
 
+describe("renderStatsText and renderStatsLines", () => {
+  test("renders complete table text with overview, metrics, budget, model, and tool usage", () => {
+    const budget = computeBudgetStats(sampleStats.totalCost, 10)
+    const text = renderStatsText(
+      sampleStats,
+      2,
+      2,
+      {
+        provider: "github-copilot",
+        model: "claude-sonnet-4.6",
+        project: "test-proj",
+      },
+      budget,
+    )
+
+    expect(text).toContain("OVERVIEW")
+    expect(text).toContain("Sessions")
+    expect(text).toContain("3")
+    expect(text).toContain("Provider")
+    expect(text).toContain("github-copilot")
+    expect(text).toContain("Model")
+    expect(text).toContain("claude-sonnet-4.6")
+    expect(text).toContain("Project")
+    expect(text).toContain("test-proj")
+    expect(text).toContain("COST & TOKENS")
+    expect(text).toContain("Total Cost")
+    expect(text).toContain("$0.04")
+    expect(text).toContain("BUDGET")
+    expect(text).toContain("Budget Limit")
+    expect(text).toContain("$10.00")
+    expect(text).toContain("WITHIN BUDGET")
+    expect(text).toContain("MODEL USAGE")
+    expect(text).toContain("TOOL USAGE")
+    expect(text.endsWith("\n")).toBe(true)
+
+    const lines = renderStatsLines(sampleStats, 2, 2, undefined, budget)
+    expect(lines.length).toBeGreaterThan(10)
+    expect(lines[0]).toBe("┌────────────────────────────────────────────────────────┐")
+  })
+})
+
 describe("StatsCommand in-process execution", () => {
   test("executes stats --json and outputs valid JSON", async () => {
     const tmp = await tmpdir({ git: true })
@@ -442,6 +489,88 @@ describe("StatsCommand in-process execution", () => {
       ).rejects.toThrow(/--budget must be a non-negative number/)
     } finally {
       process.stdout.write = originalWrite
+      await InstanceRuntime.disposeInstance(ctx)
+    }
+  })
+
+  test("exports stats to file with --output in both json and table text mode", async () => {
+    const tmp = await tmpdir({ git: true })
+    const ctx = await InstanceRuntime.load({ directory: tmp.path })
+
+    try {
+      const session = await AppRuntime.runPromise(
+        Session.Service.use((svc) => svc.create({ title: "Export Test Session" })).pipe(
+          Effect.provideService(InstanceRef, ctx),
+        ),
+      )
+
+      await AppRuntime.runPromise(
+        Session.Service.use((svc) =>
+          svc.updateMessage({
+            id: MessageID.ascending(),
+            sessionID: session.id,
+            parentID: MessageID.ascending(),
+            role: "assistant",
+            time: { created: Date.now() },
+            providerID: "ollama-cloud",
+            modelID: "deepseek-v4.1-flash",
+            mode: "",
+            agent: "agent",
+            path: { cwd: "/", root: "/" },
+            cost: 0.012,
+            tokens: {
+              input: 200,
+              output: 100,
+              reasoning: 40,
+              cache: { read: 20, write: 10 },
+            },
+          } as any),
+        ).pipe(Effect.provideService(InstanceRef, ctx)),
+      )
+
+      // 1. JSON file export
+      const jsonOutPath = path.join(tmp.path, "nested", "stats.json")
+      await AppRuntime.runPromise(
+        runStats({ json: true, output: jsonOutPath, project: "" }).pipe(
+          Effect.provideService(InstanceRef, ctx),
+        ),
+      )
+      const jsonExists = await fs.stat(jsonOutPath).then(() => true, () => false)
+      expect(jsonExists).toBe(true)
+      const parsed = JSON.parse(await fs.readFile(jsonOutPath, "utf-8"))
+      expect(parsed.total_sessions).toBe(1)
+      expect(parsed.total_cost).toBe(0.012)
+      expect(parsed.total_tokens.input).toBe(200)
+
+      // 2. Text table file export
+      const textOutPath = path.join(tmp.path, "reports", "stats.txt")
+      await AppRuntime.runPromise(
+        runStats({ output: textOutPath, provider: "ollama-cloud" }).pipe(
+          Effect.provideService(InstanceRef, ctx),
+        ),
+      )
+      const textExists = await fs.stat(textOutPath).then(() => true, () => false)
+      expect(textExists).toBe(true)
+      const textContent = await fs.readFile(textOutPath, "utf-8")
+      expect(textContent).toContain("OVERVIEW")
+      expect(textContent).toContain("Provider")
+      expect(textContent).toContain("ollama-cloud")
+      expect(textContent).toContain("COST & TOKENS")
+      expect(textContent).toContain("Total Cost")
+      expect(textContent).toContain("$0.01")
+
+      // 3. File export with budget check failure still writes the file before failing
+      const budgetOutPath = path.join(tmp.path, "reports", "budget-fail.txt")
+      await expect(
+        AppRuntime.runPromise(
+          runStats({ budget: 0.001, budgetCheck: true, output: budgetOutPath }).pipe(
+            Effect.provideService(InstanceRef, ctx),
+          ),
+        ),
+      ).rejects.toThrow(/Budget limit exceeded/)
+      const budgetExists = await fs.stat(budgetOutPath).then(() => true, () => false)
+      expect(budgetExists).toBe(true)
+    } finally {
       await InstanceRuntime.disposeInstance(ctx)
     }
   })

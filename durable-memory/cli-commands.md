@@ -91,7 +91,7 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
 - `mcp debug <name>` — debug OAuth connection and test server info / tools.
 
 ## Token usage & statistics
-- `stats [--days n] [--tools [n]] [--models [n]] [--project p] [--provider <id>] [--model <id>] [--budget <amount>] [--budget-check] [--json]` — aggregate and inspect token usage, write-time costs, tool call counts, and daily/per-session averages across sessions. Supports granular provider (`--provider`) and model (`--model`) filtering for unmetered cloud ledgering (e.g. Ollama Cloud), client-side budget tracking (`--budget <amount>`), budget threshold checks (`--budget-check` which displays full stats and exits with code 2 if spend meets or exceeds the limit), and machine-readable structured JSON output (`--json`).
+- `stats [--days n] [--tools [n]] [--models [n]] [--project p] [--provider <id>] [--model <id>] [--budget <amount>] [--budget-check] [--output file|-o file] [--json]` — aggregate and inspect token usage, write-time costs, tool call counts, and daily/per-session averages across sessions. Supports granular provider (`--provider`) and model (`--model`) filtering for unmetered cloud ledgering (e.g. Ollama Cloud), client-side budget tracking (`--budget <amount>`), budget threshold checks (`--budget-check` which displays full stats and exits with code 2 if spend meets or exceeds the limit), direct file export (`--output file` / `-o file` for rendered table text or structured JSON), and machine-readable structured JSON output (`--json`).
 
 ## Database management & diagnostics
 - `db path [--json]` — print the active SQLite database path, with `--json` returning structured path metadata (`path`, `wal_path`, `shm_path`).

@@ -6,6 +6,9 @@ import { Database } from "@opencode-ai/core/database/database"
 import { SessionTable } from "@opencode-ai/core/session/sql"
 import { Project } from "@/project/project"
 import { InstanceRef } from "@/effect/instance-ref"
+import { UI } from "../ui"
+import path from "path"
+import fs from "fs/promises"
 
 export interface SessionStats {
   totalSessions: number
@@ -211,6 +214,7 @@ export const runStats = Effect.fn("Cli.stats.run")(function* (args: {
   budget?: number
   budgetCheck?: boolean
   json?: boolean
+  output?: string
 }) {
   if (args.budgetCheck && args.budget === undefined) {
     yield* fail("--budget-check requires --budget <amount> to be specified")
@@ -241,7 +245,17 @@ export const runStats = Effect.fn("Cli.stats.run")(function* (args: {
       },
       budgetInfo,
     )
-    process.stdout.write(JSON.stringify(out, null, 2) + "\n")
+    const jsonStr = JSON.stringify(out, null, 2) + "\n"
+    if (args.output) {
+      const resolved = path.resolve(args.output)
+      yield* Effect.promise(async () => {
+        await fs.mkdir(path.dirname(resolved), { recursive: true })
+        await fs.writeFile(resolved, jsonStr, "utf-8")
+      })
+      UI.println(`Wrote statistics to ${resolved}`)
+    } else {
+      process.stdout.write(jsonStr)
+    }
     if (args.budgetCheck && budgetInfo?.exceeded) {
       yield* fail(
         `Budget limit exceeded: spent $${budgetInfo.used.toFixed(2)} of $${budgetInfo.limit.toFixed(2)} budget (${budgetInfo.percentage.toFixed(1)}%)`,
@@ -249,6 +263,33 @@ export const runStats = Effect.fn("Cli.stats.run")(function* (args: {
       )
     }
     return out
+  }
+  if (args.output) {
+    const text = renderStatsText(
+      stats,
+      args.tools,
+      modelLimit,
+      {
+        days: args.days,
+        project: args.project,
+        provider: args.provider,
+        model: args.model,
+      },
+      budgetInfo,
+    )
+    const resolved = path.resolve(args.output)
+    yield* Effect.promise(async () => {
+      await fs.mkdir(path.dirname(resolved), { recursive: true })
+      await fs.writeFile(resolved, text, "utf-8")
+    })
+    UI.println(`Wrote statistics to ${resolved}`)
+    if (args.budgetCheck && budgetInfo?.exceeded) {
+      yield* fail(
+        `Budget limit exceeded: spent $${budgetInfo.used.toFixed(2)} of $${budgetInfo.limit.toFixed(2)} budget (${budgetInfo.percentage.toFixed(1)}%)`,
+        2,
+      )
+    }
+    return stats
   }
   displayStats(
     stats,
@@ -307,6 +348,11 @@ export const StatsCommand = effectCmd({
         describe: "exit with code 2 if total spend exceeds budget limit",
         type: "boolean",
       })
+      .option("output", {
+        alias: "o",
+        describe: "write statistics to output file path",
+        type: "string",
+      })
       .option("json", {
         describe: "output as JSON",
         type: "boolean",
@@ -322,6 +368,7 @@ export const StatsCommand = effectCmd({
       budget: args.budget,
       budgetCheck: Boolean(args["budget-check"] ?? args.budgetCheck),
       json: Boolean(args.json),
+      output: args.output,
     })
   }),
 })
@@ -592,7 +639,7 @@ const aggregateSessionStats = Effect.fn("Cli.stats.aggregate")(function* (
   return stats
 })
 
-export function displayStats(
+export function renderStatsLines(
   stats: SessionStats,
   toolLimit?: number,
   modelLimit?: number,
@@ -603,8 +650,9 @@ export function displayStats(
     model?: string
   },
   budget?: BudgetStats,
-) {
+): string[] {
   const width = 56
+  const lines: string[] = []
 
   function renderRow(label: string, value: string): string {
     const formattedLabel = label.startsWith(" ") ? label : ` ${label}`
@@ -615,60 +663,60 @@ export function displayStats(
   }
 
   // Overview section
-  console.log("┌────────────────────────────────────────────────────────┐")
-  console.log("│                       OVERVIEW                         │")
-  console.log("├────────────────────────────────────────────────────────┤")
-  console.log(renderRow("Sessions", stats.totalSessions.toLocaleString()))
-  console.log(renderRow("Messages", stats.totalMessages.toLocaleString()))
-  console.log(renderRow("Days", stats.days.toString()))
+  lines.push("┌────────────────────────────────────────────────────────┐")
+  lines.push("│                       OVERVIEW                         │")
+  lines.push("├────────────────────────────────────────────────────────┤")
+  lines.push(renderRow("Sessions", stats.totalSessions.toLocaleString()))
+  lines.push(renderRow("Messages", stats.totalMessages.toLocaleString()))
+  lines.push(renderRow("Days", stats.days.toString()))
   if (filters?.project !== undefined) {
-    console.log(renderRow("Project", filters.project === "" ? "(current)" : filters.project))
+    lines.push(renderRow("Project", filters.project === "" ? "(current)" : filters.project))
   }
   if (filters?.provider) {
-    console.log(renderRow("Provider", filters.provider))
+    lines.push(renderRow("Provider", filters.provider))
   }
   if (filters?.model) {
-    console.log(renderRow("Model", filters.model))
+    lines.push(renderRow("Model", filters.model))
   }
-  console.log("└────────────────────────────────────────────────────────┘")
-  console.log()
+  lines.push("└────────────────────────────────────────────────────────┘")
+  lines.push("")
 
   // Cost & Tokens section
-  console.log("┌────────────────────────────────────────────────────────┐")
-  console.log("│                    COST & TOKENS                       │")
-  console.log("├────────────────────────────────────────────────────────┤")
+  lines.push("┌────────────────────────────────────────────────────────┐")
+  lines.push("│                    COST & TOKENS                       │")
+  lines.push("├────────────────────────────────────────────────────────┤")
   const cost = isNaN(stats.totalCost) ? 0 : stats.totalCost
   const costPerDay = isNaN(stats.costPerDay) ? 0 : stats.costPerDay
   const tokensPerSession = isNaN(stats.tokensPerSession) ? 0 : stats.tokensPerSession
-  console.log(renderRow("Total Cost", `$${cost.toFixed(2)}`))
-  console.log(renderRow("Avg Cost/Day", `$${costPerDay.toFixed(2)}`))
-  console.log(renderRow("Avg Tokens/Session", formatNumber(Math.round(tokensPerSession))))
+  lines.push(renderRow("Total Cost", `$${cost.toFixed(2)}`))
+  lines.push(renderRow("Avg Cost/Day", `$${costPerDay.toFixed(2)}`))
+  lines.push(renderRow("Avg Tokens/Session", formatNumber(Math.round(tokensPerSession))))
   const medianTokensPerSession = isNaN(stats.medianTokensPerSession) ? 0 : stats.medianTokensPerSession
-  console.log(renderRow("Median Tokens/Session", formatNumber(Math.round(medianTokensPerSession))))
-  console.log(renderRow("Input", formatNumber(stats.totalTokens.input)))
-  console.log(renderRow("Output", formatNumber(stats.totalTokens.output)))
-  console.log(renderRow("Cache Read", formatNumber(stats.totalTokens.cache.read)))
-  console.log(renderRow("Cache Write", formatNumber(stats.totalTokens.cache.write)))
-  console.log("└────────────────────────────────────────────────────────┘")
-  console.log()
+  lines.push(renderRow("Median Tokens/Session", formatNumber(Math.round(medianTokensPerSession))))
+  lines.push(renderRow("Input", formatNumber(stats.totalTokens.input)))
+  lines.push(renderRow("Output", formatNumber(stats.totalTokens.output)))
+  lines.push(renderRow("Cache Read", formatNumber(stats.totalTokens.cache.read)))
+  lines.push(renderRow("Cache Write", formatNumber(stats.totalTokens.cache.write)))
+  lines.push("└────────────────────────────────────────────────────────┘")
+  lines.push("")
 
   // Budget section
   if (budget) {
-    console.log("┌────────────────────────────────────────────────────────┐")
-    console.log("│                         BUDGET                         │")
-    console.log("├────────────────────────────────────────────────────────┤")
-    console.log(renderRow("Budget Limit", `$${budget.limit.toFixed(2)}`))
-    console.log(renderRow("Total Spend", `$${budget.used.toFixed(2)}`))
-    console.log(renderRow("Remaining", `$${budget.remaining.toFixed(2)}`))
-    console.log(renderRow("Usage", `${budget.percentage.toFixed(2)}%`))
-    console.log(
+    lines.push("┌────────────────────────────────────────────────────────┐")
+    lines.push("│                         BUDGET                         │")
+    lines.push("├────────────────────────────────────────────────────────┤")
+    lines.push(renderRow("Budget Limit", `$${budget.limit.toFixed(2)}`))
+    lines.push(renderRow("Total Spend", `$${budget.used.toFixed(2)}`))
+    lines.push(renderRow("Remaining", `$${budget.remaining.toFixed(2)}`))
+    lines.push(renderRow("Usage", `${budget.percentage.toFixed(2)}%`))
+    lines.push(
       renderRow(
         "Status",
         budget.exceeded ? "EXCEEDED [ALERT]" : "WITHIN BUDGET",
       ),
     )
-    console.log("└────────────────────────────────────────────────────────┘")
-    console.log()
+    lines.push("└────────────────────────────────────────────────────────┘")
+    lines.push("")
   }
 
   // Model Usage section
@@ -676,34 +724,35 @@ export function displayStats(
     const sortedModels = Object.entries(stats.modelUsage).sort(([, a], [, b]) => b.messages - a.messages)
     const modelsToDisplay = modelLimit === Infinity ? sortedModels : sortedModels.slice(0, modelLimit)
 
-    console.log("┌────────────────────────────────────────────────────────┐")
-    console.log("│                      MODEL USAGE                       │")
-    console.log("├────────────────────────────────────────────────────────┤")
+    lines.push("┌────────────────────────────────────────────────────────┐")
+    lines.push("│                      MODEL USAGE                       │")
+    lines.push("├────────────────────────────────────────────────────────┤")
 
-    for (const [model, usage] of modelsToDisplay) {
-      console.log(`│ ${model.padEnd(54)} │`)
-      console.log(renderRow("  Messages", usage.messages.toLocaleString()))
-      console.log(renderRow("  Input Tokens", formatNumber(usage.tokens.input)))
-      console.log(renderRow("  Output Tokens", formatNumber(usage.tokens.output)))
-      console.log(renderRow("  Cache Read", formatNumber(usage.tokens.cache.read)))
-      console.log(renderRow("  Cache Write", formatNumber(usage.tokens.cache.write)))
-      console.log(renderRow("  Cost", `$${usage.cost.toFixed(4)}`))
-      console.log("├────────────────────────────────────────────────────────┤")
+    for (let i = 0; i < modelsToDisplay.length; i++) {
+      const [model, usage] = modelsToDisplay[i]
+      lines.push(`│ ${model.padEnd(54)} │`)
+      lines.push(renderRow("  Messages", usage.messages.toLocaleString()))
+      lines.push(renderRow("  Input Tokens", formatNumber(usage.tokens.input)))
+      lines.push(renderRow("  Output Tokens", formatNumber(usage.tokens.output)))
+      lines.push(renderRow("  Cache Read", formatNumber(usage.tokens.cache.read)))
+      lines.push(renderRow("  Cache Write", formatNumber(usage.tokens.cache.write)))
+      lines.push(renderRow("  Cost", `$${usage.cost.toFixed(4)}`))
+      if (i < modelsToDisplay.length - 1) {
+        lines.push("├────────────────────────────────────────────────────────┤")
+      }
     }
-    // Remove last separator and add bottom border
-    process.stdout.write("\x1B[1A") // Move up one line
-    console.log("└────────────────────────────────────────────────────────┘")
+    lines.push("└────────────────────────────────────────────────────────┘")
+    lines.push("")
   }
-  console.log()
 
   // Tool Usage section
   if (Object.keys(stats.toolUsage).length > 0) {
     const sortedTools = Object.entries(stats.toolUsage).sort(([, a], [, b]) => b - a)
     const toolsToDisplay = toolLimit ? sortedTools.slice(0, toolLimit) : sortedTools
 
-    console.log("┌────────────────────────────────────────────────────────┐")
-    console.log("│                      TOOL USAGE                        │")
-    console.log("├────────────────────────────────────────────────────────┤")
+    lines.push("┌────────────────────────────────────────────────────────┐")
+    lines.push("│                      TOOL USAGE                        │")
+    lines.push("├────────────────────────────────────────────────────────┤")
 
     const maxCount = Math.max(...toolsToDisplay.map(([, count]) => count))
     const totalToolUsage = Object.values(stats.toolUsage).reduce((a, b) => a + b, 0)
@@ -719,11 +768,45 @@ export function displayStats(
 
       const content = ` ${toolName} ${bar.padEnd(20)} ${count.toString().padStart(3)} (${percentage.padStart(4)}%)`
       const padding = Math.max(0, width - content.length - 1)
-      console.log(`│${content}${" ".repeat(padding)} │`)
+      lines.push(`│${content}${" ".repeat(padding)} │`)
     }
-    console.log("└────────────────────────────────────────────────────────┘")
+    lines.push("└────────────────────────────────────────────────────────┘")
+    lines.push("")
   }
-  console.log()
+
+  return lines
+}
+
+export function renderStatsText(
+  stats: SessionStats,
+  toolLimit?: number,
+  modelLimit?: number,
+  filters?: {
+    days?: number
+    project?: string
+    provider?: string
+    model?: string
+  },
+  budget?: BudgetStats,
+): string {
+  return renderStatsLines(stats, toolLimit, modelLimit, filters, budget).join("\n") + "\n"
+}
+
+export function displayStats(
+  stats: SessionStats,
+  toolLimit?: number,
+  modelLimit?: number,
+  filters?: {
+    days?: number
+    project?: string
+    provider?: string
+    model?: string
+  },
+  budget?: BudgetStats,
+) {
+  for (const line of renderStatsLines(stats, toolLimit, modelLimit, filters, budget)) {
+    console.log(line)
+  }
 }
 
 function formatNumber(num: number): string {
