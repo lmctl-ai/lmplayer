@@ -2,7 +2,12 @@ import { describe, expect, test } from "bun:test"
 import { Effect, Exit } from "effect"
 import path from "path"
 import fs from "node:fs/promises"
-import { ModelsShowCommand, modelsShow } from "../../src/cli/cmd/models"
+import {
+  ModelsShowCommand,
+  ModelsListCommand,
+  ModelsTestCommand,
+  modelsShow,
+} from "../../src/cli/cmd/models"
 import {
   ProvidersShowCommand,
   ProvidersListCommand,
@@ -16,7 +21,7 @@ import { tmpdir } from "../fixture/fixture"
 import yargs, { type Argv } from "yargs"
 
 describe("ModelsShowCommand and ProvidersShowCommand builders", () => {
-  test("ModelsShowCommand registers show <model>, alias get, and json option", () => {
+  test("ModelsShowCommand registers show <model>, alias get, json, and output options", () => {
     expect(ModelsShowCommand.command).toBe("show <model>")
     expect(ModelsShowCommand.aliases).toContain("get")
     const builder = ModelsShowCommand.builder as (y: Argv) => Argv<any>
@@ -24,6 +29,29 @@ describe("ModelsShowCommand and ProvidersShowCommand builders", () => {
     const options = (parser as any).getOptions()
     expect(options.key.json).toBeDefined()
     expect(options.boolean).toContain("json")
+    expect(options.key.output).toBeDefined()
+    expect(options.string).toContain("output")
+    expect(options.alias.output).toContain("o")
+  })
+
+  test("ModelsListCommand registers output option", () => {
+    expect(ModelsListCommand.command).toBe("list [provider]")
+    const builder = ModelsListCommand.builder as (y: Argv) => Argv<any>
+    const parser = builder(yargs())
+    const options = (parser as any).getOptions()
+    expect(options.key.output).toBeDefined()
+    expect(options.string).toContain("output")
+    expect(options.alias.output).toContain("o")
+  })
+
+  test("ModelsTestCommand registers output option", () => {
+    expect(ModelsTestCommand.command).toBe("test [provider]")
+    const builder = ModelsTestCommand.builder as (y: Argv) => Argv<any>
+    const parser = builder(yargs())
+    const options = (parser as any).getOptions()
+    expect(options.key.output).toBeDefined()
+    expect(options.string).toContain("output")
+    expect(options.alias.output).toContain("o")
   })
 
   test("ProvidersShowCommand registers show <provider>, alias get, json, and output options", () => {
@@ -218,6 +246,44 @@ describe("modelsShow in-process handler", () => {
       expect(Array.isArray(data.variants)).toBe(true)
     } finally {
       process.stdout.write = originalWrite
+      await InstanceRuntime.disposeInstance(ctx)
+    }
+  })
+
+  test("writes json model details to file path with output option", async () => {
+    const tmp = await tmpdir({ git: true })
+    const ctx = await InstanceRuntime.load({ directory: tmp.path })
+    const outFile = path.join(tmp.path, "model-details.json")
+
+    try {
+      await runModelsShow({ model: "ollama/qwen2.5:7b", json: true, output: outFile }, ctx)
+      const content = await fs.readFile(outFile, "utf-8")
+      const data = JSON.parse(content)
+      expect(data.id).toBe("ollama/qwen2.5:7b")
+      expect(data.provider.id).toBe("ollama")
+      expect(data.available).toBe(true)
+      expect(typeof data.capabilities).toBe("object")
+      expect(typeof data.limit).toBe("object")
+      expect(Array.isArray(data.variants)).toBe(true)
+    } finally {
+      await InstanceRuntime.disposeInstance(ctx)
+    }
+  })
+
+  test("writes human text model details to file path with output option", async () => {
+    const tmp = await tmpdir({ git: true })
+    const ctx = await InstanceRuntime.load({ directory: tmp.path })
+    const outFile = path.join(tmp.path, "model-details.txt")
+
+    try {
+      await runModelsShow({ model: "ollama/qwen2.5:7b", output: outFile }, ctx)
+      const content = await fs.readFile(outFile, "utf-8")
+      expect(content).toContain("ollama/qwen2.5:7b")
+      expect(content).toContain("Provider: Ollama")
+      expect(content).toContain("(ollama)")
+      expect(content).toContain("Limits:")
+      expect(content).toContain("Capabilities:")
+    } finally {
       await InstanceRuntime.disposeInstance(ctx)
     }
   })

@@ -320,6 +320,7 @@ Options:
       --attachment, --attachments  filter models supporting image and file attachments     [boolean]
       --min-context                filter models with context window at least this many tokens
                                                                                             [number]
+  -o, --output                     write models list to output file path                    [string]
       --verbose                    use more verbose model output (includes metadata like costs)
                                                                                            [boolean]
       --json                       output models as a JSON array (id, limits, capabilities,
@@ -863,6 +864,7 @@ Options:
       --attachment, --attachments  filter models supporting image and file attachments     [boolean]
       --min-context                filter models with context window at least this many tokens
                                                                                             [number]
+  -o, --output                     write models list to output file path                    [string]
       --verbose                    use more verbose model output (includes metadata like costs)
                                                                                            [boolean]
       --json                       output models as a JSON array (id, limits, capabilities,
