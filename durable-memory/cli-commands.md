@@ -76,7 +76,7 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
 ## Agent management
 - `agent list` (alias `ls`) `[--search q|-q q] [--mode all|primary|subagent] [--native] [--output file|-o file] [--json]` — list all registered agents (built-in and custom) with mode, model, tool provision allowlists, query/mode/native filtering, and direct file export (`--output`).
 - `agent show <name>` (alias `get`) `[--output file|-o file] [--json]` — inspect details of a specific agent (description, mode, model, variant, provision, system prompt, and permissions) with direct file export (`--output`).
-- `agent create` `[--name n] [--prompt p] [--prompt-file f] [--provision t1,t2] [--path dir] [--json]` — create a new custom agent with prompt-bypass or interactive wizard.
+- `agent create` `[--name n] [--prompt p] [--prompt-file f] [--provision t1,t2] [--path dir] [--output file|-o file] [--json]` — create a new custom agent with prompt-bypass or interactive wizard, structured JSON output (`--json`), and direct file export (`--output` / `-o`).
 - `agent clone <source> <target> [--path dir] [--scope project|global] [--description d] [--model m] [-f|--force] [--output file|-o file] [--json]` (aliases: `copy`, `cp`) — clone an existing agent configuration (built-in or custom) into a new custom agent, preserving or overriding model, description, system prompt, tool provision allowlists, and permissions, with direct file export (`--output` / `-o`).
 - `agent delete <name>` (alias `rm`) `[--force|-f] [--output file|-o file] [--json]` — safely delete a custom agent file or config entry; guards against deleting built-in agents (`build`, `plan`, `lean`, `summary`, `title`) with force and file export options.
 

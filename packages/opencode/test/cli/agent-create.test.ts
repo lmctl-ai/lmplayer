@@ -36,6 +36,10 @@ describe("AgentCreateCommand builder", () => {
     expect(options.key.prompt).toBeDefined()
     expect(options.key["prompt-file"]).toBeDefined()
     expect(options.key.provision).toBeDefined()
+    expect(options.key.json).toBeDefined()
+    expect(options.key.output).toBeDefined()
+    expect(options.string).toContain("output")
+    expect(options.alias.output).toContain("o")
   })
 
   test("parses non-interactive flags correctly", () => {
@@ -304,6 +308,52 @@ describe("AgentCreateCommand handler (non-interactive prompt bypass)", () => {
 
       expect(parsed.content.trim()).toBe("Custom agent prompt")
       expect(parsed.data.model).toBe("openai/gpt-4o")
+    } finally {
+      await InstanceRuntime.disposeInstance(ctx)
+    }
+  })
+
+  test("creates agent with -o output file (text) and --output --json (json)", async () => {
+    const tmp = await tmpdir({ git: true })
+    const dir = tmp.path
+    const ctx = await InstanceRuntime.load({ directory: dir })
+
+    try {
+      // 1. Text output
+      const textOut = path.join(dir, "create-out.txt")
+      await Effect.runPromise(
+        runHandler(
+          {
+            name: "text-agent",
+            prompt: "Text agent prompt",
+            output: textOut,
+          },
+          ctx,
+        ),
+      )
+      const textContent = await fs.readFile(textOut, "utf-8")
+      expect(textContent).toContain("Agent created:")
+      expect(textContent).toContain("text-agent.md")
+
+      // 2. JSON output
+      const jsonOut = path.join(dir, "create-out.json")
+      await Effect.runPromise(
+        runHandler(
+          {
+            name: "json-agent",
+            prompt: "JSON agent prompt",
+            model: "anthropic/claude-3-5-sonnet",
+            json: true,
+            output: jsonOut,
+          },
+          ctx,
+        ),
+      )
+      const jsonContent = await fs.readFile(jsonOut, "utf-8")
+      const parsedJson = JSON.parse(jsonContent)
+      expect(parsedJson.name).toBe("json-agent")
+      expect(parsedJson.model).toBe("anthropic/claude-3-5-sonnet")
+      expect(parsedJson.file).toContain("json-agent.md")
     } finally {
       await InstanceRuntime.disposeInstance(ctx)
     }
