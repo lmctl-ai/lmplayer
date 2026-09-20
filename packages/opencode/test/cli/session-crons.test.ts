@@ -1,7 +1,61 @@
 import { describe, expect, test } from "bun:test"
 import { Effect } from "effect"
+import path from "path"
+import fs from "fs/promises"
+import yargs, { type Argv } from "yargs"
 import { cliIt } from "../lib/cli-process"
-import { formatCronDetail, formatCronsTable, type CronInfo } from "@/cli/cmd/session"
+import {
+  formatCronDetail,
+  formatCronsTable,
+  type CronInfo,
+  SessionCronsCommand,
+  SessionLsCommand,
+  SessionListCommand,
+} from "@/cli/cmd/session"
+
+describe("session crons / ls / list command builders", () => {
+  test("SessionCronsCommand registers crons, cron, delete, output, and json options", () => {
+    expect(SessionCronsCommand.command).toBe("crons <sessionID>")
+    const builder = SessionCronsCommand.builder as (y: Argv) => Argv<any>
+    const parser = builder(yargs())
+    const options = (parser as any).getOptions()
+    expect(options.key.cron).toBeDefined()
+    expect(options.key.c).toBeDefined()
+    expect(options.key.delete).toBeDefined()
+    expect(options.key.d).toBeDefined()
+    expect(options.key.output).toBeDefined()
+    expect(options.key.o).toBeDefined()
+    expect(options.key.json).toBeDefined()
+  })
+
+  test("SessionLsCommand registers ls, limit, roots, all, search, output, and json options", () => {
+    expect(SessionLsCommand.command).toBe("ls")
+    const builder = SessionLsCommand.builder as (y: Argv) => Argv<any>
+    const parser = builder(yargs())
+    const options = (parser as any).getOptions()
+    expect(options.key.limit).toBeDefined()
+    expect(options.key.roots).toBeDefined()
+    expect(options.key.all).toBeDefined()
+    expect(options.key.search).toBeDefined()
+    expect(options.key.output).toBeDefined()
+    expect(options.key.o).toBeDefined()
+    expect(options.key.json).toBeDefined()
+  })
+
+  test("SessionListCommand registers list, max-count, roots, all, search, output, and format options", () => {
+    expect(SessionListCommand.command).toBe("list")
+    const builder = SessionListCommand.builder as (y: Argv) => Argv<any>
+    const parser = builder(yargs())
+    const options = (parser as any).getOptions()
+    expect(options.key["max-count"]).toBeDefined()
+    expect(options.key.roots).toBeDefined()
+    expect(options.key.all).toBeDefined()
+    expect(options.key.search).toBeDefined()
+    expect(options.key.output).toBeDefined()
+    expect(options.key.o).toBeDefined()
+    expect(options.key.format).toBeDefined()
+  })
+})
 
 describe("session crons formatting", () => {
   test("formatCronsTable: formats crons table with correct columns and headers", () => {
@@ -88,7 +142,7 @@ describe("opencode session crons (CLI)", () => {
 
   cliIt.concurrent(
     "inspects crons and metrics on an active session",
-    ({ llm, opencode }) =>
+    ({ llm, home, opencode }) =>
       Effect.gen(function* () {
         yield* llm.text("hello from assistant")
         const runRes = yield* opencode.run("ping test", { format: "json" })
@@ -108,6 +162,54 @@ describe("opencode session crons (CLI)", () => {
         const cronsData = JSON.parse(cronsJsonRes.stdout)
         expect(Array.isArray(cronsData)).toBe(true)
         expect(cronsData.length).toBe(0)
+
+        // 2b. Check crons with -o output file (text and JSON)
+        const cronsOutFile = path.join(home, "crons.txt")
+        const cronsOutRes = yield* opencode.spawn(["session", "crons", sessionID, "-o", cronsOutFile])
+        opencode.expectExit(cronsOutRes, 0)
+        expect(cronsOutRes.stderr).toContain(`Wrote cron jobs to ${cronsOutFile}`)
+        const cronsFileContent = yield* Effect.promise(() => fs.readFile(cronsOutFile, "utf-8"))
+        expect(cronsFileContent).toContain(`No scheduled cron jobs found for session ${sessionID}`)
+
+        const cronsJsonFile = path.join(home, "crons.json")
+        const cronsJsonOutRes = yield* opencode.spawn(["session", "crons", sessionID, "--json", "-o", cronsJsonFile])
+        opencode.expectExit(cronsJsonOutRes, 0)
+        expect(cronsJsonOutRes.stderr).toContain(`Wrote cron jobs to ${cronsJsonFile}`)
+        const cronsJsonParsed = JSON.parse(yield* Effect.promise(() => fs.readFile(cronsJsonFile, "utf-8")))
+        expect(Array.isArray(cronsJsonParsed)).toBe(true)
+        expect(cronsJsonParsed.length).toBe(0)
+
+        // 2c. Check session ls with -o output file (text and JSON)
+        const lsOutFile = path.join(home, "ls.txt")
+        const lsOutRes = yield* opencode.spawn(["session", "ls", "-o", lsOutFile])
+        opencode.expectExit(lsOutRes, 0)
+        expect(lsOutRes.stderr).toContain(`Wrote sessions list to ${lsOutFile}`)
+        const lsFileContent = yield* Effect.promise(() => fs.readFile(lsOutFile, "utf-8"))
+        expect(lsFileContent).toContain(sessionID)
+
+        const lsJsonFile = path.join(home, "ls.json")
+        const lsJsonOutRes = yield* opencode.spawn(["session", "ls", "--json", "-o", lsJsonFile])
+        opencode.expectExit(lsJsonOutRes, 0)
+        expect(lsJsonOutRes.stderr).toContain(`Wrote sessions list to ${lsJsonFile}`)
+        const lsJsonParsed = JSON.parse(yield* Effect.promise(() => fs.readFile(lsJsonFile, "utf-8")))
+        expect(Array.isArray(lsJsonParsed)).toBe(true)
+        expect(lsJsonParsed.some((s: any) => s.id === sessionID)).toBe(true)
+
+        // 2d. Check session list with -o output file (table and JSON)
+        const listOutFile = path.join(home, "list.txt")
+        const listOutRes = yield* opencode.spawn(["session", "list", "-o", listOutFile])
+        opencode.expectExit(listOutRes, 0)
+        expect(listOutRes.stderr).toContain(`Wrote sessions list to ${listOutFile}`)
+        const listFileContent = yield* Effect.promise(() => fs.readFile(listOutFile, "utf-8"))
+        expect(listFileContent).toContain(sessionID)
+
+        const listJsonFile = path.join(home, "list.json")
+        const listJsonOutRes = yield* opencode.spawn(["session", "list", "--format", "json", "-o", listJsonFile])
+        opencode.expectExit(listJsonOutRes, 0)
+        expect(listJsonOutRes.stderr).toContain(`Wrote sessions list to ${listJsonFile}`)
+        const listJsonParsed = JSON.parse(yield* Effect.promise(() => fs.readFile(listJsonFile, "utf-8")))
+        expect(Array.isArray(listJsonParsed)).toBe(true)
+        expect(listJsonParsed.some((s: any) => s.id === sessionID)).toBe(true)
 
         // 3. Missing cron inspection fails cleanly
         const cronMissingRes = yield* opencode.spawn(["session", "crons", sessionID, "--cron", "cron_missing"])

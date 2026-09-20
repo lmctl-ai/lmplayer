@@ -53,7 +53,7 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
   postinstall.mjs, ASCII logo + "opencode" describe strings remain (branding follow-up).
 
 ## Session management
-- `session ls [--limit n] [-n n] [--roots] [-a|--all] [--search q] [--json]` / `session list [--max-count n] [--limit n] [-n n] [--roots] [-a|--all] [--search q] [--format table|json]` — list active and recent sessions with server-side limit bounding and message fanout reduction, root-session filtering, cross-project global listing (`-a` / `--all`), title search, and token/cost accounting in JSON payloads (`cost`, `tokens`, `created`).
+- `session ls [--limit n] [-n n] [--roots] [-a|--all] [--search q] [--output file|-o file] [--json]` / `session list [--max-count n] [--limit n] [-n n] [--roots] [-a|--all] [--search q] [--output file|-o file] [--format table|json]` — list active and recent sessions with server-side limit bounding and message fanout reduction, root-session filtering, cross-project global listing (`-a` / `--all`), title search, token/cost accounting in JSON payloads (`cost`, `tokens`, `created`), and direct file export (`--output`).
 - `session show <id> [--output file|-o file] [--json]` (alias `get`) — inspect detailed session information including title, directory, parent ID, effective model/variant, agent, creation and update timestamps, message and turn counts (user, assistant, tool calls), token usage breakdown (input, output, reasoning, cache read/write), total cost, durable memory status, and public share URL, with direct file export (`--output`).
 - `session status [id] [--output file|-o file] [--json]` — inspect live runtime status of a specific session (idle, busy, retry) or list all active/in-progress sessions across the instance with structured JSON output and direct file export (`--output`).
 - `session tail <id> [--lines n] [-n n] [--limit n] [--output file|-o file] [--json]` — inspect recent session messages with verified session lookup, lines/limit bounding, structured JSON output containing message ID, role, text, timestamp, and assistant model/cost/tokens metadata, and direct file export (`--output`).
@@ -65,7 +65,7 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
 - `session export [id] [--output file|-o file|--file file] [--sanitize] [--json]` — export session data as JSON to stdout or directly to a file, with optional sensitive transcript sanitization (`--sanitize`) and structured JSON summary (`--json`).
 - `session import <file> [--title title] [--json]` — import session data from a JSON file or share URL with fail-fast validation, optional title override (`--title`), and structured JSON response (`--json`).
 - `session jobs <id> [--json] [--output jobID] [--job jobID] [--status s]` — list and inspect background jobs.
-- `session crons <id> [--json] [--cron cronID] [--delete cronID]` — list, inspect, and delete scheduled cron jobs.
+- `session crons <id> [--cron cronID] [--delete cronID] [--output file|-o file] [--json]` — list, inspect, and delete scheduled cron jobs, with direct file export (`--output`).
 - `session rename <id> <title> [--json]` — rename a session.
 - `session fork <id> [--title title|-t title] [--message msgID] [--json]` — fork a session at a specific message boundary with an optional custom title (`--title`).
 - `session share <id> [--unshare] [--json]` / `session unshare <id> [--json]` — create or revoke public share links.

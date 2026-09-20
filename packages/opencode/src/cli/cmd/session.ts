@@ -122,11 +122,23 @@ export const SessionLsCommand = effectCmd({
         describe: "filter sessions by title",
         type: "string",
       })
+      .option("output", {
+        alias: "o",
+        describe: "write sessions list to output file path",
+        type: "string",
+      })
       .option("json", {
         describe: "output JSON",
         type: "boolean",
       }),
-  handler: Effect.fn("Cli.session.ls")(function* (args) {
+  handler: Effect.fn("Cli.session.ls")(function* (args: {
+    limit?: number
+    roots?: boolean
+    all?: boolean
+    search?: string
+    output?: string
+    json?: boolean
+  }) {
     const limit = Number.isInteger(args.limit) && (args.limit as number) > 0 ? (args.limit as number) : undefined
     const svc = yield* Session.Service
     const sessions = yield* (args.all
@@ -152,22 +164,28 @@ export const SessionLsCommand = effectCmd({
     )
 
     if (args.json) {
-      console.log(
-        JSON.stringify(
-          rows.map((row) => ({
-            id: row.session.id,
-            title: row.session.title,
-            directory: row.session.directory,
-            updated: row.session.time.updated,
-            created: row.session.time.created,
-            cost: row.session.cost ?? 0,
-            tokens: row.session.tokens,
-            messageCount: row.messageCount,
-          })),
-          null,
-          2,
-        ),
-      )
+      const payload = rows.map((row) => ({
+        id: row.session.id,
+        title: row.session.title,
+        directory: row.session.directory,
+        updated: row.session.time.updated,
+        created: row.session.time.created,
+        cost: row.session.cost ?? 0,
+        tokens: row.session.tokens,
+        messageCount: row.messageCount,
+      }))
+      const jsonStr = JSON.stringify(payload, null, 2) + EOL
+      if (args.output) {
+        yield* writeOutputFile(args.output, jsonStr, "sessions list")
+        return
+      }
+      process.stdout.write(jsonStr)
+      return
+    }
+
+    if (args.output) {
+      const lines = rows.map((row) => `${row.session.id} ${row.session.title} ${row.session.directory}`)
+      yield* writeOutputFile(args.output, lines.join(EOL) + (lines.length > 0 ? EOL : ""), "sessions list")
       return
     }
 
@@ -1322,11 +1340,22 @@ export const SessionCronsCommand = effectCmd({
         describe: "cron ID to delete/cancel",
         type: "string",
       })
+      .option("output", {
+        alias: "o",
+        describe: "write crons report to output file path",
+        type: "string",
+      })
       .option("json", {
         describe: "output JSON",
         type: "boolean",
       }),
-  handler: Effect.fn("Cli.session.crons")(function* (args) {
+  handler: Effect.fn("Cli.session.crons")(function* (args: {
+    sessionID: string
+    cron?: string
+    delete?: string
+    output?: string
+    json?: boolean
+  }) {
     const sessionSvc = yield* Session.Service
     yield* sessionSvc
       .get(args.sessionID as SessionID)
@@ -1344,8 +1373,16 @@ export const SessionCronsCommand = effectCmd({
         )
 
       if (args.json) {
-        console.log(JSON.stringify(removed, null, 2))
+        const jsonStr = JSON.stringify(removed, null, 2) + EOL
+        if (args.output) {
+          yield* writeOutputFile(args.output, jsonStr, "cron deletion")
+          return
+        }
+        process.stdout.write(jsonStr)
       } else {
+        if (args.output) {
+          yield* writeOutputFile(args.output, `Cron ${args.delete} deleted` + EOL, "cron deletion")
+        }
         UI.println(UI.Style.TEXT_SUCCESS_BOLD + `Cron ${args.delete} deleted` + UI.Style.TEXT_NORMAL)
       }
       return
@@ -1359,21 +1396,46 @@ export const SessionCronsCommand = effectCmd({
         return yield* fail(`Cron not found: ${args.cron}`)
       }
       if (args.json) {
-        console.log(JSON.stringify(target, null, 2))
+        const jsonStr = JSON.stringify(target, null, 2) + EOL
+        if (args.output) {
+          yield* writeOutputFile(args.output, jsonStr, "cron details")
+          return
+        }
+        process.stdout.write(jsonStr)
       } else {
-        console.log(formatCronDetail(target))
+        const text = formatCronDetail(target)
+        if (args.output) {
+          yield* writeOutputFile(args.output, text + EOL, "cron details")
+          return
+        }
+        console.log(text)
       }
       return
     }
 
     if (args.json) {
-      console.log(JSON.stringify(crons, null, 2))
-    } else {
-      if (crons.length === 0) {
-        console.log(`No scheduled cron jobs found for session ${args.sessionID}`)
+      const jsonStr = JSON.stringify(crons, null, 2) + EOL
+      if (args.output) {
+        yield* writeOutputFile(args.output, jsonStr, "cron jobs")
         return
       }
-      console.log(formatCronsTable(crons))
+      process.stdout.write(jsonStr)
+    } else {
+      if (crons.length === 0) {
+        const text = `No scheduled cron jobs found for session ${args.sessionID}`
+        if (args.output) {
+          yield* writeOutputFile(args.output, text + EOL, "cron jobs")
+          return
+        }
+        console.log(text)
+        return
+      }
+      const text = formatCronsTable(crons)
+      if (args.output) {
+        yield* writeOutputFile(args.output, text + EOL, "cron jobs")
+        return
+      }
+      console.log(text)
     }
   }),
 })
@@ -1854,12 +1916,25 @@ export const SessionListCommand = effectCmd({
         describe: "filter sessions by title",
         type: "string",
       })
+      .option("output", {
+        alias: "o",
+        describe: "write sessions list to output file path",
+        type: "string",
+      })
       .option("format", {
         describe: "output format",
         choices: ["table", "json"],
         default: "table",
       }),
-  handler: Effect.fn("Cli.session.list")(function* (args) {
+  handler: Effect.fn("Cli.session.list")(function* (args: {
+    maxCount?: number
+    limit?: number
+    roots?: boolean
+    all?: boolean
+    search?: string
+    output?: string
+    format?: string
+  }) {
     const limit = args.maxCount ?? (args as any).limit
     const sessions = yield* Session.Service.use((svc) =>
       args.all
@@ -1867,9 +1942,20 @@ export const SessionListCommand = effectCmd({
         : svc.list({ roots: args.roots, search: args.search, limit }),
     )
 
-    if (sessions.length === 0) return
+    if (sessions.length === 0) {
+      if (args.output) {
+        yield* writeOutputFile(args.output, args.format === "json" ? "[]" + EOL : "", "sessions list")
+        return
+      }
+      return
+    }
 
     const output = args.format === "json" ? formatSessionJSON(sessions) : formatSessionTable(sessions)
+
+    if (args.output) {
+      yield* writeOutputFile(args.output, output.endsWith(EOL) ? output : output + EOL, "sessions list")
+      return
+    }
 
     const shouldPaginate = process.stdout.isTTY && !limit && args.format === "table"
 
