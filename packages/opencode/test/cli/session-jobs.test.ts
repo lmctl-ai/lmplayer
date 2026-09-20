@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { Effect } from "effect"
+import path from "path"
+import fs from "fs/promises"
 import { cliIt } from "../lib/cli-process"
 import { formatJobDetail, formatJobsTable, type JobInfo } from "@/cli/cmd/session"
 
@@ -107,7 +109,7 @@ describe("opencode session jobs (CLI)", () => {
 
   cliIt.concurrent(
     "inspects jobs and metrics on an active session",
-    ({ llm, opencode }) =>
+    ({ llm, home, opencode }) =>
       Effect.gen(function* () {
         yield* llm.text("hello from assistant")
         const runRes = yield* opencode.run("ping test", { format: "json" })
@@ -127,6 +129,22 @@ describe("opencode session jobs (CLI)", () => {
         const jobsData = JSON.parse(jobsJsonRes.stdout)
         expect(Array.isArray(jobsData)).toBe(true)
         expect(jobsData.length).toBe(0)
+
+        // 2b. Check jobs --file output when empty (text and JSON)
+        const jobsOutFile = path.join(home, "jobs.txt")
+        const jobsOutRes = yield* opencode.spawn(["session", "jobs", sessionID, "--file", jobsOutFile])
+        opencode.expectExit(jobsOutRes, 0)
+        expect(jobsOutRes.stderr).toContain(`Wrote jobs to ${jobsOutFile}`)
+        const jobsFileContent = yield* Effect.promise(() => fs.readFile(jobsOutFile, "utf-8"))
+        expect(jobsFileContent).toContain(`No background jobs found for session ${sessionID}`)
+
+        const jobsJsonFile = path.join(home, "jobs.json")
+        const jobsJsonOutRes = yield* opencode.spawn(["session", "jobs", sessionID, "--json", "--file", jobsJsonFile])
+        opencode.expectExit(jobsJsonOutRes, 0)
+        expect(jobsJsonOutRes.stderr).toContain(`Wrote jobs to ${jobsJsonFile}`)
+        const jobsJsonParsed = JSON.parse(yield* Effect.promise(() => fs.readFile(jobsJsonFile, "utf-8")))
+        expect(Array.isArray(jobsJsonParsed)).toBe(true)
+        expect(jobsJsonParsed.length).toBe(0)
 
         // 3. Check status filtering when empty
         const jobsStatusRes = yield* opencode.spawn(["session", "jobs", sessionID, "--status", "running"])

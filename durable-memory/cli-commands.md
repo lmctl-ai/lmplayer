@@ -64,13 +64,13 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
 - `session diff <id> [--message msgID] [--file file|--path file] [--output file|-o file] [--stat] [--json]` — inspect file diffs and patches resulting from session turns, with file path filtering (`--file`), direct file export (`--output`), diffstat summary (`--stat`), and structured JSON output (`--json`).
 - `session export [id] [--output file|-o file|--file file] [--sanitize] [--json]` — export session data as JSON to stdout or directly to a file, with optional sensitive transcript sanitization (`--sanitize`) and structured JSON summary (`--json`).
 - `session import <file> [--title title] [--json]` — import session data from a JSON file or share URL with fail-fast validation, optional title override (`--title`), and structured JSON response (`--json`).
-- `session jobs <id> [--json] [--output jobID] [--job jobID] [--status s]` — list and inspect background jobs.
+- `session jobs <id> [--output jobID|-o jobID] [--job jobID|-j jobID] [--status s|-s s] [--file file] [--json]` — list and inspect background jobs or untrusted job output, with direct file export (`--file`).
 - `session crons <id> [--cron cronID] [--delete cronID] [--output file|-o file] [--json]` — list, inspect, and delete scheduled cron jobs, with direct file export (`--output`).
-- `session rename <id> <title> [--json]` — rename a session.
-- `session fork <id> [--title title|-t title] [--message msgID] [--json]` — fork a session at a specific message boundary with an optional custom title (`--title`).
-- `session share <id> [--unshare] [--json]` / `session unshare <id> [--json]` — create or revoke public share links.
-- `session compact <id> [--model provider/model] [--auto] [--json]` (alias `summarize`) — trigger session compaction/summarization.
-- `session delete <sessionID...> [extraSessionIDs...] [-f|--force] [--json]` (alias `rm`) — delete one or more sessions and permanently remove their messages and history, with `--force` to ignore non-existent sessions and `--json` structured response.
+- `session rename <id> <title> [--output file|-o file] [--json]` — rename a session with structured JSON output and direct file export (`--output`).
+- `session fork <id> [--title title|-t title] [--message msgID|-m msgID] [--output file|-o file] [--json]` — fork a session at a specific message boundary with an optional custom title (`--title`), structured JSON output, and direct file export (`--output`).
+- `session share <id> [--unshare] [--output file|-o file] [--json]` / `session unshare <id> [--output file|-o file] [--json]` — create or revoke public share links, with structured JSON output and direct file export (`--output`).
+- `session compact <id> [--model provider/model|-m model] [--auto] [--output file|-o file] [--json]` (alias `summarize`) — trigger session compaction/summarization with structured JSON output and direct file export (`--output`).
+- `session delete <sessionID...> [extraSessionIDs...] [-f|--force] [--output file|-o file] [--json]` (alias `rm`) — delete one or more sessions and permanently remove their messages and history, with `--force` to ignore non-existent sessions, structured JSON response, and direct file export (`--output`).
 - `session memory <id> [--output file|-o file] [--write <text>] [--append <text>] [--file <path>] [--clear] [--json]` (alias `brain`) — view, export (`--output`), update, append, or clear persistent durable memory for a session.
 
 ## Agent management
