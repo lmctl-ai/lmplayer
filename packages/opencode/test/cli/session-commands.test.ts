@@ -1,5 +1,7 @@
 import { describe, expect } from "bun:test"
 import { Effect } from "effect"
+import path from "path"
+import fs from "fs/promises"
 import { cliIt } from "../lib/cli-process"
 
 describe("opencode session commands (CLI)", () => {
@@ -66,7 +68,7 @@ describe("opencode session commands (CLI)", () => {
 
   cliIt.concurrent(
     "renames, forks, and lists sessions successfully",
-    ({ llm, opencode }) =>
+    ({ llm, home, opencode }) =>
       Effect.gen(function* () {
         yield* llm.text("hello from llm")
         const runRes = yield* opencode.run("say hi", { format: "json" })
@@ -86,6 +88,37 @@ describe("opencode session commands (CLI)", () => {
         const renameData = JSON.parse(renameJsonRes.stdout)
         expect(renameData.id).toBe(sessionID)
         expect(renameData.title).toBe("Second Title")
+
+        // 2b. Rename session with -o output file (text and JSON)
+        const renameFile = path.join(home, "rename.txt")
+        const renameOutRes = yield* opencode.spawn([
+          "session",
+          "rename",
+          sessionID,
+          "Third Title",
+          "-o",
+          renameFile,
+        ])
+        opencode.expectExit(renameOutRes, 0)
+        expect(renameOutRes.stderr).toContain(`Wrote session rename to ${renameFile}`)
+        const renameFileContent = yield* Effect.promise(() => fs.readFile(renameFile, "utf-8"))
+        expect(renameFileContent).toContain(`Session ${sessionID} renamed to "Third Title"`)
+
+        const renameJsonFile = path.join(home, "rename.json")
+        const renameJsonOutRes = yield* opencode.spawn([
+          "session",
+          "rename",
+          sessionID,
+          "Second Title",
+          "--json",
+          "-o",
+          renameJsonFile,
+        ])
+        opencode.expectExit(renameJsonOutRes, 0)
+        expect(renameJsonOutRes.stderr).toContain(`Wrote session rename to ${renameJsonFile}`)
+        const renameJsonParsed = JSON.parse(yield* Effect.promise(() => fs.readFile(renameJsonFile, "utf-8")))
+        expect(renameJsonParsed.id).toBe(sessionID)
+        expect(renameJsonParsed.title).toBe("Second Title")
 
         // 3. Fork session
         const forkRes = yield* opencode.spawn(["session", "fork", sessionID])
@@ -114,6 +147,22 @@ describe("opencode session commands (CLI)", () => {
         expect(forkCustomData.id).toBeDefined()
         expect(forkCustomData.id).not.toBe(sessionID)
         expect(forkCustomData.title).toBe("Custom Forked Title")
+
+        // 4b. Fork session with -o output file (text and JSON)
+        const forkFile = path.join(home, "fork.txt")
+        const forkOutRes = yield* opencode.spawn(["session", "fork", sessionID, "-o", forkFile])
+        opencode.expectExit(forkOutRes, 0)
+        expect(forkOutRes.stderr).toContain(`Wrote forked session to ${forkFile}`)
+        const forkFileContent = yield* Effect.promise(() => fs.readFile(forkFile, "utf-8"))
+        expect(forkFileContent).toContain(`Forked session ${sessionID} to `)
+
+        const forkJsonFile = path.join(home, "fork.json")
+        const forkJsonOutRes = yield* opencode.spawn(["session", "fork", sessionID, "--json", "-o", forkJsonFile])
+        opencode.expectExit(forkJsonOutRes, 0)
+        expect(forkJsonOutRes.stderr).toContain(`Wrote forked session to ${forkJsonFile}`)
+        const forkJsonParsed = JSON.parse(yield* Effect.promise(() => fs.readFile(forkJsonFile, "utf-8")))
+        expect(forkJsonParsed.id).toBeDefined()
+        const forkFileId = forkJsonParsed.id
 
         // 5. Verify session list shows the sessions and includes cost and tokens
         const lsRes = yield* opencode.spawn(["session", "ls", "--json"])
@@ -182,6 +231,14 @@ describe("opencode session commands (CLI)", () => {
         const rmForceData = JSON.parse(rmForceRes.stdout)
         expect(rmForceData.notFound).toContain("ses_nonexistent999")
 
+        // 6d. Delete session with -o output file
+        const deleteFile = path.join(home, "delete.txt")
+        const deleteOutRes = yield* opencode.spawn(["session", "delete", forkFileId, "-o", deleteFile])
+        opencode.expectExit(deleteOutRes, 0)
+        expect(deleteOutRes.stderr).toContain(`Wrote delete result to ${deleteFile}`)
+        const deleteFileContent = yield* Effect.promise(() => fs.readFile(deleteFile, "utf-8"))
+        expect(deleteFileContent).toContain(`Session ${forkFileId} deleted`)
+
         // 7. Verify session list no longer shows the deleted sessions
         const afterDeleteRes = yield* opencode.spawn(["session", "ls", "--json"])
         opencode.expectExit(afterDeleteRes, 0)
@@ -189,7 +246,21 @@ describe("opencode session commands (CLI)", () => {
         expect(afterDeleteData.some((s: any) => s.id === forkData.id)).toBe(false)
         expect(afterDeleteData.some((s: any) => s.id === fork2.id)).toBe(false)
         expect(afterDeleteData.some((s: any) => s.id === fork3.id)).toBe(false)
+        expect(afterDeleteData.some((s: any) => s.id === forkFileId)).toBe(false)
         expect(afterDeleteData.some((s: any) => s.id === sessionID)).toBe(true)
+
+        // 7b. Tail session messages in text and JSON format
+        const tailRes = yield* opencode.spawn(["session", "tail", sessionID, "--lines", "5"])
+        opencode.expectExit(tailRes, 0)
+        expect(tailRes.stderr).toContain("say hi")
+
+        const tailJsonRes = yield* opencode.spawn(["session", "tail", sessionID, "--json"])
+        opencode.expectExit(tailJsonRes, 0)
+        const tailData = JSON.parse(tailJsonRes.stdout)
+        expect(Array.isArray(tailData)).toBe(true)
+        expect(tailData.length).toBeGreaterThan(0)
+        expect(tailData[0].role).toBe("user")
+        expect(tailData[0].text).toContain("say hi")
 
         // 8. Compact the session
         yield* llm.text("compacted summary")
@@ -206,6 +277,41 @@ describe("opencode session commands (CLI)", () => {
         expect(compactData.id).toBe(sessionID)
         expect(compactData.compacted).toBe(true)
 
+        // 8b. Compact the session with -o output file (text and JSON)
+        yield* llm.text("compacted summary 2")
+        const compactFile = path.join(home, "compact.txt")
+        const compactOutRes = yield* opencode.spawn([
+          "session",
+          "compact",
+          sessionID,
+          "--model",
+          "test/test-model",
+          "-o",
+          compactFile,
+        ])
+        opencode.expectExit(compactOutRes, 0)
+        expect(compactOutRes.stderr).toContain(`Wrote compaction summary to ${compactFile}`)
+        const compactFileContent = yield* Effect.promise(() => fs.readFile(compactFile, "utf-8"))
+        expect(compactFileContent).toContain(`Session ${sessionID} compacted`)
+
+        yield* llm.text("compacted summary 3")
+        const compactJsonFile = path.join(home, "compact.json")
+        const compactJsonOutRes = yield* opencode.spawn([
+          "session",
+          "compact",
+          sessionID,
+          "--model",
+          "test/test-model",
+          "--json",
+          "-o",
+          compactJsonFile,
+        ])
+        opencode.expectExit(compactJsonOutRes, 0)
+        expect(compactJsonOutRes.stderr).toContain(`Wrote compaction summary to ${compactJsonFile}`)
+        const compactJsonParsed = JSON.parse(yield* Effect.promise(() => fs.readFile(compactJsonFile, "utf-8")))
+        expect(compactJsonParsed.id).toBe(sessionID)
+        expect(compactJsonParsed.compacted).toBe(true)
+
         // 9. Inspect session jobs
         const jobsRes = yield* opencode.spawn(["session", "jobs", sessionID])
         opencode.expectExit(jobsRes, 0)
@@ -218,18 +324,13 @@ describe("opencode session commands (CLI)", () => {
         expect(Array.isArray(jobsData)).toBe(true)
         expect(jobsData.length).toBe(0)
 
-        // 11. Tail session messages in text and JSON format
-        const tailRes = yield* opencode.spawn(["session", "tail", sessionID, "--lines", "5"])
-        opencode.expectExit(tailRes, 0)
-        expect(tailRes.stderr).toContain("say hi")
-
-        const tailJsonRes = yield* opencode.spawn(["session", "tail", sessionID, "--json"])
-        opencode.expectExit(tailJsonRes, 0)
-        const tailData = JSON.parse(tailJsonRes.stdout)
-        expect(Array.isArray(tailData)).toBe(true)
-        expect(tailData.length).toBeGreaterThan(0)
-        expect(tailData[0].role).toBe("user")
-        expect(tailData[0].text).toContain("say hi")
+        // 10b. Inspect session jobs with --file
+        const jobsFile = path.join(home, "jobs.txt")
+        const jobsOutRes = yield* opencode.spawn(["session", "jobs", sessionID, "--file", jobsFile])
+        opencode.expectExit(jobsOutRes, 0)
+        expect(jobsOutRes.stderr).toContain(`Wrote jobs to ${jobsFile}`)
+        const jobsFileContent = yield* Effect.promise(() => fs.readFile(jobsFile, "utf-8"))
+        expect(jobsFileContent).toContain(`No background jobs found for session ${sessionID}`)
       }),
     60_000,
   )
