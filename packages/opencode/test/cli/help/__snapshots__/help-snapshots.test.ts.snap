@@ -710,6 +710,25 @@ Options:
       --mode             filter by agent mode       [string] [choices: "all", "primary", "subagent"]"
 `;
 
+exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode session ls --help 1`] = `
+"lmplayer session ls
+
+list sessions
+
+Options:
+  -h, --help                show help                                                      [boolean]
+  -v, --version             show version number                                            [boolean]
+      --print-logs          print logs to stderr                                           [boolean]
+      --log-level           log level           [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
+      --pure                run without external plugins                                   [boolean]
+  -n, --limit, --max-count  limit number of sessions                                        [number]
+      --roots               only show root sessions                                        [boolean]
+  -a, --all                 show sessions across all projects (global)                     [boolean]
+  -q, --search              filter sessions by title                                        [string]
+  -o, --output              write sessions list to output file path                         [string]
+      --json                output JSON                                                    [boolean]"
+`;
+
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode session list --help 1`] = `
 "lmplayer session list
 
@@ -725,6 +744,7 @@ Options:
       --roots               only show root sessions                        [boolean] [default: true]
   -a, --all                 show sessions across all projects (global)                     [boolean]
   -q, --search              filter sessions by title                                        [string]
+  -o, --output              write sessions list to output file path                         [string]
       --format              output format              [choices: "table", "json"] [default: "table"]"
 `;
 
@@ -800,6 +820,26 @@ Options:
   -n, --lines, --limit  number of messages to print                           [number] [default: 20]
   -o, --output          write messages to output file path                                  [string]
       --json            output JSON                                                        [boolean]"
+`;
+
+exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode session crons --help 1`] = `
+"lmplayer session crons <sessionID>
+
+inspect scheduled cron jobs for a session
+
+Positionals:
+  sessionID  session ID to inspect                                               [string] [required]
+
+Options:
+  -h, --help        show help                                                              [boolean]
+  -v, --version     show version number                                                    [boolean]
+      --print-logs  print logs to stderr                                                   [boolean]
+      --log-level   log level                   [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
+      --pure        run without external plugins                                           [boolean]
+  -c, --cron        specific cron ID to inspect                                             [string]
+  -d, --delete      cron ID to delete/cancel                                                [string]
+  -o, --output      write crons report to output file path                                  [string]
+      --json        output JSON                                                            [boolean]"
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode models list --help 1`] = `
