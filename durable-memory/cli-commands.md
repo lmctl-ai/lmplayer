@@ -4,7 +4,7 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
 (PATH=/tmp/opencode/.bun/bin). Once the binary is renamed/installed: `lmcode <cmd>`.
 
 ## Discover models & entitlements
-- `models [provider]` (and `models list [provider]`, alias `models ls`) — list models (text).
+- `models [provider]` (and `models list [provider]`, alias `models ls`) `[--output file|-o file]` — list models (text), with direct file export.
 - `models [provider] --search <query>` (aliases `-q`, `--query`) — filter models matching query substring in model ID, model name, or provider ID.
 - `models [provider] --reasoning` (alias `-r`) — filter models supporting reasoning effort / thinking.
 - `models [provider] --toolcall` (alias `--tools`) — filter models supporting tool calling.
@@ -12,10 +12,10 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
 - `models [provider] --min-context <tokens>` — filter models with context window at least `<tokens>`.
 - `models [provider] --json` — machine-readable array: {id, provider, name, limit, capabilities, variants[]}.
   `variants[]` are the reasoning-EFFORT choices for that model (low/medium/high/xhigh/max).
-- `models show <model>` (alias `get`) `[--json]` — inspect detailed configuration, limits, capabilities, reasoning-effort variants, and token pricing rates for a specific model.
+- `models show <model>` (alias `get`) `[--output file|-o file] [--json]` — inspect detailed configuration, limits, capabilities, reasoning-effort variants, and token pricing rates for a specific model, with direct file export.
 - `models [provider] --refresh` — refresh models.dev cache.
 - `models verify <model> [--effort <tier>] [--output file|-o file] [--json]` — verify a model is known and available (format, provider, auth, effort), with structured JSON output and file export.
-- `models test [provider] [--json] [--timeout ms] [--concurrency n]` — probe each entitled model with a single turn prompt, reporting OK/FAIL (exit non-zero on any fail). Also accepts `--test` flag on `models`.
+- `models test [provider] [--output file|-o file] [--json] [--timeout ms] [--concurrency n]` — probe each entitled model with a single turn prompt, reporting OK/FAIL (exit non-zero on any fail), with direct file export. Also accepts `--test` flag on `models`.
 - `auth list` (alias `providers list`, `providers ls`) `[--search q|-q q] [--all|-a] [--output file|-o file] [--json]` — authed providers (or all catalog providers with `--all`), each with its entitled model ids indented, search filtering, and file export.
 - `auth list --json` (alias `providers list --json`) — {credentials_path, providers:[{id,name,type,source,authenticated,models:[{id,variants}]}]}.
   "Authed" = credentials in auth.json + active provider env vars (auth wins on overlap). Needs an instance.
@@ -35,7 +35,7 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
   `--json` parses value as JSON (subtree). e.g. `config set model github-copilot/gpt-5.4`.
 - `config unset <key>` — delete a key (validate-before-write).
 - `config list` (alias `ls`) `[--output file|-o file]` — list merged effective or scoped configuration, with direct file export.
-- `config path [--scope project|global] [--project|-p] [--global|-g] [--json]` — print resolved configuration file path(s) (project candidate in cwd, global config in `~/.config/lmplayer`, or active sources provenance).
+- `config path [--scope project|global] [--project|-p] [--global|-g] [--output file|-o file] [--json]` — print resolved configuration file path(s) (project candidate in cwd, global config in `~/.config/lmplayer`, or active sources provenance), with direct file export.
 - `config verify [--output file|-o file] [--json]` — validate effective config; prints "Config OK" + model/small_model/default_agent/default_variant (or writes report / outputs structured JSON with sources and defaults),
   or readable issues (file + `dot.path: message`) with exit 1. Same readable error fails fast at launch.
 - Dotted-key limitation: keys containing literal dots (some mcp names) need `--json` subtree set.

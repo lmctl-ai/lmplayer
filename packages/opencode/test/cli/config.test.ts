@@ -330,7 +330,7 @@ describe("opencode config (cli command)", () => {
   )
 
   cliIt.concurrent(
-    "supports --json and --output for config verify, get, and list",
+    "supports --json and --output for config verify, get, list, and path",
     ({ home, opencode }) =>
       Effect.gen(function* () {
         // Set model in global config
@@ -366,6 +366,22 @@ describe("opencode config (cli command)", () => {
         opencode.expectExit(listOutRes, 0)
         const listFileContent = JSON.parse(yield* Effect.promise(() => fs.readFile(listOutFile, "utf-8")))
         expect(listFileContent.model).toBe("test-provider/test-model")
+
+        // 5. config path --global --output
+        const pathOutFile = path.join(home, "config-path.txt")
+        const pathOutRes = yield* run(opencode, ["config", "path", "--global", "-o", pathOutFile])
+        opencode.expectExit(pathOutRes, 0)
+        const pathFileContent = (yield* Effect.promise(() => fs.readFile(pathOutFile, "utf-8"))).trim()
+        expect(pathFileContent).toContain(path.join(home, ".config", "lmplayer"))
+
+        // 6. config path --json --output
+        const pathJsonOutFile = path.join(home, "config-path.json")
+        const pathJsonOutRes = yield* run(opencode, ["config", "path", "--json", "-o", pathJsonOutFile])
+        opencode.expectExit(pathJsonOutRes, 0)
+        const pathJsonFileContent = JSON.parse(yield* Effect.promise(() => fs.readFile(pathJsonOutFile, "utf-8")))
+        expect(pathJsonFileContent.global).toBeDefined()
+        expect(pathJsonFileContent.project).toBeDefined()
+        expect(Array.isArray(pathJsonFileContent.sources)).toBe(true)
       }),
     60_000,
   )

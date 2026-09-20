@@ -388,11 +388,23 @@ export const ConfigPathCommand = effectCmd({
   command: "path",
   describe: "print configuration file path",
   builder: (yargs) =>
-    addScopeOptions(yargs).option("json", {
-      describe: "output JSON",
-      type: "boolean",
-    }),
-  handler: Effect.fn("Cli.config.path")(function* (args) {
+    addScopeOptions(yargs)
+      .option("output", {
+        alias: "o",
+        describe: "write config path to output file path",
+        type: "string",
+      })
+      .option("json", {
+        describe: "output JSON",
+        type: "boolean",
+      }),
+  handler: Effect.fn("Cli.config.path")(function* (args: {
+    scope?: "project" | "global"
+    project?: boolean
+    global?: boolean
+    output?: string
+    json?: boolean
+  }) {
     const { globalConfigFile, projectConfigFile } = yield* Effect.promise(() => import("@/config/config"))
     const isProject = args.project || args.scope === "project"
     const isGlobal = args.global || args.scope === "global"
@@ -400,32 +412,47 @@ export const ConfigPathCommand = effectCmd({
     const projectFile = projectConfigFile(process.cwd())
     const globalFile = globalConfigFile()
 
+    let textContent = ""
+    let jsonContent: unknown = undefined
+
     if (args.json) {
       const sources = configSources(process.cwd())
-      const result = {
+      jsonContent = {
         project: projectFile,
         global: globalFile,
         sources,
         selected: isProject ? projectFile : isGlobal ? globalFile : undefined,
       }
-      process.stdout.write(JSON.stringify(result, null, 2) + EOL)
+    } else if (isProject) {
+      textContent = projectFile + EOL
+    } else if (isGlobal) {
+      textContent = globalFile + EOL
+    } else {
+      const sources = configSources(process.cwd())
+      textContent = sources.join(EOL) + EOL
+    }
+
+    if (args.output) {
+      const resolved = path.resolve(args.output)
+      yield* Effect.promise(async () => {
+        const fs = await import("fs/promises")
+        await fs.mkdir(path.dirname(resolved), { recursive: true })
+        if (args.json) {
+          await fs.writeFile(resolved, JSON.stringify(jsonContent, null, 2) + EOL, "utf-8")
+        } else {
+          await fs.writeFile(resolved, textContent, "utf-8")
+        }
+      })
+      UI.println(`Wrote config path to ${resolved}`)
       return
     }
 
-    if (isProject) {
-      process.stdout.write(projectFile + EOL)
+    if (args.json) {
+      process.stdout.write(JSON.stringify(jsonContent, null, 2) + EOL)
       return
     }
 
-    if (isGlobal) {
-      process.stdout.write(globalFile + EOL)
-      return
-    }
-
-    const sources = configSources(process.cwd())
-    for (const source of sources) {
-      process.stdout.write(source + EOL)
-    }
+    process.stdout.write(textContent)
   }),
 })
 

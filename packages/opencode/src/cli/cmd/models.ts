@@ -271,6 +271,16 @@ export const ModelsVerifyCommand = effectCmd({
   }),
 })
 
+function* writeOutputFile(filePath: string, content: string, label: string) {
+  const resolved = path.resolve(filePath)
+  yield* Effect.promise(async () => {
+    const fs = await import("fs/promises")
+    await fs.mkdir(path.dirname(resolved), { recursive: true })
+    await fs.writeFile(resolved, content, "utf-8")
+  })
+  UI.println(`Wrote ${label} to ${resolved}`)
+}
+
 // ─── test subcommand ─────────────────────────────────────────────────────────
 
 export const ModelsTestCommand = effectCmd({
@@ -280,6 +290,11 @@ export const ModelsTestCommand = effectCmd({
     yargs
       .positional("provider", {
         describe: "provider ID to filter models by",
+        type: "string",
+      })
+      .option("output", {
+        alias: "o",
+        describe: "write probe results to output file path",
         type: "string",
       })
       .option("json", {
@@ -296,7 +311,13 @@ export const ModelsTestCommand = effectCmd({
         type: "number",
         default: 1,
       }),
-  handler: Effect.fn("Cli.models.test")(function* (args) {
+  handler: Effect.fn("Cli.models.test")(function* (args: {
+    provider?: string
+    output?: string
+    json?: boolean
+    timeout: number
+    concurrency: number
+  }) {
     const { Provider } = yield* Effect.promise(() => import("@/provider/provider"))
     const provider = yield* Provider.Service
     const providers = yield* provider.list()
@@ -315,6 +336,7 @@ export const ModelsTestCommand = effectCmd({
     yield* Effect.promise(() =>
       runModelTests(targets, {
         json: Boolean(args.json),
+        output: args.output,
         timeout: args.timeout,
         concurrency: args.concurrency,
       }),
@@ -324,7 +346,11 @@ export const ModelsTestCommand = effectCmd({
 
 // ─── show subcommand ─────────────────────────────────────────────────────────
 
-export const modelsShow = Effect.fn("Cli.models.show")(function* (args: { model: string; json?: boolean }) {
+export const modelsShow = Effect.fn("Cli.models.show")(function* (args: {
+  model: string
+  json?: boolean
+  output?: string
+}) {
   const { Provider } = yield* Effect.promise(() => import("@/provider/provider"))
   const providerSvc = yield* Provider.Service
   const providers = yield* providerSvc.list()
@@ -397,7 +423,52 @@ export const modelsShow = Effect.fn("Cli.models.show")(function* (args: { model:
 
   if (args.json) {
     const out = modelToDetailJson(providerID, modelID, modelResult, providerName)
-    process.stdout.write(JSON.stringify(out, null, 2) + EOL)
+    const jsonStr = JSON.stringify(out, null, 2) + EOL
+    if (args.output) {
+      yield* writeOutputFile(args.output, jsonStr, "model details")
+      return
+    }
+    process.stdout.write(jsonStr)
+    return
+  }
+
+  if (args.output) {
+    const lines: string[] = [
+      `${modelResult.name} (${providerID}/${modelID})`,
+      `Provider: ${providerName} (${providerID})`,
+    ]
+    if (modelResult.family) lines.push(`Family: ${modelResult.family}`)
+    lines.push(`Status: ${modelResult.status}`)
+    if (modelResult.release_date) lines.push(`Release Date: ${modelResult.release_date}`)
+
+    lines.push(`Limits:`)
+    lines.push(`  Context: ${modelResult.limit?.context?.toLocaleString() ?? "unspecified"} tokens`)
+    if (modelResult.limit?.input !== undefined) {
+      lines.push(`  Input: ${modelResult.limit.input.toLocaleString()} tokens`)
+    }
+    lines.push(`  Output: ${modelResult.limit?.output?.toLocaleString() ?? "unspecified"} tokens`)
+
+    lines.push(`Capabilities:`)
+    lines.push(`  Reasoning: ${modelResult.capabilities?.reasoning ? "yes" : "no"}`)
+    lines.push(`  Tool Calling: ${modelResult.capabilities?.toolcall ? "yes" : "no"}`)
+    lines.push(`  Attachments: ${modelResult.capabilities?.attachment ? "yes" : "no"}`)
+    lines.push(`  Temperature: ${modelResult.capabilities?.temperature ? "yes" : "no"}`)
+
+    const variants = Object.keys(modelResult.variants ?? {})
+    if (variants.length > 0) {
+      lines.push(`Reasoning Effort Variants:`)
+      lines.push(`  ${variants.join(", ")}`)
+    }
+
+    if (modelResult.cost) {
+      lines.push(`Cost (per 1M tokens):`)
+      lines.push(`  Input: $${modelResult.cost.input.toFixed(2)}`)
+      lines.push(`  Output: $${modelResult.cost.output.toFixed(2)}`)
+      lines.push(`  Cache Read: $${modelResult.cost.cache.read.toFixed(2)}`)
+      lines.push(`  Cache Write: $${modelResult.cost.cache.write.toFixed(2)}`)
+    }
+
+    yield* writeOutputFile(args.output, lines.join(EOL) + EOL, "model details")
     return
   }
 
@@ -450,13 +521,23 @@ export const ModelsShowCommand = effectCmd({
         type: "string",
         demandOption: true,
       })
+      .option("output", {
+        alias: "o",
+        describe: "write model details to output file path",
+        type: "string",
+      })
       .option("json", {
         describe: "output as JSON",
         type: "boolean",
       }),
-  handler: Effect.fn("Cli.models.show.cmd")(function* (args) {
+  handler: Effect.fn("Cli.models.show.cmd")(function* (args: {
+    model?: string
+    output?: string
+    json?: boolean
+  }) {
     yield* modelsShow({
       model: args.model!,
+      output: args.output,
       json: Boolean(args.json),
     })
   }),
@@ -574,6 +655,12 @@ export const addModelsListOptions = <T>(yargs: Argv<T>) =>
       type: "number",
       global: false,
     })
+    .option("output", {
+      alias: "o",
+      describe: "write models list to output file path",
+      type: "string",
+      global: false,
+    })
     .option("verbose", {
       describe: "use more verbose model output (includes metadata like costs)",
       type: "boolean",
@@ -603,6 +690,7 @@ export const modelsList = Effect.fn("Cli.models.list")(function* (args: {
   attachments?: boolean
   "min-context"?: number
   minContext?: number
+  output?: string
   verbose?: boolean
   json?: boolean
   refresh?: boolean
@@ -640,6 +728,7 @@ export const modelsList = Effect.fn("Cli.models.list")(function* (args: {
     yield* Effect.promise(() =>
       runModelTests(targets, {
         json: Boolean(args.json),
+        output: args.output,
         timeout: args.timeout ?? 60000,
         concurrency: args.concurrency ?? 1,
       }),
@@ -655,15 +744,22 @@ export const modelsList = Effect.fn("Cli.models.list")(function* (args: {
       .sort(([a], [b]) => a.localeCompare(b))
   }
 
-  const print = (providerID: ProviderV2.ID, verbose?: boolean) => {
+  const formatModels = (providerID: ProviderV2.ID, verbose?: boolean): string[] => {
+    const lines: string[] = []
     const models = getFilteredModels(providerID)
     for (const [modelID, model] of models) {
-      process.stdout.write(`${providerID}/${modelID}`)
-      process.stdout.write(EOL)
+      lines.push(`${providerID}/${modelID}`)
       if (verbose) {
-        process.stdout.write(JSON.stringify(model, null, 2))
-        process.stdout.write(EOL)
+        lines.push(JSON.stringify(model, null, 2))
       }
+    }
+    return lines
+  }
+
+  const print = (providerID: ProviderV2.ID, verbose?: boolean) => {
+    const lines = formatModels(providerID, verbose)
+    for (const line of lines) {
+      process.stdout.write(line + EOL)
     }
   }
 
@@ -678,8 +774,17 @@ export const modelsList = Effect.fn("Cli.models.list")(function* (args: {
     const providerID = ProviderV2.ID.make(args.provider)
     if (!providers[providerID]) return yield* fail(`Provider not found: ${args.provider}`)
     if (args.json) {
-      process.stdout.write(JSON.stringify(toJson(providerID), null, 2))
-      process.stdout.write(EOL)
+      const jsonStr = JSON.stringify(toJson(providerID), null, 2) + EOL
+      if (args.output) {
+        yield* writeOutputFile(args.output, jsonStr, "models list")
+        return
+      }
+      process.stdout.write(jsonStr)
+      return
+    }
+    if (args.output) {
+      const lines = formatModels(providerID, args.verbose)
+      yield* writeOutputFile(args.output, lines.join(EOL) + (lines.length > 0 ? EOL : ""), "models list")
       return
     }
     print(providerID, args.verbose)
@@ -696,8 +801,18 @@ export const modelsList = Effect.fn("Cli.models.list")(function* (args: {
 
   if (args.json) {
     const all = ids.flatMap((providerID) => toJson(ProviderV2.ID.make(providerID)))
-    process.stdout.write(JSON.stringify(all, null, 2))
-    process.stdout.write(EOL)
+    const jsonStr = JSON.stringify(all, null, 2) + EOL
+    if (args.output) {
+      yield* writeOutputFile(args.output, jsonStr, "models list")
+      return
+    }
+    process.stdout.write(jsonStr)
+    return
+  }
+
+  if (args.output) {
+    const lines = ids.flatMap((providerID) => formatModels(ProviderV2.ID.make(providerID), args.verbose))
+    yield* writeOutputFile(args.output, lines.join(EOL) + (lines.length > 0 ? EOL : ""), "models list")
     return
   }
 
@@ -754,7 +869,7 @@ type ProbeResult = { id: string; ok: boolean; ms: number; error: string | null }
 // claude-* via copilot) shows up as FAIL instead of a green listing.
 async function runModelTests(
   targets: Array<{ providerID: string; modelID: string }>,
-  opts: { json: boolean; timeout: number; concurrency: number },
+  opts: { json: boolean; output?: string; timeout: number; concurrency: number },
 ) {
   const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const { Server } = await import("@/server/server")
@@ -794,6 +909,23 @@ async function runModelTests(
   results.sort((a, b) => a.id.localeCompare(b.id))
   const okCount = results.filter((r) => r.ok).length
   const failCount = results.length - okCount
+
+  if (opts.output) {
+    const resolved = path.resolve(opts.output)
+    const fs = await import("fs/promises")
+    await fs.mkdir(path.dirname(resolved), { recursive: true })
+    if (opts.json) {
+      await fs.writeFile(resolved, JSON.stringify(results, null, 2) + EOL, "utf-8")
+    } else {
+      const lines = results.map((r) =>
+        r.ok ? `OK   ${r.id}  (${r.ms}ms)` : `FAIL ${r.id}  (${r.ms}ms)  ${r.error ?? ""}`,
+      )
+      lines.push("")
+      lines.push(`${okCount} ok, ${failCount} failed`)
+      await fs.writeFile(resolved, lines.join(EOL) + EOL, "utf-8")
+    }
+    UI.println(`Wrote probe results to ${resolved}`)
+  }
 
   if (opts.json) {
     process.stdout.write(JSON.stringify(results, null, 2) + EOL)
