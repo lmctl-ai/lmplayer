@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { Effect } from "effect"
+import path from "path"
+import fs from "fs/promises"
 import { ExportCommand, runExport } from "../../src/cli/cmd/export"
 import { ImportCommand, runImport } from "../../src/cli/cmd/import"
 import { cliIt } from "../lib/cli-process"
@@ -23,6 +25,8 @@ describe("export and import command definitions & builders", () => {
     const options = (parser as any).getOptions()
     expect(options.key.title).toBeDefined()
     expect(options.key.json).toBeDefined()
+    expect(options.key.output).toBeDefined()
+    expect(options.alias.output).toContain("o")
   })
 })
 
@@ -51,7 +55,7 @@ describe("session export and import (CLI)", () => {
 
   cliIt.concurrent(
     "exports session to file with and without --json, and imports it with custom title",
-    ({ llm, opencode }) =>
+    ({ home, llm, opencode }) =>
       Effect.gen(function* () {
         yield* llm.text("hello world from export test")
         const runRes = yield* opencode.run("hello export", { format: "json" })
@@ -117,6 +121,37 @@ describe("session export and import (CLI)", () => {
         opencode.expectExit(reportRes, 0)
         const reportData = JSON.parse(reportRes.stdout)
         expect(reportData.sessionID).toBe(sessionID)
+
+        // 7. Import with -o output file (text mode)
+        const textOutFile = path.join(home, "import-result.txt")
+        const importOutRes = yield* opencode.spawn([
+          "session",
+          "import",
+          "session-backup.json",
+          "-o",
+          textOutFile,
+        ])
+        opencode.expectExit(importOutRes, 0)
+        expect(importOutRes.stdout).toContain("Wrote import result to")
+        const importOutContent = yield* Effect.promise(() => fs.readFile(textOutFile, "utf-8"))
+        expect(importOutContent).toContain(`Imported session: ${sessionID}`)
+
+        // 8. Import with --output and --json
+        const jsonOutFile = path.join(home, "import-result.json")
+        const importJsonOutRes = yield* opencode.spawn([
+          "session",
+          "import",
+          "session-backup.json",
+          "--output",
+          jsonOutFile,
+          "--json",
+        ])
+        opencode.expectExit(importJsonOutRes, 0)
+        expect(importJsonOutRes.stdout).toContain("Wrote import result to")
+        const importJsonContent = yield* Effect.promise(() => fs.readFile(jsonOutFile, "utf-8"))
+        const parsedImportJson = JSON.parse(importJsonContent)
+        expect(parsedImportJson.ok).toBe(true)
+        expect(parsedImportJson.id).toBe(sessionID)
       }),
     60_000,
   )

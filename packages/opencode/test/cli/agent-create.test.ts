@@ -572,6 +572,9 @@ describe("AgentCloneCommand builder and handler", () => {
     expect(options.key.model).toBeDefined()
     expect(options.key.force).toBeDefined()
     expect(options.key.json).toBeDefined()
+    expect(options.key.output).toBeDefined()
+    expect(options.string).toContain("output")
+    expect(options.alias.output).toContain("o")
   })
 
   test("clones a built-in agent with overrides, preserves prompt, and outputs json", async () => {
@@ -642,6 +645,36 @@ describe("AgentCloneCommand builder and handler", () => {
       const overwrittenContent = await fs.readFile(targetFile, "utf-8")
       const overwrittenParsed = matter(overwrittenContent)
       expect(overwrittenParsed.data.description).toBe("Overwritten build agent")
+
+      // 6. Cloning with -o output file writes human text summary
+      const textOutFile = path.join(dir, "clone-result.txt")
+      await runClone(
+        {
+          source: "build",
+          target: "agent-text-out",
+          output: textOutFile,
+        },
+        ctx,
+      )
+      const textContent = await fs.readFile(textOutFile, "utf-8")
+      expect(textContent).toContain('Agent "build" cloned to "agent-text-out"')
+
+      // 7. Cloning with --output and --json writes JSON summary
+      const jsonOutFile = path.join(dir, "clone-result.json")
+      await runClone(
+        {
+          source: "build",
+          target: "agent-json-out",
+          json: true,
+          output: jsonOutFile,
+        },
+        ctx,
+      )
+      const jsonContent = await fs.readFile(jsonOutFile, "utf-8")
+      const parsedCloneJson = JSON.parse(jsonContent)
+      expect(parsedCloneJson.source).toBe("build")
+      expect(parsedCloneJson.target).toBe("agent-json-out")
+      expect(parsedCloneJson.file).toContain("agent-json-out.md")
     } finally {
       await InstanceRuntime.disposeInstance(ctx)
     }

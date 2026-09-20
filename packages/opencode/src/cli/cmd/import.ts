@@ -3,6 +3,7 @@ import { SessionV1 } from "@opencode-ai/core/v1/session"
 import { Session } from "@/session/session"
 import { MessageV2 } from "../../session/message-v2"
 import { CliError, effectCmd, fail } from "../effect-cmd"
+import { UI } from "../ui"
 import { Database } from "@opencode-ai/core/database/database"
 import { SessionTable, MessageTable, PartTable } from "@opencode-ai/core/session/sql"
 import { InstanceRef } from "@/effect/instance-ref"
@@ -95,6 +96,7 @@ export type ImportArgs = {
   file: string
   title?: string
   json?: boolean
+  output?: string
 }
 
 export type ImportResultJson = {
@@ -118,6 +120,11 @@ export const ImportCommand = effectCmd({
       })
       .option("title", {
         describe: "override title of imported session",
+        type: "string",
+      })
+      .option("output", {
+        alias: "o",
+        describe: "write import result to output file path",
         type: "string",
       })
       .option("json", {
@@ -252,19 +259,36 @@ export const runImport = Effect.fn("Cli.import.body")(function* (
     }
   }
 
-  if (options.json) {
-    const result: ImportResultJson = {
-      ok: true,
-      id: row.id,
-      title: row.title,
-      messages: exportData.messages?.length ?? 0,
-      parts: partCount,
-      file,
-    }
-    process.stdout.write(JSON.stringify(result, null, 2) + EOL)
-    return result
+  const summaryPayload: ImportResultJson = {
+    ok: true,
+    id: row.id,
+    title: row.title,
+    messages: exportData.messages?.length ?? 0,
+    parts: partCount,
+    file,
+  }
+  const summaryText = `Imported session: ${row.id}`
+
+  if (options.output) {
+    const resolved = path.resolve(options.output)
+    yield* Effect.promise(async () => {
+      const fs = await import("fs/promises")
+      await fs.mkdir(path.dirname(resolved), { recursive: true })
+      if (options.json) {
+        await fs.writeFile(resolved, JSON.stringify(summaryPayload, null, 2) + EOL, "utf-8")
+      } else {
+        await fs.writeFile(resolved, summaryText + EOL, "utf-8")
+      }
+    })
+    process.stdout.write(`Wrote import result to ${resolved}${EOL}`)
+    return summaryPayload
   }
 
-  process.stdout.write(`Imported session: ${row.id}${EOL}`)
+  if (options.json) {
+    process.stdout.write(JSON.stringify(summaryPayload, null, 2) + EOL)
+    return summaryPayload
+  }
+
+  process.stdout.write(summaryText + EOL)
   return { ok: true, id: row.id }
 })
