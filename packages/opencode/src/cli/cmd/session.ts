@@ -58,6 +58,16 @@ function pagerCmd(): string[] {
   return ["cmd", "/c", "more"]
 }
 
+function* writeOutputFile(filePath: string, content: string, label: string) {
+  const resolved = path.resolve(filePath)
+  yield* Effect.promise(async () => {
+    const fs = await import("fs/promises")
+    await fs.mkdir(path.dirname(resolved), { recursive: true })
+    await fs.writeFile(resolved, content, "utf-8")
+  })
+  UI.println(`Wrote ${label} to ${resolved}`)
+}
+
 export const SessionCommand = cmd({
   command: "session",
   describe: "manage sessions",
@@ -183,11 +193,23 @@ export const SessionTailCommand = effectCmd({
         type: "number",
         default: 20,
       })
+      .option("output", {
+        alias: "o",
+        describe: "write messages to output file path",
+        type: "string",
+      })
       .option("json", {
         describe: "output JSON",
         type: "boolean",
       }),
-  handler: Effect.fn("Cli.session.tail")(function* (args) {
+  handler: Effect.fn("Cli.session.tail")(function* (args: {
+    sessionID: string
+    lines?: number
+    n?: number
+    limit?: number
+    output?: string
+    json?: boolean
+  }) {
     const sdk = yield* localSdk()
     const info = yield* Effect.promise(() => sdk.session.get({ sessionID: args.sessionID }).then((r) => r.data))
     if (!info) return yield* fail(`Session not found: ${args.sessionID}`)
@@ -216,7 +238,18 @@ export const SessionTailCommand = effectCmd({
     })
 
     if (args.json) {
-      process.stdout.write(JSON.stringify(rows, null, 2) + "\n")
+      const jsonStr = JSON.stringify(rows, null, 2) + EOL
+      if (args.output) {
+        yield* writeOutputFile(args.output, jsonStr, "messages")
+        return
+      }
+      process.stdout.write(jsonStr)
+      return
+    }
+
+    if (args.output) {
+      const textLines = rows.map((row) => `${row.role}: ${row.text}`)
+      yield* writeOutputFile(args.output, textLines.join(EOL) + (textLines.length > 0 ? EOL : ""), "messages")
       return
     }
 
@@ -237,11 +270,20 @@ export const SessionShowCommand = effectCmd({
         type: "string",
         demandOption: true,
       })
+      .option("output", {
+        alias: "o",
+        describe: "write session details to output file path",
+        type: "string",
+      })
       .option("json", {
         describe: "output JSON",
         type: "boolean",
       }),
-  handler: Effect.fn("Cli.session.show")(function* (args) {
+  handler: Effect.fn("Cli.session.show")(function* (args: {
+    sessionID: string
+    output?: string
+    json?: boolean
+  }) {
     const sdk = yield* localSdk()
     const info = yield* Effect.promise(() => sdk.session.get({ sessionID: args.sessionID }).then((r) => r.data))
     if (!info) return yield* fail(`Session not found: ${args.sessionID}`)
@@ -320,7 +362,7 @@ export const SessionShowCommand = effectCmd({
     )
 
     if (args.json) {
-      process.stdout.write(
+      const jsonStr =
         JSON.stringify(
           {
             id: info.id,
@@ -363,8 +405,32 @@ export const SessionShowCommand = effectCmd({
           },
           null,
           2,
-        ) + EOL,
-      )
+        ) + EOL
+      if (args.output) {
+        yield* writeOutputFile(args.output, jsonStr, "session details")
+        return
+      }
+      process.stdout.write(jsonStr)
+      return
+    }
+
+    if (args.output) {
+      const lines = [
+        `${info.title} (${info.id})`,
+        ...(directory ? [`  Directory:  ${directory}`] : []),
+        ...(info.parentID ? [`  Parent:     ${info.parentID}`] : []),
+        ...(effectiveModel ? [`  Model:      ${effectiveProvider}/${effectiveModel}${modelVariant ? ` (${modelVariant})` : ""}`] : []),
+        ...(info.agent ? [`  Agent:      ${info.agent}`] : []),
+        `  Status:     ${statusRes.type}`,
+        `  Created:    ${Locale.todayTimeOrDateTime(info.time.created)}`,
+        `  Updated:    ${Locale.todayTimeOrDateTime(info.time.updated)}`,
+        `  Messages:   ${msgs.length} (${userTurns} user, ${assistantTurns} assistant${toolCalls > 0 ? `, ${toolCalls} tool calls` : ""})`,
+        `  Tokens:     ${totalTokens.toLocaleString()} (in: ${inputTokens.toLocaleString()}, out: ${outputTokens.toLocaleString()}${reasoningTokens > 0 ? `, reasoning: ${reasoningTokens.toLocaleString()}` : ""}${cacheReadTokens > 0 ? `, cache read: ${cacheReadTokens.toLocaleString()}` : ""})`,
+        `  Cost:       $${totalCost.toFixed(4)}`,
+        ...(memoryInfo.exists ? [`  Memory:     recorded (${memoryInfo.bytes} bytes)`] : []),
+        ...(shareUrl ? [`  Share:      ${shareUrl}`] : []),
+      ]
+      yield* writeOutputFile(args.output, lines.join(EOL) + EOL, "session details")
       return
     }
 
@@ -409,11 +475,20 @@ export const SessionStatusCommand = effectCmd({
         describe: "session ID to inspect status for",
         type: "string",
       })
+      .option("output", {
+        alias: "o",
+        type: "string",
+        describe: "write status to output file path",
+      })
       .option("json", {
         describe: "output JSON",
         type: "boolean",
       }),
-  handler: Effect.fn("Cli.session.status")(function* (args) {
+  handler: Effect.fn("Cli.session.status")(function* (args: {
+    sessionID?: string
+    output?: string
+    json?: boolean
+  }) {
     const sdk = yield* localSdk()
     const statusRes = yield* Effect.promise(() => sdk.session.status())
     const statusMap = statusRes.data ?? {}
@@ -424,7 +499,7 @@ export const SessionStatusCommand = effectCmd({
 
       const status = statusMap[args.sessionID] ?? { type: "idle" as const }
       if (args.json) {
-        process.stdout.write(
+        const jsonStr =
           JSON.stringify(
             {
               id: args.sessionID,
@@ -432,8 +507,24 @@ export const SessionStatusCommand = effectCmd({
             },
             null,
             2,
-          ) + EOL,
-        )
+          ) + EOL
+        if (args.output) {
+          yield* writeOutputFile(args.output, jsonStr, "status")
+          return
+        }
+        process.stdout.write(jsonStr)
+        return
+      }
+
+      let text = `Session ${args.sessionID}: idle`
+      if (status.type === "busy") {
+        text = `Session ${args.sessionID}: busy (active run in progress)`
+      } else if (status.type === "retry") {
+        text = `Session ${args.sessionID}: retry (attempt ${status.attempt}: ${status.message})`
+      }
+
+      if (args.output) {
+        yield* writeOutputFile(args.output, text + EOL, "status")
         return
       }
 
@@ -457,7 +548,25 @@ export const SessionStatusCommand = effectCmd({
 
     const entries = Object.entries(statusMap)
     if (args.json) {
-      process.stdout.write(JSON.stringify(statusMap, null, 2) + EOL)
+      const jsonStr = JSON.stringify(statusMap, null, 2) + EOL
+      if (args.output) {
+        yield* writeOutputFile(args.output, jsonStr, "status")
+        return
+      }
+      process.stdout.write(jsonStr)
+      return
+    }
+
+    if (args.output) {
+      const lines =
+        entries.length === 0
+          ? ["No active sessions (all sessions idle)"]
+          : entries.map(([id, s]) => {
+              const typeStr =
+                s.type === "busy" ? "busy" : s.type === "retry" ? `retry (attempt ${s.attempt})` : s.type
+              return `${id}: ${typeStr}`
+            })
+      yield* writeOutputFile(args.output, lines.join(EOL) + EOL, "status")
       return
     }
 
