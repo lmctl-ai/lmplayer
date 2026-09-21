@@ -1,16 +1,24 @@
 import { EOL } from "os"
+import path from "node:path"
 import { Effect } from "effect"
 import { Catalog } from "@opencode-ai/core/catalog"
 import { LocationServiceMap, locationServiceMapLayer } from "@opencode-ai/core/location-services"
 import { Location } from "@opencode-ai/core/location"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { effectCmd } from "../../effect-cmd"
+import { UI } from "@/cli/ui"
 
 export const V2Command = effectCmd({
   command: "v2",
   describe: "debug v2 catalog and built-in plugins",
   instance: false,
-  handler: () =>
+  builder: (yargs) =>
+    yargs.option("output", {
+      alias: "o",
+      type: "string",
+      describe: "write v2 debug info to output file path",
+    }),
+  handler: (args: { output?: string }) =>
     Effect.gen(function* () {
       const catalog = yield* Catalog.Service
       const providers = (yield* catalog.provider.available()).sort((a, b) => a.id.localeCompare(b.id))
@@ -27,7 +35,18 @@ export const V2Command = effectCmd({
           ),
         ),
       }
-      process.stdout.write(JSON.stringify(result, null, 2) + EOL)
+      const json = JSON.stringify(result, null, 2) + EOL
+      if (args.output) {
+        const resolved = path.resolve(args.output)
+        yield* Effect.promise(async () => {
+          const fs = await import("node:fs/promises")
+          await fs.mkdir(path.dirname(resolved), { recursive: true })
+          await fs.writeFile(resolved, json, "utf-8")
+        })
+        UI.println(`Wrote v2 debug info to ${resolved}`)
+        return
+      }
+      process.stdout.write(json)
     }).pipe(
       Effect.withSpan("Cli.debug.v2"),
       Effect.provide(
