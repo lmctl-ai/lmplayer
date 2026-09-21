@@ -188,4 +188,45 @@ describe("opencode mcp add (non-interactive subprocess)", () => {
       }),
     60_000,
   )
+
+  cliIt.concurrent(
+    "adds an MCP server with -o output file (text) and --output --json (json)",
+    ({ home, opencode }) =>
+      Effect.gen(function* () {
+        const textOutFile = path.join(home, "mcp-add-out.txt")
+        const resText = yield* opencode.spawn([
+          "mcp",
+          "add",
+          "text-server",
+          "--url",
+          "https://example.com/text",
+          "-o",
+          textOutFile,
+        ])
+        opencode.expectExit(resText, 0)
+        expect(resText.stderr).toContain("Wrote MCP add result to")
+        const textContent = yield* Effect.promise(() => fs.readFile(textOutFile, "utf-8"))
+        expect(textContent).toContain('MCP server "text-server" added to')
+
+        const jsonOutFile = path.join(home, "mcp-add-out.json")
+        const resJson = yield* opencode.spawn([
+          "mcp",
+          "add",
+          "json-server",
+          "--url",
+          "https://example.com/json",
+          "--output",
+          jsonOutFile,
+          "--json",
+        ])
+        opencode.expectExit(resJson, 0)
+        expect(resJson.stderr).toContain("Wrote MCP add result to")
+        const jsonContent = yield* Effect.promise(() => fs.readFile(jsonOutFile, "utf-8"))
+        const parsedJson = JSON.parse(jsonContent)
+        expect(parsedJson.ok).toBe(true)
+        expect(parsedJson.name).toBe("json-server")
+        expect(parsedJson.type).toBe("remote")
+      }),
+    60_000,
+  )
 })

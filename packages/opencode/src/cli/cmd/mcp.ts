@@ -929,6 +929,15 @@ export const McpAddCommand = effectCmd({
         alias: ["p"],
         describe: "add to project config (equivalent to --scope project)",
         type: "boolean",
+      })
+      .option("json", {
+        type: "boolean",
+        describe: "output JSON",
+      })
+      .option("output", {
+        alias: "o",
+        type: "string",
+        describe: "write MCP server add result to output file path",
       }),
   handler: Effect.fn("Cli.mcp.add")(function* (args) {
     const maybeCtx = yield* InstanceRef
@@ -986,7 +995,34 @@ export const McpAddCommand = effectCmd({
           ? await resolveConfigPath(projectDir, false)
           : await resolveConfigPath(Global.Path.config, true)
         await addMcpToConfig(args.name, mcpConfig, configPath)
-        prompts.log.success(`MCP server "${args.name}" added to ${configPath}`)
+        const summaryPayload = {
+          ok: true,
+          name: args.name,
+          type: mcpConfig.type,
+          file: configPath,
+          config: mcpConfig,
+        }
+        const summaryText = `MCP server "${args.name}" added to ${configPath}`
+
+        if (args.output) {
+          const resolved = path.resolve(args.output)
+          const fs = await import("fs/promises")
+          await fs.mkdir(path.dirname(resolved), { recursive: true })
+          if (args.json) {
+            await fs.writeFile(resolved, JSON.stringify(summaryPayload, null, 2) + EOL, "utf-8")
+          } else {
+            await fs.writeFile(resolved, summaryText + EOL, "utf-8")
+          }
+          UI.println(`Wrote MCP add result to ${resolved}`)
+          return
+        }
+
+        if (args.json) {
+          process.stdout.write(JSON.stringify(summaryPayload, null, 2) + EOL)
+          return
+        }
+
+        prompts.log.success(summaryText)
         return
       }
 
@@ -1142,7 +1178,34 @@ export const McpAddCommand = effectCmd({
         }
 
         await addMcpToConfig(name, mcpConfig, configPath)
-        prompts.log.success(`MCP server "${name}" added to ${configPath}`)
+        const summaryPayload = {
+          ok: true,
+          name,
+          type: mcpConfig.type,
+          file: configPath,
+          config: mcpConfig,
+        }
+        const summaryText = `MCP server "${name}" added to ${configPath}`
+
+        if (args.output) {
+          const resolved = path.resolve(args.output)
+          const fs = await import("fs/promises")
+          await fs.mkdir(path.dirname(resolved), { recursive: true })
+          if (args.json) {
+            await fs.writeFile(resolved, JSON.stringify(summaryPayload, null, 2) + EOL, "utf-8")
+          } else {
+            await fs.writeFile(resolved, summaryText + EOL, "utf-8")
+          }
+          UI.println(`Wrote MCP add result to ${resolved}`)
+          return
+        }
+
+        if (args.json) {
+          process.stdout.write(JSON.stringify(summaryPayload, null, 2) + EOL)
+          return
+        }
+
+        prompts.log.success(summaryText)
       }
 
       prompts.outro("MCP server added successfully")
@@ -1364,7 +1427,7 @@ async function setMcpEnabled(name: string, enabled: boolean, configPath: string)
   return configPath
 }
 
-const addMcpScopeOptions = (yargs: Argv) =>
+const addMcpScopeOptions = <T>(yargs: Argv<T>) =>
   yargs
     .option("scope", {
       describe: "configuration target scope (project or global)",
@@ -1402,8 +1465,24 @@ const makeMcpToggleCommand = (action: "enable" | "disable") =>
           type: "string",
           demandOption: true,
         }),
-      ),
-    handler: Effect.fn(`Cli.mcp.${action}`)(function* (args) {
+      )
+        .option("json", {
+          type: "boolean",
+          describe: "output JSON",
+        })
+        .option("output", {
+          alias: "o",
+          type: "string",
+          describe: `write ${action} result to output file path`,
+        }),
+    handler: Effect.fn(`Cli.mcp.${action}`)(function* (args: {
+      name: string
+      global?: boolean
+      project?: boolean
+      scope?: "project" | "global"
+      json?: boolean
+      output?: string
+    }) {
       const maybeCtx = yield* InstanceRef
       if (!maybeCtx) return yield* Effect.die("InstanceRef not provided")
       const ctx = maybeCtx
@@ -1444,7 +1523,37 @@ const makeMcpToggleCommand = (action: "enable" | "disable") =>
       }
 
       yield* Effect.promise(() => setMcpEnabled(args.name, enabled, targetPath))
-      prompts.log.success(`MCP server "${args.name}" ${enabled ? "enabled" : "disabled"} in ${targetPath}`)
+
+      const summaryPayload = {
+        ok: true,
+        name: args.name,
+        action,
+        enabled,
+        file: targetPath,
+      }
+      const summaryText = `MCP server "${args.name}" ${enabled ? "enabled" : "disabled"} in ${targetPath}`
+
+      if (args.output) {
+        const resolved = path.resolve(args.output)
+        yield* Effect.promise(async () => {
+          const fs = await import("fs/promises")
+          await fs.mkdir(path.dirname(resolved), { recursive: true })
+          if (args.json) {
+            await fs.writeFile(resolved, JSON.stringify(summaryPayload, null, 2) + EOL, "utf-8")
+          } else {
+            await fs.writeFile(resolved, summaryText + EOL, "utf-8")
+          }
+        })
+        UI.println(`Wrote ${action} result to ${resolved}`)
+        return
+      }
+
+      if (args.json) {
+        process.stdout.write(JSON.stringify(summaryPayload, null, 2) + EOL)
+        return
+      }
+
+      prompts.log.success(summaryText)
     }),
   })
 
@@ -1473,8 +1582,30 @@ export const McpRemoveCommand = effectCmd({
         type: "string",
         demandOption: true,
       }),
-    ),
-  handler: Effect.fn("Cli.mcp.remove")(function* (args) {
+    )
+      .option("force", {
+        alias: "f",
+        type: "boolean",
+        describe: "do not exit non-zero if server is not found",
+      })
+      .option("json", {
+        type: "boolean",
+        describe: "output JSON",
+      })
+      .option("output", {
+        alias: "o",
+        type: "string",
+        describe: "write removal result to output file path",
+      }),
+  handler: Effect.fn("Cli.mcp.remove")(function* (args: {
+    name: string
+    global?: boolean
+    project?: boolean
+    scope?: "project" | "global"
+    force?: boolean
+    json?: boolean
+    output?: string
+  }) {
     const maybeCtx = yield* InstanceRef
     if (!maybeCtx) return yield* Effect.die("InstanceRef not provided")
     const ctx = maybeCtx
@@ -1486,17 +1617,48 @@ export const McpRemoveCommand = effectCmd({
     const projectConfigPath = yield* Effect.promise(() => resolveConfigPath(projectDir, false))
     const globalConfigPath = yield* Effect.promise(() => resolveConfigPath(Global.Path.config, true))
 
+    const handleNotFound = (message: string) =>
+      Effect.gen(function* () {
+        if (!args.force) {
+          return yield* fail(message)
+        }
+        const failPayload = {
+          ok: false,
+          name: args.name,
+          message,
+        }
+        if (args.output) {
+          const resolved = path.resolve(args.output)
+          yield* Effect.promise(async () => {
+            const fs = await import("fs/promises")
+            await fs.mkdir(path.dirname(resolved), { recursive: true })
+            if (args.json) {
+              await fs.writeFile(resolved, JSON.stringify(failPayload, null, 2) + EOL, "utf-8")
+            } else {
+              await fs.writeFile(resolved, failPayload.message + EOL, "utf-8")
+            }
+          })
+          UI.println(`Wrote removal result to ${resolved}`)
+          return
+        }
+        if (args.json) {
+          process.stdout.write(JSON.stringify(failPayload, null, 2) + EOL)
+          return
+        }
+        UI.println(failPayload.message)
+      })
+
     let targetPath: string
     if (isProject) {
       const has = yield* Effect.promise(() => hasMcpServer(args.name, projectConfigPath))
       if (!has) {
-        return yield* fail(`MCP server "${args.name}" not found in project configuration (${projectConfigPath})`)
+        return yield* handleNotFound(`MCP server "${args.name}" not found in project configuration (${projectConfigPath})`)
       }
       targetPath = projectConfigPath
     } else if (isGlobal) {
       const has = yield* Effect.promise(() => hasMcpServer(args.name, globalConfigPath))
       if (!has) {
-        return yield* fail(`MCP server "${args.name}" not found in global configuration (${globalConfigPath})`)
+        return yield* handleNotFound(`MCP server "${args.name}" not found in global configuration (${globalConfigPath})`)
       }
       targetPath = globalConfigPath
     } else {
@@ -1508,13 +1670,42 @@ export const McpRemoveCommand = effectCmd({
         if (hasGlobal) {
           targetPath = globalConfigPath
         } else {
-          return yield* fail(`MCP server "${args.name}" not found in configuration`)
+          return yield* handleNotFound(`MCP server "${args.name}" not found in configuration`)
         }
       }
     }
 
     yield* Effect.promise(() => removeMcpFromConfig(args.name, targetPath))
-    prompts.log.success(`MCP server "${args.name}" removed from ${targetPath}`)
+
+    const summaryPayload = {
+      ok: true,
+      name: args.name,
+      file: targetPath,
+      removed: true,
+    }
+    const summaryText = `MCP server "${args.name}" removed from ${targetPath}`
+
+    if (args.output) {
+      const resolved = path.resolve(args.output)
+      yield* Effect.promise(async () => {
+        const fs = await import("fs/promises")
+        await fs.mkdir(path.dirname(resolved), { recursive: true })
+        if (args.json) {
+          await fs.writeFile(resolved, JSON.stringify(summaryPayload, null, 2) + EOL, "utf-8")
+        } else {
+          await fs.writeFile(resolved, summaryText + EOL, "utf-8")
+        }
+      })
+      UI.println(`Wrote removal result to ${resolved}`)
+      return
+    }
+
+    if (args.json) {
+      process.stdout.write(JSON.stringify(summaryPayload, null, 2) + EOL)
+      return
+    }
+
+    prompts.log.success(summaryText)
   }),
 })
 

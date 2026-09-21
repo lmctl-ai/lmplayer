@@ -83,9 +83,9 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
 ## MCP management
 - `mcp list` (alias `ls`) `[--search q|-q q] [--type local|remote|-t type] [--enabled] [--output file|-o file] [--json]` — list configured MCP servers and their connection statuses, with filtering by query/type/status and direct file export (`--output`).
 - `mcp show <name>` (alias `get`) `[--output file|-o file] [--json]` — inspect details of a specific MCP server (type, status, enabled, url/command, args, cwd, headers, env, timeout, oauth) with direct file export (`--output`).
-- `mcp add [name]` — interactive or non-interactive (`--url`, `--header`, `--env`, `--project`, `--global`) MCP server registration.
-- `mcp remove <name>` (alias `rm`) `[--scope project|global] [--project|-p] [--global|-g]` — remove an MCP server from configuration with JSONC formatting preservation.
-- `mcp enable <name>` / `mcp disable <name>` `[--scope project|global] [--project|-p] [--global|-g]` — toggle MCP server enablement without losing configuration.
+- `mcp add [name]` `[--url <url>] [--env <k=v>] [--header <k=v>] [--scope project|global] [--project|-p] [--global|-g] [--output file|-o file] [--json]` — interactive or non-interactive MCP server registration, with structured JSON output (`--json`) and direct file export (`--output` / `-o`).
+- `mcp remove <name>` (alias `rm`) `[--scope project|global] [--project|-p] [--global|-g] [-f|--force] [--output file|-o file] [--json]` — remove an MCP server from configuration with JSONC formatting preservation, `--force` to guard missing servers, structured JSON response, and direct file export (`--output` / `-o`).
+- `mcp enable <name>` / `mcp disable <name>` `[--scope project|global] [--project|-p] [--global|-g] [--output file|-o file] [--json]` — toggle MCP server enablement without losing configuration, with structured JSON response and direct file export (`--output` / `-o`).
 - `mcp auth [name]` / `mcp auth list` (alias `ls`) `[--search q|-q q] [--status s|-s s] [--output file|-o file] [--json]` — list OAuth-capable servers and authenticate or inspect auth status with query/status filtering and direct file export (`--output`).
 - `mcp logout [name]` `[--force|-f] [--output file|-o file] [--json]` — remove stored OAuth credentials for an MCP server with force flag, file export, and structured JSON output.
 - `mcp debug <name>` — debug OAuth connection and test server info / tools.
