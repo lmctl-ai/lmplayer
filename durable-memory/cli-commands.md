@@ -21,6 +21,7 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
   "Authed" = credentials in auth.json + active provider env vars (auth wins on overlap). Needs an instance.
 - `auth show <provider>` (alias `providers show`, `auth get`, `providers get`) `[--output file|-o file] [--json]` — inspect detailed provider authentication status, active env vars, configuration options, entitled models, and direct file export.
 - `auth logout [provider]` (alias `providers logout`) `[--force|-f] [--output file|-o file] [--json]` — log out from a configured provider with non-interactive guard, force flag, and structured JSON result.
+- `providers enable <provider>` / `providers disable <provider>` (alias `provider enable/disable`) `[--scope project|global] [--project|-p] [--global|-g] [--output file|-o file] [--json]` — toggle provider enablement in project or global configuration, with structured JSON response and direct file export (`--output` / `-o`).
 
 ## Choose model + effort when prompting
 - `run --model <provider/model> --effort <tier> "<prompt>"` — `--effort` is an alias of `--variant`.
