@@ -38,3 +38,6 @@ tsconfig.tsbuildinfo
 
 # Local MCP server configuration
 /.mcp.json
+
+# lmctl teamfiles carry session wiring/credentials -- never tracked (fleet hygiene sweep, operator 2026-09-21)
+*.lmctl.*
