@@ -487,7 +487,9 @@ Options:
       --log-level   log level                   [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
       --pure        run without external plugins                                           [boolean]
   -g, --global      install in global config                              [boolean] [default: false]
-  -f, --force       replace existing plugin version                       [boolean] [default: false]"
+  -f, --force       replace existing plugin version                       [boolean] [default: false]
+      --json        output JSON                                                            [boolean]
+  -o, --output      write plugin install result to output file path                         [string]"
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode db --help 1`] = `
