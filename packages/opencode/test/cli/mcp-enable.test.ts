@@ -1,6 +1,7 @@
 import { describe, expect } from "bun:test"
 import { Effect } from "effect"
 import path from "path"
+import fs from "fs/promises"
 import { cliIt } from "../lib/cli-process"
 
 describe("opencode mcp enable / disable (non-interactive subprocess)", () => {
@@ -93,6 +94,39 @@ describe("opencode mcp enable / disable (non-interactive subprocess)", () => {
         ])
         opencode.expectExit(result, 1)
         expect(result.stderr).toContain("Cannot specify both global and project scope")
+      }),
+    60_000,
+  )
+
+  cliIt.concurrent(
+    "enables/disables an MCP server with -o output file (text) and --output --json (json)",
+    ({ home, opencode }) =>
+      Effect.gen(function* () {
+        const addResult = yield* opencode.spawn([
+          "mcp",
+          "add",
+          "toggle-server",
+          "--url",
+          "https://example.com/toggle",
+        ])
+        opencode.expectExit(addResult, 0)
+
+        const textOut = path.join(home, "disable-out.txt")
+        const disRes = yield* opencode.spawn(["mcp", "disable", "toggle-server", "-o", textOut])
+        opencode.expectExit(disRes, 0)
+        expect(disRes.stderr).toContain("Wrote disable result to")
+        const textContent = yield* Effect.promise(() => fs.readFile(textOut, "utf-8"))
+        expect(textContent).toContain('MCP server "toggle-server" disabled')
+
+        const jsonOut = path.join(home, "enable-out.json")
+        const enRes = yield* opencode.spawn(["mcp", "enable", "toggle-server", "--output", jsonOut, "--json"])
+        opencode.expectExit(enRes, 0)
+        expect(enRes.stderr).toContain("Wrote enable result to")
+        const jsonContent = yield* Effect.promise(() => fs.readFile(jsonOut, "utf-8"))
+        const parsedJson = JSON.parse(jsonContent)
+        expect(parsedJson.ok).toBe(true)
+        expect(parsedJson.name).toBe("toggle-server")
+        expect(parsedJson.enabled).toBe(true)
       }),
     60_000,
   )

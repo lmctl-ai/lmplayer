@@ -572,7 +572,9 @@ Options:
       --scope       configuration target scope (project or global)
                                                              [string] [choices: "project", "global"]
   -g, --global      add to global config (equivalent to --scope global)                    [boolean]
-  -p, --project     add to project config (equivalent to --scope project)                  [boolean]"
+  -p, --project     add to project config (equivalent to --scope project)                  [boolean]
+      --json        output JSON                                                            [boolean]
+  -o, --output      write MCP server add result to output file path                         [string]"
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode mcp auth --help 1`] = `

@@ -1,6 +1,7 @@
 import { describe, expect } from "bun:test"
 import { Effect } from "effect"
 import path from "path"
+import fs from "fs/promises"
 import { cliIt } from "../lib/cli-process"
 
 describe("opencode mcp remove (non-interactive subprocess)", () => {
@@ -87,6 +88,54 @@ describe("opencode mcp remove (non-interactive subprocess)", () => {
         ])
         opencode.expectExit(result, 1)
         expect(result.stderr).toContain("Cannot specify both global and project scope")
+      }),
+    60_000,
+  )
+
+  cliIt.concurrent(
+    "removes an MCP server with -o output file (text) and --output --json (json), and handles --force",
+    ({ home, opencode }) =>
+      Effect.gen(function* () {
+        const add1 = yield* opencode.spawn(["mcp", "add", "srv1", "--url", "https://example.com/1"])
+        opencode.expectExit(add1, 0)
+        const add2 = yield* opencode.spawn(["mcp", "add", "srv2", "--url", "https://example.com/2"])
+        opencode.expectExit(add2, 0)
+
+        // 1. Text output
+        const textOut = path.join(home, "remove-out.txt")
+        const rmTextRes = yield* opencode.spawn(["mcp", "remove", "srv1", "-o", textOut])
+        opencode.expectExit(rmTextRes, 0)
+        expect(rmTextRes.stderr).toContain("Wrote removal result to")
+        const textContent = yield* Effect.promise(() => fs.readFile(textOut, "utf-8"))
+        expect(textContent).toContain('MCP server "srv1" removed from')
+
+        // 2. JSON output
+        const jsonOut = path.join(home, "remove-out.json")
+        const rmJsonRes = yield* opencode.spawn(["mcp", "remove", "srv2", "--output", jsonOut, "--json"])
+        opencode.expectExit(rmJsonRes, 0)
+        expect(rmJsonRes.stderr).toContain("Wrote removal result to")
+        const jsonContent = yield* Effect.promise(() => fs.readFile(jsonOut, "utf-8"))
+        const parsedJson = JSON.parse(jsonContent)
+        expect(parsedJson.ok).toBe(true)
+        expect(parsedJson.name).toBe("srv2")
+        expect(parsedJson.removed).toBe(true)
+
+        // 3. Force removal for nonexistent server
+        const forceOut = path.join(home, "force-out.json")
+        const rmForceRes = yield* opencode.spawn([
+          "mcp",
+          "remove",
+          "nonexistent",
+          "--force",
+          "--output",
+          forceOut,
+          "--json",
+        ])
+        opencode.expectExit(rmForceRes, 0)
+        const forceContent = yield* Effect.promise(() => fs.readFile(forceOut, "utf-8"))
+        const parsedForce = JSON.parse(forceContent)
+        expect(parsedForce.ok).toBe(false)
+        expect(parsedForce.name).toBe("nonexistent")
       }),
     60_000,
   )
