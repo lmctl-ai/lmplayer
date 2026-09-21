@@ -91,6 +91,9 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
 - `mcp logout [name]` `[--force|-f] [--output file|-o file] [--json]` — remove stored OAuth credentials for an MCP server with force flag, file export, and structured JSON output.
 - `mcp debug <name>` — debug OAuth connection and test server info / tools.
 
+## Plugin installation & management
+- `plugin <module>` (alias `plug`) `[--global|-g] [--force|-f] [--output file|-o file] [--json]` — install plugin package, detect server/tui targets, and update project or global configuration, with structured JSON response and direct file export (`--output` / `-o`).
+
 ## Token usage & statistics
 - `stats [--days n] [--tools [n]] [--models [n]] [--project p] [--provider <id>] [--model <id>] [--budget <amount>] [--budget-check] [--output file|-o file] [--json]` — aggregate and inspect token usage, write-time costs, tool call counts, and daily/per-session averages across sessions. Supports granular provider (`--provider`) and model (`--model`) filtering for unmetered cloud ledgering (e.g. Ollama Cloud), client-side budget tracking (`--budget <amount>`), budget threshold checks (`--budget-check` which displays full stats and exits with code 2 if spend meets or exceeds the limit), direct file export (`--output file` / `-o file` for rendered table text or structured JSON), and machine-readable structured JSON output (`--json`).
 
