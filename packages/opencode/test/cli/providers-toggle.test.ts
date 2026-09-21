@@ -1,6 +1,7 @@
 import { describe, expect } from "bun:test"
 import { Effect } from "effect"
 import path from "path"
+import fs from "fs/promises"
 import { parse } from "jsonc-parser"
 import { cliIt } from "../lib/cli-process"
 
@@ -86,6 +87,30 @@ describe("opencode providers enable / disable (non-interactive subprocess)", () 
         ])
         opencode.expectExit(result, 1)
         expect(result.stderr).toContain("Cannot specify both global and project scope")
+      }),
+    60_000,
+  )
+
+  cliIt.concurrent(
+    "disables and enables a provider with -o output file (text) and --output --json (json)",
+    ({ home, opencode }) =>
+      Effect.gen(function* () {
+        const textOut = path.join(home, "disable-provider.txt")
+        const disRes = yield* opencode.spawn(["providers", "disable", "google", "-o", textOut])
+        opencode.expectExit(disRes, 0)
+        expect(disRes.stderr).toContain("Wrote disable result to")
+        const textContent = yield* Effect.promise(() => fs.readFile(textOut, "utf-8"))
+        expect(textContent).toContain('Provider "google" disabled')
+
+        const jsonOut = path.join(home, "enable-provider.json")
+        const enRes = yield* opencode.spawn(["providers", "enable", "google", "--output", jsonOut, "--json"])
+        opencode.expectExit(enRes, 0)
+        expect(enRes.stderr).toContain("Wrote enable result to")
+        const jsonContent = yield* Effect.promise(() => fs.readFile(jsonOut, "utf-8"))
+        const parsedJson = JSON.parse(jsonContent)
+        expect(parsedJson.ok).toBe(true)
+        expect(parsedJson.provider).toBe("google")
+        expect(parsedJson.enabled).toBe(true)
       }),
     60_000,
   )

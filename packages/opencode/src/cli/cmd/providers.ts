@@ -1119,7 +1119,7 @@ export const ProvidersLogoutCommand = effectCmd({
   }),
 })
 
-const addProviderScopeOptions = (yargs: Argv) =>
+const addProviderScopeOptions = <T>(yargs: Argv<T>) =>
   yargs
     .option("scope", {
       describe: "configuration target scope (project or global)",
@@ -1157,8 +1157,24 @@ const makeProviderToggleCommand = (action: "enable" | "disable") =>
           type: "string",
           demandOption: true,
         }),
-      ),
-    handler: Effect.fn(`Cli.providers.${action}`)(function* (args) {
+      )
+        .option("json", {
+          type: "boolean",
+          describe: "output JSON",
+        })
+        .option("output", {
+          alias: "o",
+          type: "string",
+          describe: `write ${action} result to output file path`,
+        }),
+    handler: Effect.fn(`Cli.providers.${action}`)(function* (args: {
+      provider: string
+      global?: boolean
+      project?: boolean
+      scope?: "project" | "global"
+      json?: boolean
+      output?: string
+    }) {
       const modelsDev = yield* ModelsDev.Service
       const database = yield* modelsDev.get()
       const isProject = Boolean(args.project || args.scope === "project")
@@ -1200,17 +1216,45 @@ const makeProviderToggleCommand = (action: "enable" | "disable") =>
         ...(enabled !== undefined ? { enabled_providers: enabled } : {}),
       }
 
+      let configFilePath: string | undefined
       if (isProject) {
         const res = yield* Config.Service.use((cfg) => cfg.updateProject(patch))
-        yield* Prompt.log.success(
-          `Provider "${providerID}" ${action}d in project configuration (${res.file})`,
-        )
+        configFilePath = res.file
       } else {
         yield* Config.Service.use((cfg) => cfg.updateGlobal(patch))
-        yield* Prompt.log.success(
-          `Provider "${providerID}" ${action}d in global configuration`,
-        )
       }
+
+      const summaryPayload = {
+        ok: true,
+        provider: providerID,
+        action,
+        enabled: action === "enable",
+        scope: isProject ? "project" : "global",
+        ...(configFilePath ? { file: configFilePath } : {}),
+      }
+      const summaryText = `Provider "${providerID}" ${action}d in ${isProject ? "project" : "global"} configuration${configFilePath ? ` (${configFilePath})` : ""}`
+
+      if (args.output) {
+        const resolved = path.resolve(args.output)
+        yield* Effect.promise(async () => {
+          const fs = await import("fs/promises")
+          await fs.mkdir(path.dirname(resolved), { recursive: true })
+          if (args.json) {
+            await fs.writeFile(resolved, JSON.stringify(summaryPayload, null, 2) + os.EOL, "utf-8")
+          } else {
+            await fs.writeFile(resolved, summaryText + os.EOL, "utf-8")
+          }
+        })
+        UI.println(`Wrote ${action} result to ${resolved}`)
+        return
+      }
+
+      if (args.json) {
+        process.stdout.write(JSON.stringify(summaryPayload, null, 2) + os.EOL)
+        return
+      }
+
+      yield* Prompt.log.success(summaryText)
     }),
   })
 
