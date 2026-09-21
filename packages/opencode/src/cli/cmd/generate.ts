@@ -1,11 +1,20 @@
 import type { CommandModule } from "yargs"
+import path from "node:path"
+import { UI } from "../ui"
 
-type Args = {}
+type Args = {
+  output?: string
+}
 
 export const GenerateCommand = {
   command: "generate",
-  builder: (yargs) => yargs,
-  handler: async () => {
+  builder: (yargs) =>
+    yargs.option("output", {
+      alias: "o",
+      type: "string",
+      describe: "write OpenAPI schema to output file path",
+    }),
+  handler: async (args) => {
     const { Server } = await import("../../server/server")
     const specs = (await Server.openapi()) as {
       paths: Record<string, Record<string, any>>
@@ -42,6 +51,15 @@ export const GenerateCommand = {
       plugins: [babel.default ?? babel, estree.default ?? estree],
       printWidth: 120,
     })
+
+    if (args.output) {
+      const resolved = path.resolve(args.output)
+      const fs = await import("node:fs/promises")
+      await fs.mkdir(path.dirname(resolved), { recursive: true })
+      await fs.writeFile(resolved, json, "utf-8")
+      UI.println(`Wrote OpenAPI schema to ${resolved}`)
+      return
+    }
 
     // Wait for stdout to finish writing before process.exit() is called
     await new Promise<void>((resolve, reject) => {

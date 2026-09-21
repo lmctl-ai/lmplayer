@@ -102,7 +102,13 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
 - `db info` (aliases: `stats`, `status`) `[--output file|-o file] [--json]` — inspect SQLite database status, database file and WAL/SHM sizes, page sizes, page counts, freelist page counts, SQLite version, journal mode, and row counts across all tables, with `--output` (`-o`) direct file export for formatted reports and structured JSON.
 - `db check` (aliases: `verify`, `integrity`) `[--output file|-o file] [--json]` — verify database integrity and foreign key constraints via `PRAGMA integrity_check` and `PRAGMA foreign_key_check`, reporting check results and failing with exit code 1 if issues or violations are detected, with `--output` (`-o`) direct file export.
 - `db vacuum` (aliases: `optimize`, `clean`) `[--wal] [--analyze] [--output file|-o file] [--json]` — reclaim disk space and defragment database storage via `VACUUM` and `PRAGMA wal_checkpoint(TRUNCATE)`, run `PRAGMA optimize`, and optionally run query planner analysis (`--analyze`) or WAL checkpoint only (`--wal` / `--checkpoint`), reporting before/after byte sizes and reclaimed space, with `--output` (`-o`) direct file export.
-- `db [query] [--format table|json|markdown]` — open an interactive `sqlite3` CLI shell or run raw SQL queries directly against the active database.
+## Diagnostics, debugging & OpenAPI generation
+- `debug paths [--output file|-o file] [--json]` — inspect global application paths (data, config, state, cache, log, bin), with structured JSON output and direct file export (`--output` / `-o`).
+- `debug info [--output file|-o file] [--json]` — inspect runtime installation version, OS platform/architecture, terminal, and loaded plugins, with structured JSON output and direct file export (`--output` / `-o`).
+- `debug config [--output file|-o file]` — inspect fully resolved configuration JSON, with direct file export (`--output` / `-o`).
+- `debug skill [--output file|-o file]` — inspect all discovered and loaded skills JSON, with direct file export (`--output` / `-o`).
+- `debug v2 [--output file|-o file]` — inspect v2 catalog providers and default/small models JSON, with direct file export (`--output` / `-o`).
+- `generate [--output file|-o file]` — generate OpenAPI schema for the lmplayer server with JavaScript SDK code samples and prettier formatting, with direct file export (`--output` / `-o`).
 
 ## Known gaps / TODO (not yet built)
 - `models test [provider]` (probe each entitled model) — SHIPPED (with `--json`, `--timeout`, `--concurrency`).
