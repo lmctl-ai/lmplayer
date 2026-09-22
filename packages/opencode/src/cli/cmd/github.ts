@@ -77,8 +77,18 @@ export const GithubRunCommand = effectCmd({
       .option("token", {
         type: "string",
         describe: "GitHub personal access token (github_pat_********)",
+      })
+      .option("output", {
+        alias: "o",
+        type: "string",
+        describe: "write run summary to output file path",
+      })
+      .option("json", {
+        type: "boolean",
+        describe: "output as JSON",
+        default: false,
       }),
-  handler: (args) =>
+  handler: (args: { event?: string; token?: string; output?: string; json?: boolean }) =>
     Effect.gen(function* () {
       const { githubRun } = yield* Effect.promise(() => import("./github.handler"))
       return yield* githubRun(args)
