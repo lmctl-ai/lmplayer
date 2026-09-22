@@ -31,12 +31,10 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
 
 ## Configure (editable file + CLI + verify)
 - Global config file: `~/.config/lmcode/opencode.jsonc` (jsonc; comments preserved by writers).
-- `config get [key] [--output file|-o file]` — effective value by dotted key (or whole config), with direct file export. Missing key -> exit 1.
-- `config set <key> <value> [--json]` — write global config, jsonc-preserving, schema-validated
-  (invalid write -> readable error, file unchanged). Value coercion: bool/number/json/string;
-  `--json` parses value as JSON (subtree). e.g. `config set model github-copilot/gpt-5.4`.
-- `config unset <key>` — delete a key (validate-before-write).
-- `config list` (alias `ls`) `[--output file|-o file]` — list merged effective or scoped configuration, with direct file export.
+- `config get [key] [--scope project|global] [--project|-p] [--global|-g] [--output file|-o file] [--json]` — effective value by dotted key (or whole config) as plain string or structured JSON, with direct file export (`--output` / `-o`). Missing key -> exit 1.
+- `config set <key> <value> [--scope project|global] [--project|-p] [--global|-g] [--output file|-o file] [--json]` — write project or global config, jsonc-preserving, schema-validated (invalid write -> readable error, file unchanged), with direct file export (`--output` / `-o`). Value coercion: bool/number/json/string; `--json` parses value as JSON (subtree). e.g. `config set model github-copilot/gpt-5.4`.
+- `config unset <key> [--scope project|global] [--project|-p] [--global|-g] [--output file|-o file] [--json]` — delete a key (validate-before-write), with structured JSON confirmation (`--json`) and direct file export (`--output` / `-o`).
+- `config list` (alias `ls`) `[--scope project|global] [--project|-p] [--global|-g] [--output file|-o file] [--json]` — list merged effective or scoped configuration, with direct file export (`--output` / `-o`) and `--json`.
 - `config path [--scope project|global] [--project|-p] [--global|-g] [--output file|-o file] [--json]` — print resolved configuration file path(s) (project candidate in cwd, global config in `~/.config/lmplayer`, or active sources provenance), with direct file export.
 - `config verify [--output file|-o file] [--json]` — validate effective config; prints "Config OK" + model/small_model/default_agent/default_variant (or writes report / outputs structured JSON with sources and defaults),
   or readable issues (file + `dot.path: message`) with exit 1. Same readable error fails fast at launch.

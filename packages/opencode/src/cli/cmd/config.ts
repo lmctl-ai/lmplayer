@@ -81,10 +81,16 @@ export const ConfigGetCommand = effectCmd({
         alias: "o",
         describe: "write output to file path",
         type: "string",
+      })
+      .option("json", {
+        describe: "output JSON",
+        type: "boolean",
+        default: false,
       }),
   handler: Effect.fn("Cli.config.get")(function* (args: {
     key?: string
     output?: string
+    json?: boolean
     project?: boolean
     global?: boolean
     scope?: "project" | "global"
@@ -125,7 +131,8 @@ export const ConfigGetCommand = effectCmd({
       value = (value as Record<string, unknown>)[segment]
     }
 
-    const out = value !== null && typeof value === "object" ? JSON.stringify(value, null, 2) : String(value)
+    const out =
+      args.json || (value !== null && typeof value === "object") ? JSON.stringify(value, null, 2) : String(value)
     if (args.output) {
       const resolved = path.resolve(args.output)
       yield* Effect.promise(async () => {
@@ -145,13 +152,20 @@ export const ConfigListCommand = effectCmd({
   aliases: ["ls"],
   describe: "list configuration (merged effective, or scoped)",
   builder: (yargs) =>
-    addScopeOptions(yargs).option("output", {
-      alias: "o",
-      describe: "write configuration list to file path",
-      type: "string",
-    }),
+    addScopeOptions(yargs)
+      .option("output", {
+        alias: "o",
+        describe: "write configuration list to file path",
+        type: "string",
+      })
+      .option("json", {
+        describe: "output JSON",
+        type: "boolean",
+        default: false,
+      }),
   handler: Effect.fn("Cli.config.list")(function* (args: {
     output?: string
+    json?: boolean
     project?: boolean
     global?: boolean
     scope?: "project" | "global"
@@ -190,8 +204,21 @@ export const ConfigSetCommand = effectCmd({
     addScopeOptions(yargs)
       .positional("key", { describe: "dotted config key (e.g. model)", type: "string", demandOption: true })
       .positional("value", { describe: "value to set", type: "string", demandOption: true })
-      .option("json", { describe: "parse <value> as JSON", type: "boolean" }),
-  handler: Effect.fn("Cli.config.set")(function* (args) {
+      .option("json", { describe: "parse <value> as JSON", type: "boolean" })
+      .option("output", {
+        alias: "o",
+        describe: "write set result to output file path",
+        type: "string",
+      }),
+  handler: Effect.fn("Cli.config.set")(function* (args: {
+    key: string
+    value: string
+    json?: boolean
+    output?: string
+    project?: boolean
+    global?: boolean
+    scope?: "project" | "global"
+  }) {
     const { Config } = yield* Effect.promise(() => import("@/config/config"))
 
     // --json parsing can throw a raw SyntaxError; surface it as a readable CLI
@@ -218,7 +245,37 @@ export const ConfigSetCommand = effectCmd({
     } else {
       yield* mapConfigError(Config.Service.use((cfg) => cfg.updateGlobal(partial as never)))
     }
-    process.stdout.write(`set ${args.key} = ${JSON.stringify(coerced)}${EOL}`)
+
+    const textResult = `set ${args.key} = ${JSON.stringify(coerced)}${EOL}`
+
+    if (args.output) {
+      const resolved = path.resolve(args.output)
+      yield* Effect.promise(async () => {
+        const fs = await import("fs/promises")
+        await fs.mkdir(path.dirname(resolved), { recursive: true })
+        if (args.output?.endsWith(".json")) {
+          await fs.writeFile(
+            resolved,
+            JSON.stringify(
+              {
+                ok: true,
+                key: args.key,
+                value: coerced,
+                scope: isProject ? "project" : "global",
+              },
+              null,
+              2,
+            ) + EOL,
+            "utf-8",
+          )
+        } else {
+          await fs.writeFile(resolved, textResult, "utf-8")
+        }
+      })
+      UI.println(`Wrote config set result to ${resolved}`)
+    } else {
+      process.stdout.write(textResult)
+    }
 
     // Check if effective config is shadowed by higher precedence configuration
     const effective = yield* mapConfigError(Config.Service.use((cfg) => cfg.get()))
@@ -245,12 +302,30 @@ export const ConfigUnsetCommand = effectCmd({
   command: "unset <key>",
   describe: "remove a config value (dotted key)",
   builder: (yargs) =>
-    addScopeOptions(yargs).positional("key", {
-      describe: "dotted config key to remove",
-      type: "string",
-      demandOption: true,
-    }),
-  handler: Effect.fn("Cli.config.unset")(function* (args) {
+    addScopeOptions(yargs)
+      .positional("key", {
+        describe: "dotted config key to remove",
+        type: "string",
+        demandOption: true,
+      })
+      .option("output", {
+        alias: "o",
+        describe: "write unset result to output file path",
+        type: "string",
+      })
+      .option("json", {
+        describe: "output JSON",
+        type: "boolean",
+        default: false,
+      }),
+  handler: Effect.fn("Cli.config.unset")(function* (args: {
+    key: string
+    output?: string
+    json?: boolean
+    project?: boolean
+    global?: boolean
+    scope?: "project" | "global"
+  }) {
     const { Config } = yield* Effect.promise(() => import("@/config/config"))
     const isProject = args.project || args.scope === "project"
     const segments = splitKey(args.key)
@@ -258,7 +333,33 @@ export const ConfigUnsetCommand = effectCmd({
     const result = yield* mapConfigError(
       Config.Service.use((cfg) => (isProject ? cfg.unsetProject(segments) : cfg.unsetGlobal(segments))),
     )
-    process.stdout.write(`${result.changed ? "unset" : "unchanged"} ${args.key}${EOL}`)
+
+    const textResult = `${result.changed ? "unset" : "unchanged"} ${args.key}${EOL}`
+    const jsonResult =
+      JSON.stringify(
+        {
+          ok: true,
+          key: args.key,
+          changed: result.changed,
+          scope: isProject ? "project" : "global",
+        },
+        null,
+        2,
+      ) + EOL
+
+    if (args.output) {
+      const resolved = path.resolve(args.output)
+      yield* Effect.promise(async () => {
+        const fs = await import("fs/promises")
+        await fs.mkdir(path.dirname(resolved), { recursive: true })
+        await fs.writeFile(resolved, args.json ? jsonResult : textResult, "utf-8")
+      })
+      UI.println(`Wrote config unset result to ${resolved}`)
+    } else if (args.json) {
+      process.stdout.write(jsonResult)
+    } else {
+      process.stdout.write(textResult)
+    }
 
     if (result.changed && !isProject) {
       const effective = yield* mapConfigError(Config.Service.use((cfg) => cfg.get()))
