@@ -1,4 +1,6 @@
 import { Effect } from "effect"
+import path from "node:path"
+import { EOL } from "node:os"
 import { UI } from "../ui"
 import { effectCmd, fail } from "../effect-cmd"
 import { Git } from "@/git"
@@ -6,16 +8,109 @@ import { InstanceRef } from "@/effect/instance-ref"
 import { Process } from "@/util/process"
 import { which } from "@opencode-ai/core/util/which"
 
+function* writeOutputFile(filePath: string, content: string, label: string) {
+  const resolved = path.resolve(filePath)
+  yield* Effect.promise(async () => {
+    const fs = await import("node:fs/promises")
+    await fs.mkdir(path.dirname(resolved), { recursive: true })
+    await fs.writeFile(resolved, content, "utf-8")
+  })
+  UI.println(`Wrote ${label} to ${resolved}`)
+}
+
+export interface PrCheckoutResult {
+  pr: number
+  branch: string
+  checkedOut: boolean
+  isCrossRepository?: boolean
+  forkRemote?: string
+  session?: string
+  sessionUrl?: string
+}
+
+export function buildPrCheckoutResult(opts: {
+  pr: number
+  branch: string
+  forkRemote?: string
+  session?: string
+  sessionUrl?: string
+  isCrossRepository?: boolean
+}): PrCheckoutResult {
+  return {
+    pr: opts.pr,
+    branch: opts.branch,
+    checkedOut: true,
+    ...(opts.isCrossRepository !== undefined && { isCrossRepository: opts.isCrossRepository }),
+    ...(opts.forkRemote && { forkRemote: opts.forkRemote }),
+    ...(opts.session && { session: opts.session }),
+    ...(opts.sessionUrl && { sessionUrl: opts.sessionUrl }),
+  }
+}
+
+export function formatPrCheckoutText(result: PrCheckoutResult): string[] {
+  const lines: string[] = []
+  lines.push(`Successfully checked out PR #${result.pr} as branch '${result.branch}'`)
+  if (result.forkRemote) {
+    lines.push(`Fork remote: ${result.forkRemote}`)
+  }
+  if (result.session) {
+    lines.push(`Session imported: ${result.session}`)
+    if (result.sessionUrl) {
+      lines.push(`Session URL: ${result.sessionUrl}`)
+    }
+  }
+  return lines
+}
+
+export function extractSessionUrlFromPrBody(body?: string | null): string | undefined {
+  if (!body) return undefined
+  const match = body.match(/https:\/\/opncd\.ai\/s\/([a-zA-Z0-9_-]+)/)
+  return match ? match[0] : undefined
+}
+
+export function extractSessionIdFromImportOutput(text?: string | null): string | undefined {
+  if (!text) return undefined
+  const match = text.trim().match(/Imported session: ([a-zA-Z0-9_-]+)/)
+  return match ? match[1] : undefined
+}
+
 export const PrCommand = effectCmd({
   command: "pr <number>",
   describe: "fetch and checkout a GitHub PR branch, then run lmplayer",
   builder: (yargs) =>
-    yargs.positional("number", {
-      type: "number",
-      describe: "PR number to checkout",
-      demandOption: true,
-    }),
-  handler: Effect.fn("Cli.pr")(function* (args) {
+    yargs
+      .positional("number", {
+        type: "number",
+        describe: "PR number to checkout",
+        demandOption: true,
+      })
+      .option("branch", {
+        alias: "b",
+        type: "string",
+        describe: "custom local branch name (defaults to pr/<number>)",
+      })
+      .option("no-run", {
+        type: "boolean",
+        describe: "checkout PR branch without launching lmplayer",
+        default: false,
+      })
+      .option("output", {
+        alias: "o",
+        type: "string",
+        describe: "write PR checkout details to file path",
+      })
+      .option("json", {
+        type: "boolean",
+        describe: "output as JSON",
+      }),
+  handler: Effect.fn("Cli.pr")(function* (args: {
+    number: number
+    branch?: string
+    "no-run"?: boolean
+    noRun?: boolean
+    output?: string
+    json?: boolean
+  }) {
     const ctx = yield* InstanceRef
     if (!ctx) return yield* fail("Could not load instance context")
     if (ctx.project.vcs !== "git") {
@@ -26,8 +121,10 @@ export const PrCommand = effectCmd({
     const worktree = ctx.worktree
 
     const prNumber = args.number
-    const localBranchName = `pr/${prNumber}`
-    UI.println(`Fetching and checking out PR #${prNumber}...`)
+    const localBranchName = args.branch || `pr/${prNumber}`
+    if (!args.json && !args.output) {
+      UI.println(`Fetching and checking out PR #${prNumber}...`)
+    }
 
     const checkout = yield* Effect.promise(() =>
       Process.run(["gh", "pr", "checkout", `${prNumber}`, "--branch", localBranchName, "--force"], { nothrow: true }),
@@ -51,21 +148,28 @@ export const PrCommand = effectCmd({
     )
 
     let sessionId: string | undefined
+    let sessionUrl: string | undefined
+    let forkRemote: string | undefined
+    let isCrossRepository = false
 
     if (prInfoResult.code === 0 && prInfoResult.text.trim()) {
       const prInfo = JSON.parse(prInfoResult.text)
+      isCrossRepository = Boolean(prInfo?.isCrossRepository)
 
       if (prInfo?.isCrossRepository && prInfo.headRepository && prInfo.headRepositoryOwner) {
         const forkOwner = prInfo.headRepositoryOwner.login
         const forkName = prInfo.headRepository.name
         const remoteName = forkOwner
+        forkRemote = remoteName
 
         const remotes = (yield* git.run(["remote"], { cwd: worktree })).text().trim()
         if (!remotes.split("\n").includes(remoteName)) {
           yield* git.run(["remote", "add", remoteName, `https://github.com/${forkOwner}/${forkName}.git`], {
             cwd: worktree,
           })
-          UI.println(`Added fork remote: ${remoteName}`)
+          if (!args.json && !args.output) {
+            UI.println(`Added fork remote: ${remoteName}`)
+          }
         }
 
         yield* git.run(["branch", `--set-upstream-to=${remoteName}/${prInfo.headRefName}`, localBranchName], {
@@ -76,19 +180,20 @@ export const PrCommand = effectCmd({
       const bin = which("lmplayer") ? "lmplayer" : which("opencode") ? "opencode" : "lmplayer"
 
       if (prInfo?.body) {
-        const sessionMatch = prInfo.body.match(/https:\/\/opncd\.ai\/s\/([a-zA-Z0-9_-]+)/)
-        if (sessionMatch) {
-          const sessionUrl = sessionMatch[0]
-          UI.println(`Found session: ${sessionUrl}`)
-          UI.println(`Importing session...`)
+        sessionUrl = extractSessionUrlFromPrBody(prInfo.body)
+        if (sessionUrl) {
+          const url = sessionUrl
+          if (!args.json && !args.output) {
+            UI.println(`Found session: ${url}`)
+            UI.println(`Importing session...`)
+          }
 
           const importResult = yield* Effect.promise(() =>
-            Process.text([bin, "import", sessionUrl], { nothrow: true }),
+            Process.text([bin, "import", url], { nothrow: true }),
           )
           if (importResult.code === 0) {
-            const sessionIdMatch = importResult.text.trim().match(/Imported session: ([a-zA-Z0-9_-]+)/)
-            if (sessionIdMatch) {
-              sessionId = sessionIdMatch[1]
+            sessionId = extractSessionIdFromImportOutput(importResult.text)
+            if (sessionId && !args.json && !args.output) {
               UI.println(`Session imported: ${sessionId}`)
             }
           }
@@ -96,7 +201,37 @@ export const PrCommand = effectCmd({
       }
     }
 
-    UI.println(`Successfully checked out PR #${prNumber} as branch '${localBranchName}'`)
+    const result = buildPrCheckoutResult({
+      pr: prNumber,
+      branch: localBranchName,
+      forkRemote,
+      session: sessionId,
+      sessionUrl,
+      isCrossRepository,
+    })
+
+    const jsonStr = JSON.stringify(result, null, 2) + EOL
+    const textLines = formatPrCheckoutText(result)
+    const textStr = textLines.join(EOL) + EOL
+
+    if (args.output) {
+      yield* writeOutputFile(args.output, args.json ? jsonStr : textStr, "PR checkout")
+    }
+
+    if (args.json) {
+      process.stdout.write(jsonStr)
+      return
+    }
+
+    if (!args.output) {
+      UI.println(`Successfully checked out PR #${prNumber} as branch '${localBranchName}'`)
+    }
+
+    const skipRun = args["no-run"] || args.noRun
+    if (skipRun) {
+      return
+    }
+
     UI.println()
     UI.println("Starting lmplayer...")
     UI.println()
@@ -112,8 +247,6 @@ export const PrCommand = effectCmd({
           cwd: process.cwd(),
         }).exited,
     )
-    // Match legacy throw semantics — propagate as a defect so the top-level
-    // index.ts catch handles it identically (exit 1, "Unexpected error" banner).
     if (code !== 0) return yield* Effect.die(new Error(`${bin} exited with code ${code}`))
   }),
 })
