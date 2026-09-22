@@ -1,7 +1,7 @@
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import { EOL } from "os"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
-import { basename } from "path"
+import path, { basename } from "path"
 import { Cause, Effect } from "effect"
 import { Agent } from "../../../agent/agent"
 import { Provider } from "@/provider/provider"
@@ -14,11 +14,13 @@ import { iife } from "../../../util/iife"
 import { fail } from "../../effect-cmd"
 import { InstanceRef } from "@/effect/instance-ref"
 import type { InstanceContext } from "@/project/instance-context"
+import { UI } from "@/cli/ui"
 
 export const debugAgent = Effect.fn("Cli.debug.agent")(function* (args: {
   name: string
   tool?: string
   params?: string
+  output?: string
 }) {
   const ctx = yield* InstanceRef
   if (!ctx) return
@@ -26,7 +28,7 @@ export const debugAgent = Effect.fn("Cli.debug.agent")(function* (args: {
 })
 
 const run = Effect.fn("Cli.debug.agent.body")(function* (
-  args: { name: string; tool?: string; params?: string },
+  args: { name: string; tool?: string; params?: string; output?: string },
   ctx: InstanceContext,
 ) {
   const agentName = args.name
@@ -53,7 +55,18 @@ const run = Effect.fn("Cli.debug.agent.body")(function* (
     const params = parseToolParams(args.params)
     const toolCtx = yield* createToolContext(agent, ctx)
     const result = yield* tool.execute(params, toolCtx)
-    process.stdout.write(JSON.stringify({ tool: toolID, input: params, result }, null, 2) + EOL)
+    const jsonStr = JSON.stringify({ tool: toolID, input: params, result }, null, 2) + EOL
+    if (args.output) {
+      const resolved = path.resolve(args.output)
+      yield* Effect.promise(async () => {
+        const fs = await import("node:fs/promises")
+        await fs.mkdir(path.dirname(resolved), { recursive: true })
+        await fs.writeFile(resolved, jsonStr, "utf-8")
+      })
+      UI.println(`Wrote tool execution result to ${resolved}`)
+      return
+    }
+    process.stdout.write(jsonStr)
     return
   }
 
@@ -61,7 +74,18 @@ const run = Effect.fn("Cli.debug.agent.body")(function* (
     ...agent,
     tools: resolvedTools,
   }
-  process.stdout.write(JSON.stringify(output, null, 2) + EOL)
+  const jsonStr = JSON.stringify(output, null, 2) + EOL
+  if (args.output) {
+    const resolved = path.resolve(args.output)
+    yield* Effect.promise(async () => {
+      const fs = await import("node:fs/promises")
+      await fs.mkdir(path.dirname(resolved), { recursive: true })
+      await fs.writeFile(resolved, jsonStr, "utf-8")
+    })
+    UI.println(`Wrote agent details to ${resolved}`)
+    return
+  }
+  process.stdout.write(jsonStr)
 })
 
 const getAvailableTools = Effect.fn("Cli.debug.agent.getAvailableTools")(function* (agent: Agent.Info) {

@@ -18,6 +18,11 @@ export const AgentCommand = effectCmd({
       .option("params", {
         type: "string",
         description: "Tool params as JSON or a JS object literal",
+      })
+      .option("output", {
+        alias: "o",
+        type: "string",
+        describe: "write agent details or tool execution result to output file path",
       }),
   handler: (args) =>
     Effect.gen(function* () {

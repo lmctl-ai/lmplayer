@@ -136,4 +136,44 @@ describe("opencode debug commands (non-interactive subprocess)", () => {
       }),
     60_000,
   )
+
+  cliIt.concurrent(
+    "debug startup supports -o text and json export",
+    ({ home, opencode }) =>
+      Effect.gen(function* () {
+        const textOut = path.join(home, "startup.txt")
+        const resText = yield* opencode.spawn(["debug", "startup", "-o", textOut])
+        opencode.expectExit(resText, 0)
+        expect(resText.stderr).toContain("Wrote startup timing to")
+        const textContent = yield* Effect.promise(() => fs.readFile(textOut, "utf-8"))
+        expect(Number(textContent.trim())).toBeGreaterThan(0)
+
+        const jsonOut = path.join(home, "startup.json")
+        const resJson = yield* opencode.spawn(["debug", "startup", "--output", jsonOut, "--json"])
+        opencode.expectExit(resJson, 0)
+        expect(resJson.stderr).toContain("Wrote startup timing to")
+        const jsonContent = yield* Effect.promise(() => fs.readFile(jsonOut, "utf-8"))
+        const parsed = JSON.parse(jsonContent)
+        expect(parsed).toHaveProperty("startup_ms")
+        expect(typeof parsed.startup_ms).toBe("number")
+      }),
+    60_000,
+  )
+
+  cliIt.concurrent(
+    "debug agent supports -o file export",
+    ({ home, opencode }) =>
+      Effect.gen(function* () {
+        const jsonOut = path.join(home, "agent-title.json")
+        const res = yield* opencode.spawn(["debug", "agent", "title", "-o", jsonOut])
+        opencode.expectExit(res, 0)
+        expect(res.stderr).toContain("Wrote agent details to")
+        const jsonContent = yield* Effect.promise(() => fs.readFile(jsonOut, "utf-8"))
+        const parsed = JSON.parse(jsonContent)
+        expect(parsed.name).toBe("title")
+        expect(parsed).toHaveProperty("tools")
+      }),
+    60_000,
+  )
 })
+
