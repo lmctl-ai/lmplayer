@@ -5,16 +5,78 @@ import { ServerAuth } from "@/server/auth"
 import { createOpencodeClient } from "@opencode-ai/sdk/v2"
 import { withNetworkOptions, resolveNetworkOptions } from "../network"
 import { ACPProfile } from "@/acp/profile"
+import path from "path"
+import { EOL } from "os"
+
+export interface AcpServerInfo {
+  url: string
+  hostname: string
+  port: number
+  cwd: string
+  client: string
+  pid: number
+}
+
+export function buildAcpServerInfo(opts: {
+  hostname: string
+  port: number
+  cwd: string
+  client?: string
+  pid?: number
+}): AcpServerInfo {
+  return {
+    url: `http://${opts.hostname}:${opts.port}`,
+    hostname: opts.hostname,
+    port: opts.port,
+    cwd: opts.cwd,
+    client: opts.client ?? "acp",
+    pid: opts.pid ?? process.pid,
+  }
+}
+
+export function formatAcpServerInfoText(info: AcpServerInfo): string[] {
+  return [
+    `ACP server started`,
+    `  URL:      ${info.url}`,
+    `  Host:     ${info.hostname}`,
+    `  Port:     ${info.port}`,
+    `  CWD:      ${info.cwd}`,
+    `  Client:   ${info.client}`,
+    `  PID:      ${info.pid}`,
+  ]
+}
+
+export async function writeAcpServerOutputFile(output: string, info: AcpServerInfo, isJson: boolean = false) {
+  const resolved = path.resolve(output)
+  const fs = await import("fs/promises")
+  await fs.mkdir(path.dirname(resolved), { recursive: true })
+  const content =
+    output.endsWith(".json") || isJson
+      ? JSON.stringify(info, null, 2) + EOL
+      : formatAcpServerInfoText(info).join(EOL) + EOL
+  await fs.writeFile(resolved, content, "utf-8")
+}
 
 export const AcpCommand = effectCmd({
   command: "acp",
   describe: "start ACP (Agent Client Protocol) server",
   builder: (yargs) => {
-    return withNetworkOptions(yargs).option("cwd", {
-      describe: "working directory",
-      type: "string",
-      default: process.cwd(),
-    })
+    return withNetworkOptions(yargs)
+      .option("cwd", {
+        describe: "working directory",
+        type: "string",
+        default: process.cwd(),
+      })
+      .option("output", {
+        alias: ["o"],
+        type: "string",
+        describe: "write ACP server details to file path",
+      })
+      .option("json", {
+        type: "boolean",
+        describe: "format output file as JSON",
+        default: false,
+      })
   },
   handler: Effect.fn("Cli.acp")(function* (args) {
     const { Server } = yield* Effect.promise(() => import("@/server/server"))
@@ -23,6 +85,17 @@ export const AcpCommand = effectCmd({
     process.env.OPENCODE_CLIENT = "acp"
     const opts = yield* resolveNetworkOptions(args)
     const server = yield* Effect.promise(() => ACPProfile.measure("cli.acp.server.listen", () => Server.listen(opts)))
+
+    if (args.output) {
+      const info = buildAcpServerInfo({
+        hostname: server.hostname,
+        port: server.port,
+        cwd: args.cwd,
+        client: "acp",
+        pid: process.pid,
+      })
+      yield* Effect.promise(() => writeAcpServerOutputFile(args.output!, info, Boolean(args.json)))
+    }
 
     const sdk = createOpencodeClient({
       baseUrl: `http://${server.hostname}:${server.port}`,
