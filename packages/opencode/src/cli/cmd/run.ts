@@ -29,6 +29,44 @@ import { resolveRunCompletion } from "./run/completion"
 
 type ModelInput = Parameters<OpencodeClient["session"]["prompt"]>[0]["model"]
 
+export function formatRunOutputText(textParts: string[]): string {
+  return textParts.join(EOL + EOL)
+}
+
+export async function writeRunOutputFile(
+  output: string,
+  data: {
+    format?: string
+    sessionID?: string
+    textParts?: string[]
+    events?: Array<Record<string, unknown>>
+  },
+) {
+  const resolved = path.resolve(output)
+  const fs = await import("fs/promises")
+  await fs.mkdir(path.dirname(resolved), { recursive: true })
+  const isJson = data.format === "json" || output.endsWith(".json")
+  let content: string
+  if (isJson) {
+    if (data.events && data.events.length > 0) {
+      content = JSON.stringify(data.events, null, 2) + EOL
+    } else {
+      content =
+        JSON.stringify(
+          {
+            sessionID: data.sessionID,
+            text: data.textParts ? formatRunOutputText(data.textParts) : "",
+          },
+          null,
+          2,
+        ) + EOL
+    }
+  } else {
+    content = (data.textParts ? formatRunOutputText(data.textParts) : "") + EOL
+  }
+  await fs.writeFile(resolved, content, "utf-8")
+}
+
 function pick(value: string | undefined): ModelInput | undefined {
   if (!value) return undefined
   const [providerID, ...rest] = value.split("/")
@@ -177,6 +215,11 @@ export const RunCommand = effectCmd({
         choices: ["default", "json"],
         default: "default",
         describe: "format: default (formatted) or json (raw JSON events)",
+      })
+      .option("output", {
+        alias: ["o"],
+        type: "string",
+        describe: "write assistant output to file path",
       })
       .option("file", {
         alias: ["f"],
@@ -330,6 +373,10 @@ export const RunCommand = effectCmd({
 
       if (interactive && args.format === "json") {
         die("--mini cannot be used with --format json")
+      }
+
+      if (interactive && args.output) {
+        die("--mini cannot be used with --output")
       }
 
       if (args["replay-limit"] !== undefined && !interactive) {
@@ -755,16 +802,22 @@ export const RunCommand = effectCmd({
           process.exit(1)
         }
         const sessionID = sess.id
+        const emittedEvents: Array<Record<string, unknown>> = []
+        const textParts: string[] = []
 
         function emit(type: string, data: Record<string, unknown>) {
+          const payload = {
+            type,
+            timestamp: Date.now(),
+            sessionID,
+            ...data,
+          }
+          if (args.output && (args.format === "json" || args.output.endsWith(".json"))) {
+            emittedEvents.push(payload)
+          }
           if (args.format === "json") {
             process.stdout.write(
-              JSON.stringify({
-                type,
-                timestamp: Date.now(),
-                sessionID,
-                ...data,
-              }) + EOL,
+              JSON.stringify(payload) + EOL,
             )
             return true
           }
@@ -840,8 +893,9 @@ export const RunCommand = effectCmd({
               }
 
               if (part.type === "text" && part.time?.end) {
-                if (emit("text", { part })) continue
                 const text = part.text.trim()
+                if (text) textParts.push(text)
+                if (emit("text", { part })) continue
                 if (!text) continue
                 if (!process.stdout.isTTY) {
                   process.stdout.write(text + EOL)
@@ -886,6 +940,22 @@ export const RunCommand = effectCmd({
             ) {
               idle = true
               break
+            }
+
+            if (
+              event.type === "session.status" &&
+              event.properties.sessionID === sessionID &&
+              event.properties.status.type === "retry"
+            ) {
+              if (emit("retry", { retry: event.properties.status })) continue
+              const message = event.properties.status.message
+              const next = event.properties.status.next
+              UI.empty()
+              UI.println(UI.Style.TEXT_DANGER_BOLD + "!  " + message)
+              if (next) {
+                UI.println(UI.Style.TEXT_DIM + `   Retrying in ${Math.round((next - Date.now()) / 1000)}s...`)
+              }
+              UI.empty()
             }
 
             if (event.type === "permission.asked") {
@@ -934,8 +1004,26 @@ export const RunCommand = effectCmd({
           // than reporting exit 0 with empty output. --attach returns immediately
           // and is unaffected.
           async function finish() {
-            if (args.attach) return
+            if (args.attach) {
+              if (args.output) {
+                await writeRunOutputFile(args.output, {
+                  format: args.format,
+                  sessionID,
+                  textParts,
+                  events: emittedEvents,
+                })
+              }
+              return
+            }
             const outcome = await completed
+            if (args.output) {
+              await writeRunOutputFile(args.output, {
+                format: args.format,
+                sessionID,
+                textParts,
+                events: emittedEvents,
+              })
+            }
             if (!outcome) return
             const resolution = await resolveRunCompletion({
               result: outcome,
@@ -960,6 +1048,14 @@ export const RunCommand = effectCmd({
             })
             if (result.error) {
               if (!emit("error", { error: result.error })) UI.error(formatRunError(result.error))
+              if (args.output) {
+                await writeRunOutputFile(args.output, {
+                  format: args.format,
+                  sessionID,
+                  textParts,
+                  events: emittedEvents,
+                })
+              }
               process.exitCode = 1
               return
             }
@@ -977,6 +1073,14 @@ export const RunCommand = effectCmd({
           })
           if (result.error) {
             if (!emit("error", { error: result.error })) UI.error(formatRunError(result.error))
+            if (args.output) {
+              await writeRunOutputFile(args.output, {
+                format: args.format,
+                sessionID,
+                textParts,
+                events: emittedEvents,
+              })
+            }
             process.exitCode = 1
             return
           }
@@ -1102,6 +1206,8 @@ export async function runMini(input: MiniCommandInput) {
     model: input.model,
     agent: input.agent,
     format: "default",
+    output: undefined,
+    o: undefined,
     file: undefined,
     title: undefined,
     attach: input.attach,
