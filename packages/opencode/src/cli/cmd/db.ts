@@ -496,17 +496,43 @@ export const QueryCommand = effectCmd({
         default: "tsv",
         describe: "Output format",
       })
+      .option("json", {
+        type: "boolean",
+        describe: "output results as JSON (equivalent to --format json)",
+      })
+      .option("output", {
+        alias: "o",
+        type: "string",
+        describe: "write query results to output file path",
+      })
   },
-  handler: Effect.fn("Cli.db.query")(function* (args: { query?: string; format: string }) {
+  handler: Effect.fn("Cli.db.query")(function* (args: {
+    query?: string
+    format: string
+    json?: boolean
+    output?: string
+  }) {
     const query = args.query as string | undefined
     if (query) {
       const { db } = yield* Database.Service
       const result = yield* db.all<Record<string, unknown>>(sql.raw(query)).pipe(Effect.orDie)
-      if (args.format === "json") console.log(JSON.stringify(result, null, 2))
-      else if (result.length > 0) {
+      const isJson = Boolean(args.json || args.format === "json")
+      let content = ""
+      if (isJson) {
+        content = JSON.stringify(result, null, 2)
+      } else if (result.length > 0) {
         const keys = Object.keys(result[0])
-        console.log(keys.join("\t"))
-        for (const row of result) console.log(keys.map((key) => row[key]).join("\t"))
+        const lines = [keys.join("\t")]
+        for (const row of result) lines.push(keys.map((key) => String(row[key] ?? "")).join("\t"))
+        content = lines.join("\n")
+      }
+      if (args.output) {
+        yield* writeOutputFile(args.output, content + "\n", "query results")
+      }
+      if (isJson) {
+        console.log(content)
+      } else if (!args.output && content) {
+        console.log(content)
       }
       return
     }
