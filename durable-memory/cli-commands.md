@@ -102,6 +102,13 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
 - `db info` (aliases: `stats`, `status`) `[--output file|-o file] [--json]` — inspect SQLite database status, database file and WAL/SHM sizes, page sizes, page counts, freelist page counts, SQLite version, journal mode, and row counts across all tables, with `--output` (`-o`) direct file export for formatted reports and structured JSON.
 - `db check` (aliases: `verify`, `integrity`) `[--output file|-o file] [--json]` — verify database integrity and foreign key constraints via `PRAGMA integrity_check` and `PRAGMA foreign_key_check`, reporting check results and failing with exit code 1 if issues or violations are detected, with `--output` (`-o`) direct file export.
 - `db vacuum` (aliases: `optimize`, `clean`) `[--wal] [--analyze] [--output file|-o file] [--json]` — reclaim disk space and defragment database storage via `VACUUM` and `PRAGMA wal_checkpoint(TRUNCATE)`, run `PRAGMA optimize`, and optionally run query planner analysis (`--analyze`) or WAL checkpoint only (`--wal` / `--checkpoint`), reporting before/after byte sizes and reclaimed space, with `--output` (`-o`) direct file export.
+
+## Container orchestration & failover
+- `orchestrator status [--registry file] [--output file|-o file] [--json]` — health-check registered containers and show the durable assignment map with container IDs, URLs, and epochs, with direct file export (`--output` / `-o`) and structured JSON.
+- `orchestrator handover --session id --from id --to id [--tail n] [--registry file] [--output file|-o file] [--json]` — move a session between containers via export/import bundle transfer with monotonic epoch bumping and direct file export (`--output` / `-o`).
+- `orchestrator refresh --to id [--registry file] [--output file|-o file] [--json]` — gracefully drain and shut down a container after its in-flight run completes, with direct file export (`--output` / `-o`).
+- `orchestrator assign --session id --to id [--registry file] [--output file|-o file] [--json]` — record or update a session's home container in the durable assignment map without moving data, with direct file export (`--output` / `-o`).
+
 ## Diagnostics, debugging & OpenAPI generation
 - `debug paths [--output file|-o file] [--json]` — inspect global application paths (data, config, state, cache, log, bin), with structured JSON output and direct file export (`--output` / `-o`).
 - `debug info [--output file|-o file] [--json]` — inspect runtime installation version, OS platform/architecture, terminal, and loaded plugins, with structured JSON output and direct file export (`--output` / `-o`).
