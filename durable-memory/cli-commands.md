@@ -98,7 +98,7 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
 - `mcp enable <name>` / `mcp disable <name>` `[--scope project|global] [--project|-p] [--global|-g] [--output file|-o file] [--json]` — toggle MCP server enablement without losing configuration, with structured JSON response and direct file export (`--output` / `-o`).
 - `mcp auth [name]` / `mcp auth list` (alias `ls`) `[--search q|-q q] [--status s|-s s] [--output file|-o file] [--json]` — list OAuth-capable servers and authenticate or inspect auth status with query/status filtering and direct file export (`--output`).
 - `mcp logout [name]` `[--force|-f] [--output file|-o file] [--json]` — remove stored OAuth credentials for an MCP server with force flag, file export, and structured JSON output.
-- `mcp debug <name>` — debug OAuth connection and test server info / tools.
+- `mcp debug <name> [--output file|-o file] [--json]` — debug OAuth connection, tokens, client ID registration, and HTTP/server status for an MCP server, with structured JSON output (`server`, `found`, `isRemote`, `oauthExplicitlyDisabled`, `authStatus`, `tokens`, `clientInfo`, `http`, `connectionSuccessful`, `oauthFlowTriggered`) and direct file export (`--output` / `-o`).
 
 ## Plugin installation & management
 - `plugin <module>` (alias `plug`) `[--global|-g] [--force|-f] [--output file|-o file] [--json]` — install plugin package, detect server/tui targets, and update project or global configuration, with structured JSON response and direct file export (`--output` / `-o`).

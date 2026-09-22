@@ -1213,187 +1213,499 @@ export const McpAddCommand = effectCmd({
   }),
 })
 
-export const McpDebugCommand = effectCmd({
-  command: "debug <name>",
-  describe: "debug OAuth connection for an MCP server",
-  builder: (yargs) =>
-    yargs.positional("name", {
-      describe: "name of the MCP server",
-      type: "string",
-      demandOption: true,
-    }),
-  handler: Effect.fn("Cli.mcp.debug")(function* (args) {
-    const config = yield* Config.Service.use((cfg) => cfg.get())
-    const mcp = yield* MCP.Service
-    const auth = yield* McpAuth.Service
-    const serverConfig = config.mcp?.[args.name]
-    const authInfo =
-      serverConfig && isMcpRemote(serverConfig) && serverConfig.oauth !== false
-        ? yield* Effect.all({
-            authStatus: mcp.getAuthStatus(args.name),
-            entry: auth.get(args.name),
-          })
-        : undefined
-    yield* Effect.promise(async () => {
+export type McpDebugArgs = {
+  name: string
+  output?: string
+  json?: boolean
+}
+
+export interface McpDebugTokenInfo {
+  accessTokenMasked?: string
+  expiresAt?: string
+  isExpired?: boolean
+  hasRefreshToken?: boolean
+}
+
+export interface McpDebugClientInfo {
+  clientId?: string
+  clientSecretExpiresAt?: string
+  hasDynamicRegistration?: boolean
+}
+
+export interface McpDebugHttpInfo {
+  status?: number
+  statusText?: string
+  wwwAuthenticate?: string
+  requiresOAuth?: boolean
+  serverInfo?: Record<string, any>
+  body?: string
+  error?: string
+}
+
+export interface McpDebugResult {
+  server: string
+  found: boolean
+  isRemote?: boolean
+  oauthExplicitlyDisabled?: boolean
+  url?: string
+  authStatus?: string
+  authStatusText?: string
+  tokens?: McpDebugTokenInfo
+  clientInfo?: McpDebugClientInfo
+  http?: McpDebugHttpInfo
+  connectionSuccessful?: boolean
+  oauthFlowTriggered?: boolean
+  error?: string
+}
+
+export function buildMcpDebugResult(opts: Partial<McpDebugResult> & { server: string; found: boolean }): McpDebugResult {
+  return {
+    server: opts.server,
+    found: opts.found,
+    ...(opts.isRemote !== undefined && { isRemote: opts.isRemote }),
+    ...(opts.oauthExplicitlyDisabled !== undefined && { oauthExplicitlyDisabled: opts.oauthExplicitlyDisabled }),
+    ...(opts.url && { url: opts.url }),
+    ...(opts.authStatus && { authStatus: opts.authStatus }),
+    ...(opts.authStatusText && { authStatusText: opts.authStatusText }),
+    ...(opts.tokens && { tokens: opts.tokens }),
+    ...(opts.clientInfo && { clientInfo: opts.clientInfo }),
+    ...(opts.http && { http: opts.http }),
+    ...(opts.connectionSuccessful !== undefined && { connectionSuccessful: opts.connectionSuccessful }),
+    ...(opts.oauthFlowTriggered !== undefined && { oauthFlowTriggered: opts.oauthFlowTriggered }),
+    ...(opts.error && { error: opts.error }),
+  }
+}
+
+export function formatMcpDebugText(result: McpDebugResult): string[] {
+  const lines: string[] = []
+  lines.push(`MCP Server Debug: ${result.server}`)
+  if (!result.found) {
+    lines.push(`  Error: MCP server not found: ${result.server}`)
+    return lines
+  }
+  if (result.isRemote === false) {
+    lines.push(`  Error: MCP server ${result.server} is not a remote server`)
+    return lines
+  }
+  if (result.url) {
+    lines.push(`  URL: ${result.url}`)
+  }
+  if (result.oauthExplicitlyDisabled) {
+    lines.push(`  Warning: MCP server ${result.server} has OAuth explicitly disabled`)
+    return lines
+  }
+  if (result.authStatusText) {
+    lines.push(`  Auth status: ${result.authStatusText}`)
+  }
+  if (result.tokens) {
+    if (result.tokens.accessTokenMasked) {
+      lines.push(`  Access token: ${result.tokens.accessTokenMasked}`)
+    }
+    if (result.tokens.expiresAt) {
+      lines.push(`  Expires: ${result.tokens.expiresAt}${result.tokens.isExpired ? " (EXPIRED)" : ""}`)
+    }
+    if (result.tokens.hasRefreshToken) {
+      lines.push(`  Refresh token: present`)
+    }
+  }
+  if (result.clientInfo) {
+    if (result.clientInfo.clientId) {
+      lines.push(`  Client ID: ${result.clientInfo.clientId}`)
+    }
+    if (result.clientInfo.clientSecretExpiresAt) {
+      lines.push(`  Client secret expires: ${result.clientInfo.clientSecretExpiresAt}`)
+    }
+    if (result.clientInfo.hasDynamicRegistration) {
+      lines.push(`  Dynamic registration: will be attempted`)
+    }
+  }
+  if (result.http) {
+    if (result.http.status !== undefined) {
+      const statusLine = `${result.http.status} ${result.http.statusText ?? ""}`.trim()
+      lines.push(`  HTTP response: ${statusLine}`)
+    }
+    if (result.http.wwwAuthenticate) {
+      lines.push(`  WWW-Authenticate: ${result.http.wwwAuthenticate}`)
+    }
+    if (result.http.requiresOAuth) {
+      lines.push(`  OAuth required: yes (401 response)`)
+    }
+    if (result.http.serverInfo) {
+      lines.push(`  Server info: ${JSON.stringify(result.http.serverInfo)}`)
+    }
+    if (result.http.error) {
+      lines.push(`  Connection error: ${result.http.error}`)
+    }
+  }
+  if (result.connectionSuccessful) {
+    lines.push(`  Connection: successful`)
+  }
+  if (result.oauthFlowTriggered) {
+    lines.push(`  OAuth flow: triggered`)
+  }
+  if (result.error && !result.http?.error) {
+    lines.push(`  Error: ${result.error}`)
+  }
+  return lines
+}
+
+export async function writeMcpDebugOutputFile(output: string, result: McpDebugResult, isJson: boolean) {
+  const resolved = path.resolve(output)
+  const fs = await import("fs/promises")
+  await fs.mkdir(path.dirname(resolved), { recursive: true })
+  const content =
+    output.endsWith(".json") || isJson
+      ? JSON.stringify(result, null, 2) + EOL
+      : formatMcpDebugText(result).join(EOL) + EOL
+  await fs.writeFile(resolved, content, "utf-8")
+  if (!isJson) {
+    UI.println(`Wrote MCP debug report to ${resolved}`)
+  }
+}
+
+export const debugMcp = Effect.fn("Cli.mcp.debug")(function* (args: McpDebugArgs) {
+  const config = yield* Config.Service.use((cfg) => cfg.get())
+  const mcp = yield* MCP.Service
+  const auth = yield* McpAuth.Service
+  const serverConfig = config.mcp?.[args.name]
+  const authInfo =
+    serverConfig && isMcpRemote(serverConfig) && serverConfig.oauth !== false
+      ? yield* Effect.all({
+          authStatus: mcp.getAuthStatus(args.name),
+          entry: auth.get(args.name),
+        })
+      : undefined
+
+  yield* Effect.promise(async () => {
+    const isJson = Boolean(args.json)
+    const serverName = args.name
+
+    if (!isJson) {
       UI.empty()
       prompts.intro("MCP OAuth Debug")
+    }
 
-      const serverName = args.name
-
-      if (!serverConfig) {
+    if (!serverConfig) {
+      const result = buildMcpDebugResult({
+        server: serverName,
+        found: false,
+        error: `MCP server not found: ${serverName}`,
+      })
+      if (isJson) {
+        process.stdout.write(JSON.stringify(result, null, 2) + EOL)
+      } else {
         prompts.log.error(`MCP server not found: ${serverName}`)
         prompts.outro("Done")
-        return
       }
+      if (args.output) {
+        await writeMcpDebugOutputFile(args.output, result, isJson)
+      }
+      return
+    }
 
-      if (!isMcpRemote(serverConfig)) {
+    if (!isMcpRemote(serverConfig)) {
+      const result = buildMcpDebugResult({
+        server: serverName,
+        found: true,
+        isRemote: false,
+        error: `MCP server ${serverName} is not a remote server`,
+      })
+      if (isJson) {
+        process.stdout.write(JSON.stringify(result, null, 2) + EOL)
+      } else {
         prompts.log.error(`MCP server ${serverName} is not a remote server`)
         prompts.outro("Done")
-        return
       }
+      if (args.output) {
+        await writeMcpDebugOutputFile(args.output, result, isJson)
+      }
+      return
+    }
 
-      if (serverConfig.oauth === false) {
+    if (serverConfig.oauth === false) {
+      const result = buildMcpDebugResult({
+        server: serverName,
+        found: true,
+        isRemote: true,
+        oauthExplicitlyDisabled: true,
+        url: serverConfig.url,
+      })
+      if (isJson) {
+        process.stdout.write(JSON.stringify(result, null, 2) + EOL)
+      } else {
         prompts.log.warn(`MCP server ${serverName} has OAuth explicitly disabled`)
         prompts.outro("Done")
-        return
       }
+      if (args.output) {
+        await writeMcpDebugOutputFile(args.output, result, isJson)
+      }
+      return
+    }
 
+    const { authStatus, entry } = authInfo!
+    const authStatusText = getAuthStatusText(authStatus)
+    const authStatusIcon = getAuthStatusIcon(authStatus)
+
+    if (!isJson) {
       prompts.log.info(`Server: ${serverName}`)
       prompts.log.info(`URL: ${serverConfig.url}`)
+      prompts.log.info(`Auth status: ${authStatusIcon} ${authStatusText}`)
+    }
 
-      const { authStatus, entry } = authInfo!
-      prompts.log.info(`Auth status: ${getAuthStatusIcon(authStatus)} ${getAuthStatusText(authStatus)}`)
-
-      if (entry?.tokens) {
-        prompts.log.info(
-          `  Access token: ${entry.tokens.accessToken.length > 8 ? `${entry.tokens.accessToken.slice(0, 4)}***${entry.tokens.accessToken.slice(-4)}` : "***"}`,
-        )
-        if (entry.tokens.expiresAt) {
-          const expiresDate = new Date(entry.tokens.expiresAt * 1000)
-          const isExpired = entry.tokens.expiresAt < Date.now() / 1000
-          prompts.log.info(`  Expires: ${expiresDate.toISOString()} ${isExpired ? "(EXPIRED)" : ""}`)
+    let tokenInfo: McpDebugTokenInfo | undefined
+    if (entry?.tokens) {
+      const accessTokenMasked =
+        entry.tokens.accessToken.length > 8
+          ? `${entry.tokens.accessToken.slice(0, 4)}***${entry.tokens.accessToken.slice(-4)}`
+          : "***"
+      const isExpired = entry.tokens.expiresAt ? entry.tokens.expiresAt < Date.now() / 1000 : undefined
+      const expiresAt = entry.tokens.expiresAt ? new Date(entry.tokens.expiresAt * 1000).toISOString() : undefined
+      tokenInfo = {
+        accessTokenMasked,
+        expiresAt,
+        isExpired,
+        hasRefreshToken: Boolean(entry.tokens.refreshToken),
+      }
+      if (!isJson) {
+        prompts.log.info(`  Access token: ${accessTokenMasked}`)
+        if (expiresAt) {
+          prompts.log.info(`  Expires: ${expiresAt} ${isExpired ? "(EXPIRED)" : ""}`)
         }
         if (entry.tokens.refreshToken) {
           prompts.log.info(`  Refresh token: present`)
         }
       }
-      if (entry?.clientInfo) {
+    }
+
+    let clientInfoResult: McpDebugClientInfo | undefined
+    if (entry?.clientInfo) {
+      const clientSecretExpiresAt = entry.clientInfo.clientSecretExpiresAt
+        ? new Date(entry.clientInfo.clientSecretExpiresAt * 1000).toISOString()
+        : undefined
+      clientInfoResult = {
+        clientId: entry.clientInfo.clientId,
+        clientSecretExpiresAt,
+      }
+      if (!isJson) {
         prompts.log.info(`  Client ID: ${entry.clientInfo.clientId}`)
-        if (entry.clientInfo.clientSecretExpiresAt) {
-          const expiresDate = new Date(entry.clientInfo.clientSecretExpiresAt * 1000)
-          prompts.log.info(`  Client secret expires: ${expiresDate.toISOString()}`)
+        if (clientSecretExpiresAt) {
+          prompts.log.info(`  Client secret expires: ${clientSecretExpiresAt}`)
+        }
+      }
+    }
+
+    let spinner: ReturnType<typeof prompts.spinner> | undefined
+    if (!isJson) {
+      spinner = prompts.spinner()
+      spinner.start("Testing connection...")
+    }
+
+    let httpInfo: McpDebugHttpInfo = {}
+    let connectionSuccessful = false
+    let oauthFlowTriggered = false
+
+    try {
+      const response = await fetch(serverConfig.url, {
+        method: "POST",
+        headers: {
+          ...serverConfig.headers,
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          method: "initialize",
+          params: {
+            protocolVersion: LATEST_PROTOCOL_VERSION,
+            capabilities: {},
+            clientInfo: { name: "lmplayer-debug", version: InstallationVersion },
+          },
+          id: 1,
+        }),
+      })
+
+      httpInfo.status = response.status
+      httpInfo.statusText = response.statusText
+
+      if (spinner) {
+        spinner.stop(`HTTP response: ${response.status} ${response.statusText}`)
+      }
+
+      const wwwAuth = response.headers.get("www-authenticate")
+      if (wwwAuth) {
+        httpInfo.wwwAuthenticate = wwwAuth
+        if (!isJson) {
+          prompts.log.info(`WWW-Authenticate: ${wwwAuth}`)
         }
       }
 
-      const spinner = prompts.spinner()
-      spinner.start("Testing connection...")
-
-      // Test basic HTTP connectivity first
-      try {
-        const response = await fetch(serverConfig.url, {
-          method: "POST",
-          headers: {
-            ...serverConfig.headers,
-            "Content-Type": "application/json",
-            Accept: "application/json, text/event-stream",
-          },
-          body: JSON.stringify({
-            jsonrpc: "2.0",
-            method: "initialize",
-            params: {
-              protocolVersion: LATEST_PROTOCOL_VERSION,
-              capabilities: {},
-              clientInfo: { name: "lmplayer-debug", version: InstallationVersion },
-            },
-            id: 1,
-          }),
-        })
-
-        spinner.stop(`HTTP response: ${response.status} ${response.statusText}`)
-
-        // Check for WWW-Authenticate header
-        const wwwAuth = response.headers.get("www-authenticate")
-        if (wwwAuth) {
-          prompts.log.info(`WWW-Authenticate: ${wwwAuth}`)
+      if (response.status === 401) {
+        httpInfo.requiresOAuth = true
+        if (!isJson) {
+          prompts.log.info("Initial unauthenticated check returned 401, so this server requires OAuth")
         }
 
-        if (response.status === 401) {
-          prompts.log.info("Initial unauthenticated check returned 401, so this server requires OAuth")
+        const oauthConfig = typeof serverConfig.oauth === "object" ? serverConfig.oauth : undefined
+        const authProvider = new McpOAuthProvider(
+          serverName,
+          serverConfig.url,
+          {
+            clientId: oauthConfig?.clientId,
+            clientSecret: oauthConfig?.clientSecret,
+            scope: oauthConfig?.scope,
+            redirectUri: oauthConfig?.redirectUri,
+          },
+          {
+            onRedirect: async () => {},
+          },
+          auth,
+        )
 
-          // Try to discover OAuth metadata
-          const oauthConfig = typeof serverConfig.oauth === "object" ? serverConfig.oauth : undefined
-          const authProvider = new McpOAuthProvider(
-            serverName,
-            serverConfig.url,
-            {
-              clientId: oauthConfig?.clientId,
-              clientSecret: oauthConfig?.clientSecret,
-              scope: oauthConfig?.scope,
-              redirectUri: oauthConfig?.redirectUri,
-            },
-            {
-              onRedirect: async () => {},
-            },
-            auth,
-          )
-
+        if (!isJson) {
           prompts.log.info("Testing OAuth flow (without completing authorization)...")
+        }
 
-          // Try creating transport with auth provider to trigger discovery
-          const transport = new StreamableHTTPClientTransport(new URL(serverConfig.url), {
-            authProvider,
-            requestInit: serverConfig.headers ? { headers: serverConfig.headers } : undefined,
+        const transport = new StreamableHTTPClientTransport(new URL(serverConfig.url), {
+          authProvider,
+          requestInit: serverConfig.headers ? { headers: serverConfig.headers } : undefined,
+        })
+
+        try {
+          const client = new Client({
+            name: "lmplayer-debug",
+            version: InstallationVersion,
           })
-
-          try {
-            const client = new Client({
-              name: "lmplayer-debug",
-              version: InstallationVersion,
-            })
-            await client.connect(transport)
+          await client.connect(transport)
+          connectionSuccessful = true
+          if (!isJson) {
             prompts.log.success("Connection successful (already authenticated)")
-            await client.close()
-          } catch (error) {
-            if (error instanceof UnauthorizedError) {
+          }
+          await client.close()
+        } catch (error) {
+          if (error instanceof UnauthorizedError) {
+            oauthFlowTriggered = true
+            if (!isJson) {
               prompts.log.info(`OAuth flow triggered: ${error.message}`)
+            }
 
-              // Check if dynamic registration would be attempted
-              const clientInfo = await authProvider.clientInformation()
-              if (clientInfo) {
-                prompts.log.info(`Client ID available: ${clientInfo.client_id}`)
+            const cInfo = await authProvider.clientInformation()
+            if (cInfo) {
+              if (clientInfoResult) {
+                clientInfoResult.clientId = cInfo.client_id
               } else {
-                prompts.log.info("No client ID - dynamic registration will be attempted")
+                clientInfoResult = { clientId: cInfo.client_id }
+              }
+              if (!isJson) {
+                prompts.log.info(`Client ID available: ${cInfo.client_id}`)
               }
             } else {
-              prompts.log.error(`Connection error: ${error instanceof Error ? error.message : String(error)}`)
+              if (clientInfoResult) {
+                clientInfoResult.hasDynamicRegistration = true
+              } else {
+                clientInfoResult = { hasDynamicRegistration: true }
+              }
+              if (!isJson) {
+                prompts.log.info("No client ID - dynamic registration will be attempted")
+              }
+            }
+          } else {
+            const msg = error instanceof Error ? error.message : String(error)
+            httpInfo.error = msg
+            if (!isJson) {
+              prompts.log.error(`Connection error: ${msg}`)
             }
           }
-        } else if (response.status >= 200 && response.status < 300) {
+        }
+      } else if (response.status >= 200 && response.status < 300) {
+        connectionSuccessful = true
+        if (!isJson) {
           prompts.log.success("Server responded successfully (no auth required or already authenticated)")
-          const body = await response.text()
-          try {
-            const json = JSON.parse(body)
-            if (json.result?.serverInfo) {
+        }
+        const body = await response.text()
+        try {
+          const json = JSON.parse(body)
+          if (json.result?.serverInfo) {
+            httpInfo.serverInfo = json.result.serverInfo
+            if (!isJson) {
               prompts.log.info(`Server info: ${JSON.stringify(json.result.serverInfo)}`)
             }
-          } catch {
-            // Not JSON, ignore
           }
-        } else {
+        } catch {
+          // Not JSON, ignore
+        }
+      } else {
+        if (!isJson) {
           prompts.log.warn(`Unexpected status: ${response.status}`)
-          const body = await response.text().catch(() => "")
-          if (body) {
+        }
+        const body = await response.text().catch(() => "")
+        if (body) {
+          httpInfo.body = body.substring(0, 500)
+          if (!isJson) {
             prompts.log.info(`Response body: ${body.substring(0, 500)}`)
           }
         }
-      } catch (error) {
-        spinner.stop("Connection failed", 1)
-        prompts.log.error(`Error: ${error instanceof Error ? error.message : String(error)}`)
       }
+    } catch (error) {
+      if (spinner) {
+        spinner.stop("Connection failed", 1)
+      }
+      const msg = error instanceof Error ? error.message : String(error)
+      httpInfo.error = msg
+      if (!isJson) {
+        prompts.log.error(`Error: ${msg}`)
+      }
+    }
 
+    if (!isJson) {
       prompts.outro("Debug complete")
+    }
+
+    const result = buildMcpDebugResult({
+      server: serverName,
+      found: true,
+      isRemote: true,
+      url: serverConfig.url,
+      authStatus: String(authStatus),
+      authStatusText,
+      tokens: tokenInfo,
+      clientInfo: clientInfoResult,
+      http: httpInfo,
+      connectionSuccessful: connectionSuccessful || undefined,
+      oauthFlowTriggered: oauthFlowTriggered || undefined,
+      error: httpInfo.error,
     })
-  }),
+
+    if (isJson) {
+      process.stdout.write(JSON.stringify(result, null, 2) + EOL)
+    }
+
+    if (args.output) {
+      await writeMcpDebugOutputFile(args.output, result, isJson)
+    }
+  })
+})
+
+export const McpDebugCommand = effectCmd({
+  command: "debug <name>",
+  describe: "debug OAuth connection for an MCP server",
+  builder: (yargs: Argv) =>
+    yargs
+      .positional("name", {
+        describe: "name of the MCP server",
+        type: "string",
+        demandOption: true,
+      })
+      .option("output", {
+        alias: "o",
+        type: "string",
+        describe: "write debug report to file path",
+      })
+      .option("json", {
+        type: "boolean",
+        describe: "output as JSON",
+        default: false,
+      }),
+  handler: debugMcp,
 })
 
 async function hasMcpServer(name: string, configPath: string): Promise<boolean> {
