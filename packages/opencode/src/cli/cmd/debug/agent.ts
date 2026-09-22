@@ -23,8 +23,13 @@ export const AgentCommand = effectCmd({
         alias: "o",
         type: "string",
         describe: "write agent details or tool execution result to output file path",
+      })
+      .option("json", {
+        type: "boolean",
+        describe: "output JSON",
+        default: false,
       }),
-  handler: (args) =>
+  handler: (args: { name: string; tool?: string; params?: string; output?: string; json?: boolean }) =>
     Effect.gen(function* () {
       const { debugAgent } = yield* Effect.promise(() => import("./agent.handler"))
       return yield* debugAgent(args)

@@ -14,7 +14,7 @@ export const RipgrepCommand = cmd({
   async handler() {},
 })
 
-const FilesCommand = effectCmd({
+export const FilesCommand = effectCmd({
   command: "files",
   describe: "list files using ripgrep",
   builder: (yargs) =>
@@ -84,7 +84,7 @@ const FilesCommand = effectCmd({
   }),
 })
 
-const SearchCommand = effectCmd({
+export const SearchCommand = effectCmd({
   command: "search <pattern>",
   describe: "search file contents using ripgrep",
   builder: (yargs) =>
@@ -106,12 +106,18 @@ const SearchCommand = effectCmd({
         alias: "o",
         type: "string",
         describe: "write search results to output file path",
+      })
+      .option("json", {
+        type: "boolean",
+        describe: "output JSON",
+        default: false,
       }),
   handler: Effect.fn("Cli.debug.rg.search")(function* (args: {
     pattern: string
     glob?: (string | number)[]
     limit?: number
     output?: string
+    json?: boolean
   }) {
     const ctx = yield* InstanceRef
     if (!ctx) return

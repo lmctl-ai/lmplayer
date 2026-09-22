@@ -15,7 +15,7 @@ const filesystem = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
     Effect.provide(locationServiceMapLayer),
   )
 
-const FileSearchCommand = effectCmd({
+export const FileSearchCommand = effectCmd({
   command: "search <query>",
   describe: "search files by query",
   builder: (yargs) =>
@@ -63,7 +63,7 @@ const FileSearchCommand = effectCmd({
   }),
 })
 
-const FileReadCommand = effectCmd({
+export const FileReadCommand = effectCmd({
   command: "read <path>",
   describe: "read file contents as JSON",
   builder: (yargs) =>
@@ -77,8 +77,13 @@ const FileReadCommand = effectCmd({
         alias: "o",
         type: "string",
         describe: "write file contents to output file path",
+      })
+      .option("json", {
+        type: "boolean",
+        describe: "output JSON",
+        default: false,
       }),
-  handler: Effect.fn("Cli.debug.file.read")(function* (args: { path: string; output?: string }) {
+  handler: Effect.fn("Cli.debug.file.read")(function* (args: { path: string; output?: string; json?: boolean }) {
     const file = yield* filesystem(FileSystem.Service.use((svc) => svc.read({ path: RelativePath.make(args.path) })))
     const payload = { content: Buffer.from(file.content).toString("base64"), encoding: "base64", mime: file.mime }
     const json = JSON.stringify(payload, null, 2) + EOL
@@ -98,7 +103,7 @@ const FileReadCommand = effectCmd({
   }),
 })
 
-const FileListCommand = effectCmd({
+export const FileListCommand = effectCmd({
   command: "list <path>",
   describe: "list files in a directory",
   builder: (yargs) =>
@@ -112,8 +117,13 @@ const FileListCommand = effectCmd({
         alias: "o",
         type: "string",
         describe: "write file list to output file path",
+      })
+      .option("json", {
+        type: "boolean",
+        describe: "output JSON",
+        default: false,
       }),
-  handler: Effect.fn("Cli.debug.file.list")(function* (args: { path: string; output?: string }) {
+  handler: Effect.fn("Cli.debug.file.list")(function* (args: { path: string; output?: string; json?: boolean }) {
     const files = yield* filesystem(FileSystem.Service.use((svc) => svc.list({ path: RelativePath.make(args.path) })))
     const json = JSON.stringify(files, null, 2) + EOL
 

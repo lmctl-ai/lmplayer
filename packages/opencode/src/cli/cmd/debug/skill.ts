@@ -9,12 +9,18 @@ export const SkillCommand = effectCmd({
   command: "skill",
   describe: "list all available skills",
   builder: (yargs) =>
-    yargs.option("output", {
-      alias: "o",
-      type: "string",
-      describe: "write skills to output file path",
-    }),
-  handler: Effect.fn("Cli.debug.skill")(function* (args: { output?: string }) {
+    yargs
+      .option("output", {
+        alias: "o",
+        type: "string",
+        describe: "write skills to output file path",
+      })
+      .option("json", {
+        type: "boolean",
+        describe: "output JSON",
+        default: false,
+      }),
+  handler: Effect.fn("Cli.debug.skill")(function* (args: { output?: string; json?: boolean }) {
     const skill = yield* Skill.Service
     const skills = yield* skill.all()
     const json = JSON.stringify(skills, null, 2) + EOL

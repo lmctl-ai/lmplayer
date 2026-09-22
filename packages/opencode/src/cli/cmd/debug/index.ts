@@ -40,7 +40,7 @@ export const DebugCommand = cmd({
   async handler() {},
 })
 
-const WaitCommand = effectCmd({
+export const WaitCommand = effectCmd({
   command: "wait",
   describe: "wait indefinitely (for debugging)",
   handler: Effect.fn("Cli.debug.wait")(function* () {
@@ -48,7 +48,7 @@ const WaitCommand = effectCmd({
   }),
 })
 
-const InfoCommand = effectCmd({
+export const InfoCommand = effectCmd({
   command: "info",
   describe: "show debug information",
   builder: (yargs) =>
@@ -124,7 +124,7 @@ const InfoCommand = effectCmd({
   }),
 })
 
-const PathsCommand = effectCmd({
+export const PathsCommand = effectCmd({
   command: "paths",
   describe: "show global paths (data, config, cache, state)",
   builder: (yargs) =>

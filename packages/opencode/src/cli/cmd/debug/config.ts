@@ -8,12 +8,18 @@ export const ConfigCommand = effectCmd({
   command: "config",
   describe: "show resolved configuration",
   builder: (yargs) =>
-    yargs.option("output", {
-      alias: "o",
-      type: "string",
-      describe: "write resolved configuration to output file path",
-    }),
-  handler: Effect.fn("Cli.debug.config")(function* (args: { output?: string }) {
+    yargs
+      .option("output", {
+        alias: "o",
+        type: "string",
+        describe: "write resolved configuration to output file path",
+      })
+      .option("json", {
+        type: "boolean",
+        describe: "output JSON",
+        default: false,
+      }),
+  handler: Effect.fn("Cli.debug.config")(function* (args: { output?: string; json?: boolean }) {
     const { Config } = yield* Effect.promise(() => import("@/config/config"))
     const config = yield* Config.Service.use((cfg) => cfg.get())
     const json = JSON.stringify(config, null, 2) + EOL
