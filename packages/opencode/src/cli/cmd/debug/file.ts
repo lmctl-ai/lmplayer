@@ -1,4 +1,5 @@
 import { EOL } from "os"
+import path from "node:path"
 import { Effect } from "effect"
 import { FileSystem } from "@opencode-ai/core/filesystem"
 import { LocationServiceMap, locationServiceMapLayer } from "@opencode-ai/core/location-services"
@@ -6,6 +7,7 @@ import { Location } from "@opencode-ai/core/location"
 import { AbsolutePath, RelativePath } from "@opencode-ai/core/schema"
 import { effectCmd } from "../../effect-cmd"
 import { cmd } from "../cmd"
+import { UI } from "@/cli/ui"
 
 const filesystem = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   effect.pipe(
@@ -17,14 +19,47 @@ const FileSearchCommand = effectCmd({
   command: "search <query>",
   describe: "search files by query",
   builder: (yargs) =>
-    yargs.positional("query", {
-      type: "string",
-      demandOption: true,
-      description: "Search query",
-    }),
-  handler: Effect.fn("Cli.debug.file.search")(function* (args) {
+    yargs
+      .positional("query", {
+        type: "string",
+        demandOption: true,
+        description: "Search query",
+      })
+      .option("output", {
+        alias: "o",
+        type: "string",
+        describe: "write search results to output file path",
+      })
+      .option("json", {
+        type: "boolean",
+        describe: "output JSON",
+      }),
+  handler: Effect.fn("Cli.debug.file.search")(function* (args: { query: string; output?: string; json?: boolean }) {
     const results = yield* Effect.orDie(filesystem(FileSystem.Service.use((svc) => svc.find({ query: args.query }))))
-    process.stdout.write(results.map((item) => item.path).join(EOL) + EOL)
+    const paths = results.map((item) => item.path)
+    const text = paths.join(EOL) + EOL
+
+    if (args.output) {
+      const resolved = path.resolve(args.output)
+      yield* Effect.promise(async () => {
+        const fs = await import("node:fs/promises")
+        await fs.mkdir(path.dirname(resolved), { recursive: true })
+        if (args.json) {
+          await fs.writeFile(resolved, JSON.stringify(paths, null, 2) + EOL, "utf-8")
+        } else {
+          await fs.writeFile(resolved, text, "utf-8")
+        }
+      })
+      UI.println(`Wrote search results to ${resolved}`)
+      return
+    }
+
+    if (args.json) {
+      process.stdout.write(JSON.stringify(paths, null, 2) + EOL)
+      return
+    }
+
+    process.stdout.write(text)
   }),
 })
 
@@ -32,20 +67,34 @@ const FileReadCommand = effectCmd({
   command: "read <path>",
   describe: "read file contents as JSON",
   builder: (yargs) =>
-    yargs.positional("path", {
-      type: "string",
-      demandOption: true,
-      description: "File path to read",
-    }),
-  handler: Effect.fn("Cli.debug.file.read")(function* (args) {
+    yargs
+      .positional("path", {
+        type: "string",
+        demandOption: true,
+        description: "File path to read",
+      })
+      .option("output", {
+        alias: "o",
+        type: "string",
+        describe: "write file contents to output file path",
+      }),
+  handler: Effect.fn("Cli.debug.file.read")(function* (args: { path: string; output?: string }) {
     const file = yield* filesystem(FileSystem.Service.use((svc) => svc.read({ path: RelativePath.make(args.path) })))
-    process.stdout.write(
-      JSON.stringify(
-        { content: Buffer.from(file.content).toString("base64"), encoding: "base64", mime: file.mime },
-        null,
-        2,
-      ) + EOL,
-    )
+    const payload = { content: Buffer.from(file.content).toString("base64"), encoding: "base64", mime: file.mime }
+    const json = JSON.stringify(payload, null, 2) + EOL
+
+    if (args.output) {
+      const resolved = path.resolve(args.output)
+      yield* Effect.promise(async () => {
+        const fs = await import("node:fs/promises")
+        await fs.mkdir(path.dirname(resolved), { recursive: true })
+        await fs.writeFile(resolved, json, "utf-8")
+      })
+      UI.println(`Wrote file contents to ${resolved}`)
+      return
+    }
+
+    process.stdout.write(json)
   }),
 })
 
@@ -53,14 +102,33 @@ const FileListCommand = effectCmd({
   command: "list <path>",
   describe: "list files in a directory",
   builder: (yargs) =>
-    yargs.positional("path", {
-      type: "string",
-      demandOption: true,
-      description: "File path to list",
-    }),
-  handler: Effect.fn("Cli.debug.file.list")(function* (args) {
+    yargs
+      .positional("path", {
+        type: "string",
+        demandOption: true,
+        description: "File path to list",
+      })
+      .option("output", {
+        alias: "o",
+        type: "string",
+        describe: "write file list to output file path",
+      }),
+  handler: Effect.fn("Cli.debug.file.list")(function* (args: { path: string; output?: string }) {
     const files = yield* filesystem(FileSystem.Service.use((svc) => svc.list({ path: RelativePath.make(args.path) })))
-    process.stdout.write(JSON.stringify(files, null, 2) + EOL)
+    const json = JSON.stringify(files, null, 2) + EOL
+
+    if (args.output) {
+      const resolved = path.resolve(args.output)
+      yield* Effect.promise(async () => {
+        const fs = await import("node:fs/promises")
+        await fs.mkdir(path.dirname(resolved), { recursive: true })
+        await fs.writeFile(resolved, json, "utf-8")
+      })
+      UI.println(`Wrote file list to ${resolved}`)
+      return
+    }
+
+    process.stdout.write(json)
   }),
 })
 

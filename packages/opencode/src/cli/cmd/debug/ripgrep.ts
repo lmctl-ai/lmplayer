@@ -1,9 +1,11 @@
 import { EOL } from "os"
+import path from "node:path"
 import { Effect } from "effect"
 import { Ripgrep } from "@opencode-ai/core/ripgrep"
 import { effectCmd } from "../../effect-cmd"
 import { cmd } from "../cmd"
 import { InstanceRef } from "@/effect/instance-ref"
+import { UI } from "@/cli/ui"
 
 export const RipgrepCommand = cmd({
   command: "rg",
@@ -28,8 +30,23 @@ const FilesCommand = effectCmd({
       .option("limit", {
         type: "number",
         description: "Limit number of results",
+      })
+      .option("output", {
+        alias: "o",
+        type: "string",
+        describe: "write files list to output file path",
+      })
+      .option("json", {
+        type: "boolean",
+        describe: "output JSON",
       }),
-  handler: Effect.fn("Cli.debug.rg.files")(function* (args) {
+  handler: Effect.fn("Cli.debug.rg.files")(function* (args: {
+    query?: string
+    glob?: string
+    limit?: number
+    output?: string
+    json?: boolean
+  }) {
     const ctx = yield* InstanceRef
     if (!ctx) return
     const ripgrep = yield* Ripgrep.Service
@@ -40,7 +57,30 @@ const FilesCommand = effectCmd({
         limit: args.limit ?? 10_000,
       })
       .pipe(Effect.orDie)
-    process.stdout.write(files.map((file) => file.path).join(EOL) + EOL)
+    const paths = files.map((file) => file.path)
+    const text = paths.join(EOL) + EOL
+
+    if (args.output) {
+      const resolved = path.resolve(args.output)
+      yield* Effect.promise(async () => {
+        const fs = await import("node:fs/promises")
+        await fs.mkdir(path.dirname(resolved), { recursive: true })
+        if (args.json) {
+          await fs.writeFile(resolved, JSON.stringify(paths, null, 2) + EOL, "utf-8")
+        } else {
+          await fs.writeFile(resolved, text, "utf-8")
+        }
+      })
+      UI.println(`Wrote files list to ${resolved}`)
+      return
+    }
+
+    if (args.json) {
+      process.stdout.write(JSON.stringify(paths, null, 2) + EOL)
+      return
+    }
+
+    process.stdout.write(text)
   }),
 })
 
@@ -61,8 +101,18 @@ const SearchCommand = effectCmd({
       .option("limit", {
         type: "number",
         description: "Limit number of results",
+      })
+      .option("output", {
+        alias: "o",
+        type: "string",
+        describe: "write search results to output file path",
       }),
-  handler: Effect.fn("Cli.debug.rg.search")(function* (args) {
+  handler: Effect.fn("Cli.debug.rg.search")(function* (args: {
+    pattern: string
+    glob?: (string | number)[]
+    limit?: number
+    output?: string
+  }) {
     const ctx = yield* InstanceRef
     if (!ctx) return
     const ripgrep = yield* Ripgrep.Service
@@ -70,10 +120,23 @@ const SearchCommand = effectCmd({
       .grep({
         cwd: ctx.directory,
         pattern: args.pattern,
-        include: args.glob?.[0],
+        include: args.glob?.[0] !== undefined ? String(args.glob[0]) : undefined,
         limit: args.limit ?? 10_000,
       })
       .pipe(Effect.orDie)
-    process.stdout.write(JSON.stringify(results, null, 2) + EOL)
+    const json = JSON.stringify(results, null, 2) + EOL
+
+    if (args.output) {
+      const resolved = path.resolve(args.output)
+      yield* Effect.promise(async () => {
+        const fs = await import("node:fs/promises")
+        await fs.mkdir(path.dirname(resolved), { recursive: true })
+        await fs.writeFile(resolved, json, "utf-8")
+      })
+      UI.println(`Wrote search results to ${resolved}`)
+      return
+    }
+
+    process.stdout.write(json)
   }),
 })

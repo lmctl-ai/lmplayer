@@ -108,6 +108,9 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
 - `debug config [--output file|-o file]` — inspect fully resolved configuration JSON, with direct file export (`--output` / `-o`).
 - `debug skill [--output file|-o file]` — inspect all discovered and loaded skills JSON, with direct file export (`--output` / `-o`).
 - `debug v2 [--output file|-o file]` — inspect v2 catalog providers and default/small models JSON, with direct file export (`--output` / `-o`).
+- `debug scrap [--output file|-o file]` — list all registered and active projects JSON, with direct file export (`--output` / `-o`).
+- `debug file search <query> [--output file|-o file] [--json]` / `debug file read <path> [--output file|-o file]` / `debug file list <path> [--output file|-o file]` — query, read, and list files across workspace location services with direct file export (`--output` / `-o`).
+- `debug rg files [--query q] [--glob g] [--limit n] [--output file|-o file] [--json]` / `debug rg search <pattern> [--glob g] [--limit n] [--output file|-o file]` — ripgrep fast file finding and pattern search across instance worktree, with direct file export (`--output` / `-o`) and structured JSON.
 - `generate [--output file|-o file]` — generate OpenAPI schema for the lmplayer server with JavaScript SDK code samples and prettier formatting, with direct file export (`--output` / `-o`).
 
 ## Known gaps / TODO (not yet built)
