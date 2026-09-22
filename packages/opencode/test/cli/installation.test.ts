@@ -2,9 +2,10 @@ import { describe, expect, test } from "bun:test"
 import path from "node:path"
 import fs from "node:fs/promises"
 import { Effect } from "effect"
+import yargs, { type Argv } from "yargs"
 import { cliIt } from "../lib/cli-process"
-import { buildUpgradeInfo, formatUpgradeInfoText } from "../../src/cli/cmd/upgrade"
-import { formatUninstallSummaryText, type UninstallSummary } from "../../src/cli/cmd/uninstall"
+import { UpgradeCommand, buildUpgradeInfo, formatUpgradeInfoText } from "../../src/cli/cmd/upgrade"
+import { UninstallCommand, formatUninstallSummaryText, type UninstallSummary } from "../../src/cli/cmd/uninstall"
 
 describe("installation upgrade & uninstall unit helpers", () => {
   test("buildUpgradeInfo detects up to date status", () => {
@@ -84,6 +85,81 @@ describe("installation upgrade & uninstall unit helpers", () => {
     expect(lines.some((l) => l.includes("Config:") && l.includes("(keeping)"))).toBe(true)
     expect(lines.some((l) => l.includes("Binary:") && l.includes("/tmp/bin/lmplayer"))).toBe(true)
     expect(lines.some((l) => l.includes("Shell config:") && l.includes("/tmp/.bashrc"))).toBe(true)
+  })
+})
+
+describe("UpgradeCommand and UninstallCommand builders & options", () => {
+  test("UpgradeCommand registers command, check, method, output, o, and json options", () => {
+    expect(UpgradeCommand.command).toBe("upgrade [target]")
+    const builder = UpgradeCommand.builder as (y: Argv) => Argv<any>
+    const parser = builder(yargs())
+    const options = (parser as any).getOptions()
+    expect(options.key.check).toBeDefined()
+    expect(options.key.c).toBeDefined()
+    expect(options.key.method).toBeDefined()
+    expect(options.key.m).toBeDefined()
+    expect(options.key.output).toBeDefined()
+    expect(options.key.o).toBeDefined()
+    expect(options.key.json).toBeDefined()
+  })
+
+  test("UpgradeCommand parses check, output, and json options", async () => {
+    const builder = UpgradeCommand.builder as (y: Argv) => Argv<any>
+    const parsed = await builder(yargs()).parseAsync([
+      "--check",
+      "--output",
+      "upgrade.json",
+      "--json",
+    ])
+    expect(parsed.check).toBe(true)
+    expect(parsed.output).toBe("upgrade.json")
+    expect(parsed.json).toBe(true)
+  })
+
+  test("UpgradeCommand parses -c and -o short aliases", async () => {
+    const builder = UpgradeCommand.builder as (y: Argv) => Argv<any>
+    const parsed = await builder(yargs()).parseAsync(["-c", "-o", "upgrade.txt"])
+    expect(parsed.check).toBe(true)
+    expect(parsed.output).toBe("upgrade.txt")
+  })
+
+  test("UninstallCommand registers command, dry-run, force, output, o, and json options", () => {
+    expect(UninstallCommand.command).toBe("uninstall")
+    const builder = UninstallCommand.builder as (y: Argv) => Argv<any>
+    const parser = builder(yargs())
+    const options = (parser as any).getOptions()
+    expect(options.key["dry-run"]).toBeDefined()
+    expect(options.key.force).toBeDefined()
+    expect(options.key.f).toBeDefined()
+    expect(options.key["keep-config"]).toBeDefined()
+    expect(options.key.c).toBeDefined()
+    expect(options.key["keep-data"]).toBeDefined()
+    expect(options.key.d).toBeDefined()
+    expect(options.key.output).toBeDefined()
+    expect(options.key.o).toBeDefined()
+    expect(options.key.json).toBeDefined()
+  })
+
+  test("UninstallCommand parses dry-run, force, output, and json options", async () => {
+    const builder = UninstallCommand.builder as (y: Argv) => Argv<any>
+    const parsed = await builder(yargs()).parseAsync([
+      "--dry-run",
+      "--force",
+      "--output",
+      "manifest.json",
+      "--json",
+    ])
+    expect(parsed["dry-run"]).toBe(true)
+    expect(parsed.force).toBe(true)
+    expect(parsed.output).toBe("manifest.json")
+    expect(parsed.json).toBe(true)
+  })
+
+  test("UninstallCommand parses -f and -o short aliases", async () => {
+    const builder = UninstallCommand.builder as (y: Argv) => Argv<any>
+    const parsed = await builder(yargs()).parseAsync(["-f", "-o", "manifest.txt"])
+    expect(parsed.force).toBe(true)
+    expect(parsed.output).toBe("manifest.txt")
   })
 })
 

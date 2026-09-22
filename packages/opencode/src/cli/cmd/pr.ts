@@ -106,6 +106,7 @@ export const PrCommand = effectCmd({
   handler: Effect.fn("Cli.pr")(function* (args: {
     number: number
     branch?: string
+    run?: boolean
     "no-run"?: boolean
     noRun?: boolean
     output?: string
@@ -227,7 +228,7 @@ export const PrCommand = effectCmd({
       UI.println(`Successfully checked out PR #${prNumber} as branch '${localBranchName}'`)
     }
 
-    const skipRun = args["no-run"] || args.noRun
+    const skipRun = args.run === false || Boolean(args["no-run"]) || Boolean(args.noRun)
     if (skipRun) {
       return
     }
