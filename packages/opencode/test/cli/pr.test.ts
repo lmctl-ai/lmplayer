@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test"
+import yargs, { type Argv } from "yargs"
 import {
+  PrCommand,
   buildPrCheckoutResult,
   formatPrCheckoutText,
   extractSessionUrlFromPrBody,
@@ -75,5 +77,43 @@ describe("pr command unit helpers", () => {
     expect(lines).toContain("Fork remote: contributor")
     expect(lines).toContain("Session imported: ses_abc")
     expect(lines).toContain("Session URL: https://opncd.ai/s/ses_abc")
+  })
+})
+
+describe("PrCommand builder & options", () => {
+  test("PrCommand registers number, branch, no-run, output, o, and json options", () => {
+    expect(PrCommand.command).toBe("pr <number>")
+    const builder = PrCommand.builder as (y: Argv) => Argv<any>
+    const parser = builder(yargs())
+    const options = (parser as any).getOptions()
+    expect(options.key.number).toBeDefined()
+    expect(options.key.branch).toBeDefined()
+    expect(options.key.b).toBeDefined()
+    expect(options.key["no-run"]).toBeDefined()
+    expect(options.key.output).toBeDefined()
+    expect(options.key.o).toBeDefined()
+    expect(options.key.json).toBeDefined()
+  })
+
+  test("PrCommand parses options from arguments", async () => {
+    const builder = PrCommand.builder as (y: Argv) => Argv<any>
+    const parsed = await builder(yargs()).parseAsync([
+      "--output",
+      "pr-details.json",
+      "--json",
+      "-b",
+      "my-custom-branch",
+      "--no-run",
+    ])
+    expect(parsed.output).toBe("pr-details.json")
+    expect(parsed.json).toBe(true)
+    expect(parsed.branch).toBe("my-custom-branch")
+    expect(parsed.run).toBe(false)
+  })
+
+  test("PrCommand parses -o short alias", async () => {
+    const builder = PrCommand.builder as (y: Argv) => Argv<any>
+    const parsed = await builder(yargs()).parseAsync(["-o", "pr.txt"])
+    expect(parsed.output).toBe("pr.txt")
   })
 })
