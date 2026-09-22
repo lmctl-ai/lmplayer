@@ -45,6 +45,12 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
 - `auth login --provider github-copilot --method 'Login with GitHub Copilot'` (OAuth device flow;
   poll loop fixed to wait through HTTP-400 authorization_pending). Token -> ~/.local/share/lmcode/auth.json.
 
+## Console & account management
+- `console orgs` (alias `account orgs`) `[--output file|-o file] [--json]` — list organizations across logged-in console accounts with active account and org indicator, with structured JSON output and direct file export (`--output` / `-o`).
+- `console status` (aliases: `account status`, `console whoami`, `account whoami`) `[--output file|-o file] [--json]` — inspect active console account, server URL, and active organization status with structured JSON output (`authenticated`, `account`, `org`) and direct file export (`--output` / `-o`).
+- `console open` (alias `account open`) `[--print|-p] [--output file|-o file] [--json]` — open active console URL in browser, or print URL directly without browser launch (`--print`), or export URL as text/JSON (`--output` / `-o`, `--json`).
+
+
 ## Default command (DONE)
 - `lmcode <message>` runs a non-interactive prompt (default `$0`). Piped stdin runs too
   (`echo hi | lmcode`). Bare `lmcode` on a TTY prints help. TUI is NOT default; use `lmcode tui`.
