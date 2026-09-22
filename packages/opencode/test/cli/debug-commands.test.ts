@@ -122,4 +122,18 @@ describe("opencode debug commands (non-interactive subprocess)", () => {
       }),
     60_000,
   )
+
+  cliIt.concurrent(
+    "debug snapshot track supports -o file export",
+    ({ home, opencode }) =>
+      Effect.gen(function* () {
+        const textOut = path.join(home, "snapshot-track.txt")
+        const res = yield* opencode.spawn(["debug", "snapshot", "track", "-o", textOut])
+        opencode.expectExit(res, 0)
+        expect(res.stderr).toContain("Wrote snapshot track result to")
+        const textContent = yield* Effect.promise(() => fs.readFile(textOut, "utf-8"))
+        expect(typeof textContent).toBe("string")
+      }),
+    60_000,
+  )
 })
