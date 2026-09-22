@@ -24,7 +24,7 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
 - `providers enable <provider>` / `providers disable <provider>` (alias `provider enable/disable`) `[--scope project|global] [--project|-p] [--global|-g] [--output file|-o file] [--json]` — toggle provider enablement in project or global configuration, with structured JSON response and direct file export (`--output` / `-o`).
 
 ## Choose model + effort when prompting
-- `run [message..] [--model <provider/model>] [--effort <tier>] [--format default|json] [--output file|-o file] [--file <path>...] [--continue] [--session <id>] [--fork] [--share] [--title <text>]` — send prompt non-interactively, stream output, and write assistant output to file path (`--output` / `-o`), supporting clean markdown/text or structured JSON (`{ sessionID, text }` or raw events array with `--format json`).
+- `run [message..] [--model <provider/model>] [--effort <tier>] [--format default|json] [--json] [--output file|-o file] [--file <path>...] [--continue] [--session <id>] [--fork] [--share] [--title <text>]` — send prompt non-interactively, stream output, and write assistant output to file path (`--output` / `-o`), supporting clean markdown/text or structured JSON (`{ sessionID, text }` or raw events array with `--format json` or `--json`).
 - `run --model <provider/model> --effort <tier> "<prompt>"` — `--effort` is an alias of `--variant`.
   Effort tiers per model = the model's `variants` keys (see `models --json`). xhigh = "extra high".
 - Non-interactive header now prints `> {agent} · {model} · {effort}`.
