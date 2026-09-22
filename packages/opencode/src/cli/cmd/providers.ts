@@ -742,12 +742,31 @@ export const ProvidersLoginCommand = effectCmd({
         alias: ["api-key", "k"],
         describe: "API key (non-interactive; use '-' to read from stdin)",
         type: "string",
+      })
+      .option("output", {
+        alias: "o",
+        describe: "write login result to output file path",
+        type: "string",
+      })
+      .option("json", {
+        describe: "output as JSON",
+        type: "boolean",
+        default: false,
       }),
-  handler: Effect.fn("Cli.providers.login")(function* (args) {
+  handler: Effect.fn("Cli.providers.login")(function* (args: {
+    url?: string
+    provider?: string
+    method?: string
+    key?: string
+    output?: string
+    json?: boolean
+  }) {
     const authSvc = yield* Auth.Service
 
-    UI.empty()
-    yield* Prompt.intro("Add credential")
+    if (!args.json) {
+      UI.empty()
+      yield* Prompt.intro("Add credential")
+    }
     if (args.url) {
       const url = args.url.replace(/\/+$/, "")
       const wellknown = (yield* cliTry(`Failed to load auth provider metadata from ${url}: `, () =>
@@ -863,7 +882,25 @@ export const ProvidersLoginCommand = effectCmd({
     const plugin = hooks.findLast((x) => x.auth?.provider === provider)
     if (plugin && plugin.auth) {
       const handled = yield* handlePluginAuth({ auth: plugin.auth! }, provider, args.method, args.key)
-      if (handled) return
+      if (handled) {
+        if (args.output || args.json) {
+          const resultPayload = { ok: true, provider, authenticated: true }
+          const jsonStr = JSON.stringify(resultPayload, null, 2) + "\n"
+          if (args.output) {
+            const resolved = path.resolve(args.output)
+            yield* Effect.promise(async () => {
+              const fs = await import("fs/promises")
+              await fs.mkdir(path.dirname(resolved), { recursive: true })
+              await fs.writeFile(resolved, args.json ? jsonStr : `Logged into ${provider}\n`, "utf-8")
+            })
+            UI.println(`Wrote login result to ${resolved}`)
+          }
+          if (args.json) {
+            process.stdout.write(jsonStr)
+          }
+        }
+        return
+      }
     }
 
     if (provider === "other") {
@@ -882,7 +919,25 @@ export const ProvidersLoginCommand = effectCmd({
       const customPlugin = hooks.findLast((x) => x.auth?.provider === provider)
       if (customPlugin && customPlugin.auth) {
         const handled = yield* handlePluginAuth({ auth: customPlugin.auth! }, provider, args.method, args.key)
-        if (handled) return
+        if (handled) {
+          if (args.output || args.json) {
+            const resultPayload = { ok: true, provider, authenticated: true }
+            const jsonStr = JSON.stringify(resultPayload, null, 2) + "\n"
+            if (args.output) {
+              const resolved = path.resolve(args.output)
+              yield* Effect.promise(async () => {
+                const fs = await import("fs/promises")
+                await fs.mkdir(path.dirname(resolved), { recursive: true })
+                await fs.writeFile(resolved, args.json ? jsonStr : `Logged into ${provider}\n`, "utf-8")
+              })
+              UI.println(`Wrote login result to ${resolved}`)
+            }
+            if (args.json) {
+              process.stdout.write(jsonStr)
+            }
+          }
+          return
+        }
       }
 
       yield* Prompt.log.warn(
@@ -916,8 +971,31 @@ export const ProvidersLoginCommand = effectCmd({
 
     const apiKey = yield* resolveApiKey(args.key)
     yield* Effect.orDie(authSvc.set(provider, { type: "api", key: apiKey }))
-    yield* Prompt.log.success(`Logged into ${provider}`)
 
+    const resultPayload = {
+      ok: true,
+      provider,
+      authenticated: true,
+    }
+    const jsonStr = JSON.stringify(resultPayload, null, 2) + "\n"
+    const textStr = `Logged into ${provider}\n`
+
+    if (args.output) {
+      const resolved = path.resolve(args.output)
+      yield* Effect.promise(async () => {
+        const fs = await import("fs/promises")
+        await fs.mkdir(path.dirname(resolved), { recursive: true })
+        await fs.writeFile(resolved, args.json ? jsonStr : textStr, "utf-8")
+      })
+      UI.println(`Wrote login result to ${resolved}`)
+    }
+
+    if (args.json) {
+      process.stdout.write(jsonStr)
+      return
+    }
+
+    yield* Prompt.log.success(`Logged into ${provider}`)
     yield* Prompt.outro("Done")
   }),
 })

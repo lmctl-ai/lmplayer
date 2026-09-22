@@ -99,10 +99,20 @@ describe("ProvidersLoginCommand builder", () => {
     expect(parsed.provider).toBe("openai")
   })
 
-  test("parses -k and -p aliases correctly", () => {
+  test("registers output and json options", () => {
     const parser = getBuilder()(yargs())
-    const parsed = parser.parseSync(["-k", "sk-test-def", "-p", "anthropic"])
-    expect(parsed.key).toBe("sk-test-def")
-    expect(parsed.provider).toBe("anthropic")
+    const options = (parser as any).getOptions()
+    expect(options.key.output).toBeDefined()
+    expect(options.key.o).toBeDefined()
+    expect(options.key.json).toBeDefined()
+  })
+
+  test("parses output and json flags correctly", () => {
+    const parser = getBuilder()(yargs())
+    const parsed = parser.parseSync(["--key", "sk-test-xyz", "-p", "openai", "-o", "/tmp/login.json", "--json"])
+    expect(parsed.key).toBe("sk-test-xyz")
+    expect(parsed.provider).toBe("openai")
+    expect(parsed.output).toBe("/tmp/login.json")
+    expect(parsed.json).toBe(true)
   })
 })

@@ -40,9 +40,8 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
   or readable issues (file + `dot.path: message`) with exit 1. Same readable error fails fast at launch.
 - Dotted-key limitation: keys containing literal dots (some mcp names) need `--json` subtree set.
 
-## Auth (github-copilot)
-- `auth login --provider github-copilot --method 'Login with GitHub Copilot'` (OAuth device flow;
-  poll loop fixed to wait through HTTP-400 authorization_pending). Token -> ~/.local/share/lmcode/auth.json.
+## Auth & providers
+- `auth login [url] [--provider p|-p p] [--method m|-m m] [--key k|-k k] [--output file|-o file] [--json]` (OAuth device flow or API key; e.g. `auth login --provider github-copilot --method 'Login with GitHub Copilot'`). Supports direct file export (`--output` / `-o`) and structured JSON output (`--json`). Token -> ~/.local/share/lmcode/auth.json.
 
 ## Console & account management
 - `console orgs` (alias `account orgs`) `[--output file|-o file] [--json]` — list organizations across logged-in console accounts with active account and org indicator, with structured JSON output and direct file export (`--output` / `-o`).
