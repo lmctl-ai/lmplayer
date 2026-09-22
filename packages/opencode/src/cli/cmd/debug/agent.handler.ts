@@ -21,6 +21,7 @@ export const debugAgent = Effect.fn("Cli.debug.agent")(function* (args: {
   tool?: string
   params?: string
   output?: string
+  json?: boolean
 }) {
   const ctx = yield* InstanceRef
   if (!ctx) return
@@ -28,7 +29,7 @@ export const debugAgent = Effect.fn("Cli.debug.agent")(function* (args: {
 })
 
 const run = Effect.fn("Cli.debug.agent.body")(function* (
-  args: { name: string; tool?: string; params?: string; output?: string },
+  args: { name: string; tool?: string; params?: string; output?: string; json?: boolean },
   ctx: InstanceContext,
 ) {
   const agentName = args.name

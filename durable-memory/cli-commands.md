@@ -133,16 +133,16 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
 ## Diagnostics, debugging & OpenAPI generation
 - `debug paths [--output file|-o file] [--json]` — inspect global application paths (data, config, state, cache, log, bin), with structured JSON output and direct file export (`--output` / `-o`).
 - `debug info [--output file|-o file] [--json]` — inspect runtime installation version, OS platform/architecture, terminal, and loaded plugins, with structured JSON output and direct file export (`--output` / `-o`).
-- `debug config [--output file|-o file]` — inspect fully resolved configuration JSON, with direct file export (`--output` / `-o`).
-- `debug skill [--output file|-o file]` — inspect all discovered and loaded skills JSON, with direct file export (`--output` / `-o`).
-- `debug v2 [--output file|-o file]` — inspect v2 catalog providers and default/small models JSON, with direct file export (`--output` / `-o`).
-- `debug scrap [--output file|-o file]` — list all registered and active projects JSON, with direct file export (`--output` / `-o`).
-- `debug file search <query> [--output file|-o file] [--json]` / `debug file read <path> [--output file|-o file]` / `debug file list <path> [--output file|-o file]` — query, read, and list files across workspace location services with direct file export (`--output` / `-o`).
-- `debug rg files [--query q] [--glob g] [--limit n] [--output file|-o file] [--json]` / `debug rg search <pattern> [--glob g] [--limit n] [--output file|-o file]` — ripgrep fast file finding and pattern search across instance worktree, with direct file export (`--output` / `-o`) and structured JSON.
-- `debug snapshot track [--output file|-o file]` / `debug snapshot patch <hash> [--output file|-o file]` / `debug snapshot diff <hash> [--output file|-o file]` — inspect worktree snapshot tracking, commit patches, and state diffs with direct file export (`--output` / `-o`).
-- `debug lsp diagnostics <file> [--output file|-o file]` / `debug lsp symbols <query> [--output file|-o file]` / `debug lsp document-symbols <uri> [--output file|-o file]` — query workspace LSP diagnostics and symbol indexes with direct file export (`--output` / `-o`).
+- `debug config [--output file|-o file] [--json]` — inspect fully resolved configuration JSON, with direct file export (`--output` / `-o`) and `--json`.
+- `debug skill [--output file|-o file] [--json]` — inspect all discovered and loaded skills JSON, with direct file export (`--output` / `-o`) and `--json`.
+- `debug v2 [--output file|-o file] [--json]` — inspect v2 catalog providers and default/small models JSON, with direct file export (`--output` / `-o`) and `--json`.
+- `debug scrap [--output file|-o file] [--json]` — list all registered and active projects JSON, with direct file export (`--output` / `-o`) and `--json`.
+- `debug file search <query> [--output file|-o file] [--json]` / `debug file read <path> [--output file|-o file] [--json]` / `debug file list <path> [--output file|-o file] [--json]` — query, read, and list files across workspace location services with direct file export (`--output` / `-o`) and `--json`.
+- `debug rg files [--query q] [--glob g] [--limit n] [--output file|-o file] [--json]` / `debug rg search <pattern> [--glob g] [--limit n] [--output file|-o file] [--json]` — ripgrep fast file finding and pattern search across instance worktree, with direct file export (`--output` / `-o`) and structured JSON (`--json`).
+- `debug snapshot track [--output file|-o file] [--json]` / `debug snapshot patch <hash> [--output file|-o file] [--json]` / `debug snapshot diff <hash> [--output file|-o file] [--json]` — inspect worktree snapshot tracking, commit patches, and state diffs with direct file export (`--output` / `-o`) and structured JSON (`--json`).
+- `debug lsp diagnostics <file> [--output file|-o file] [--json]` / `debug lsp symbols <query> [--output file|-o file] [--json]` / `debug lsp document-symbols <uri> [--output file|-o file] [--json]` — query workspace LSP diagnostics and symbol indexes with direct file export (`--output` / `-o`) and structured JSON (`--json`).
 - `debug startup [--output file|-o file] [--json]` — print application startup timing with structured JSON and direct file export (`--output` / `-o`).
-- `debug agent <name> [--tool toolId] [--params json] [--output file|-o file]` — inspect agent configuration, permissions, and tool capabilities or execute tools directly with file export (`--output` / `-o`).
+- `debug agent <name> [--tool toolId] [--params json] [--output file|-o file] [--json]` — inspect agent configuration, permissions, and tool capabilities or execute tools directly with file export (`--output` / `-o`) and `--json`.
 - `generate [--output file|-o file] [--json]` — generate OpenAPI schema for the lmplayer server with JavaScript SDK code samples and prettier formatting, with direct file export (`--output` / `-o`) and machine-readable JSON write confirmation (`--json`).
 
 ## Known gaps / TODO (not yet built)

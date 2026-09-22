@@ -13,12 +13,18 @@ export const V2Command = effectCmd({
   describe: "debug v2 catalog and built-in plugins",
   instance: false,
   builder: (yargs) =>
-    yargs.option("output", {
-      alias: "o",
-      type: "string",
-      describe: "write v2 debug info to output file path",
-    }),
-  handler: (args: { output?: string }) =>
+    yargs
+      .option("output", {
+        alias: "o",
+        type: "string",
+        describe: "write v2 debug info to output file path",
+      })
+      .option("json", {
+        type: "boolean",
+        describe: "output JSON",
+        default: false,
+      }),
+  handler: (args: { output?: string; json?: boolean }) =>
     Effect.gen(function* () {
       const catalog = yield* Catalog.Service
       const providers = (yield* catalog.provider.available()).sort((a, b) => a.id.localeCompare(b.id))

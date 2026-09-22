@@ -7,12 +7,18 @@ export const ScrapCommand = cmd({
   command: "scrap",
   describe: "list all known projects",
   builder: (yargs) =>
-    yargs.option("output", {
-      alias: "o",
-      type: "string",
-      describe: "write projects list to output file path",
-    }),
-  async handler(args: { output?: string }) {
+    yargs
+      .option("output", {
+        alias: "o",
+        type: "string",
+        describe: "write projects list to output file path",
+      })
+      .option("json", {
+        type: "boolean",
+        describe: "output JSON",
+        default: false,
+      }),
+  async handler(args: { output?: string; json?: boolean }) {
     const { Project } = await import("@/project/project")
     const { AppNodeBuilder } = await import("@opencode-ai/core/effect/app-node-builder")
     const { makeRuntime } = await import("@opencode-ai/core/effect/runtime")
