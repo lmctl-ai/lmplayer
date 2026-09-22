@@ -33,7 +33,20 @@ import { setTimeout as sleep } from "node:timers/promises"
 import { Process } from "@/util/process"
 import { parseGitHubRemote } from "@/util/repository"
 import { Effect } from "effect"
-import { extractResponseText, formatPromptTooLargeError } from "./github.shared"
+import { EOL } from "node:os"
+import {
+  extractResponseText,
+  formatPromptTooLargeError,
+  generateWorkflowYaml,
+  buildGithubInstallResult,
+  formatGithubInstallText,
+  buildNextSteps,
+  getProviderEnv,
+  getDefaultModel,
+  writeOutputFile,
+  WORKFLOW_FILE,
+  type GithubInstallResult,
+} from "./github.shared"
 
 type GitHubAuthor = {
   login: string
@@ -142,7 +155,6 @@ type IssueQueryResponse = {
 
 const AGENT_USERNAME = "opencode-agent[bot]"
 const AGENT_REACTION = "eyes"
-const WORKFLOW_FILE = ".github/workflows/opencode.yml"
 
 // Event categories for routing
 // USER_EVENTS: triggered by user actions, have actor/issueId, support reactions/comments
@@ -154,222 +166,312 @@ const SUPPORTED_EVENTS = [...USER_EVENTS, ...REPO_EVENTS] as const
 type UserEvent = (typeof USER_EVENTS)[number]
 type RepoEvent = (typeof REPO_EVENTS)[number]
 
-export const githubInstall = Effect.fn("Cli.github.install")(function* () {
+export interface GithubInstallArgs {
+  provider?: string
+  model?: string
+  output?: string
+  "dry-run"?: boolean
+  dryRun?: boolean
+  "skip-app"?: boolean
+  skipApp?: boolean
+  force?: boolean
+  json?: boolean
+}
+
+export const githubInstall = Effect.fn("Cli.github.install")(function* (args?: GithubInstallArgs) {
   const maybeCtx = yield* InstanceRef
   if (!maybeCtx) return yield* Effect.die("InstanceRef not provided")
   const ctx = maybeCtx
   const modelsDev = yield* ModelsDev.Service
   const gitSvc = yield* Git.Service
+
+  const dryRun = Boolean(args?.["dry-run"] ?? args?.dryRun)
+  const skipApp = Boolean(args?.["skip-app"] ?? args?.skipApp)
+  const force = Boolean(args?.force)
+  const json = Boolean(args?.json)
+  const output = args?.output
+  const isNonInteractive = json || dryRun || Boolean(output) || Boolean(args?.provider)
+
   yield* Effect.promise(async () => {
-    {
+    if (!isNonInteractive) {
       UI.empty()
       prompts.intro("Install GitHub agent")
-      const app = await getAppInfo()
-      await installGitHubApp()
+    }
 
-      const providers = await Effect.runPromise(modelsDev.get()).then((p) => {
+    const app = await getAppInfo()
+
+    let appInstalled = false
+    if (!skipApp && !dryRun && !json) {
+      appInstalled = await installGitHubApp()
+    }
+
+    const providers = await Effect.runPromise(modelsDev.get())
+      .then((p) => {
         // TODO: add guide for copilot, for now just hide it
-        delete p["github-copilot"]
-        return p
+        const copy = { ...p }
+        delete copy["github-copilot"]
+        return copy
       })
+      .catch(() => ({} as Record<string, any>))
 
-      const provider = await promptProvider()
-      const model = await promptModel()
-      //const key = await promptKey()
+    let provider: string
+    if (args?.provider) {
+      provider = args.provider
+    } else if (isNonInteractive) {
+      provider = "opencode"
+    } else {
+      provider = await promptProvider()
+    }
 
-      await addWorkflowFiles()
-      printNextSteps()
+    let model: string
+    if (args?.model) {
+      model = args.model
+    } else if (isNonInteractive) {
+      model = getDefaultModel(provider, providers)
+    } else {
+      model = await promptModel()
+    }
 
-      function printNextSteps() {
-        let step2
-        if (provider === "amazon-bedrock") {
-          step2 =
-            "Configure OIDC in AWS - https://docs.github.com/en/actions/how-tos/security-for-github-actions/security-hardening-your-deployments/configuring-openid-connect-in-amazon-web-services"
-        } else {
-          step2 = [
-            `    2. Add the following secrets in org or repo (${app.owner}/${app.repo}) settings`,
-            "",
-            ...providers[provider].env.map((e) => `       - ${e}`),
-          ].join("\n")
+    const workflowPath = path.join(app.root, WORKFLOW_FILE)
+    const exists = await Filesystem.exists(workflowPath)
+
+    if (exists && !force && !dryRun) {
+      if (isNonInteractive) {
+        const msg = `Workflow file already exists at "${WORKFLOW_FILE}". Use --force to overwrite.`
+        if (json) {
+          throw new Error(msg)
         }
+        UI.error(msg)
+        return
+      }
+      const overwrite = await prompts.confirm({
+        message: `Workflow file "${WORKFLOW_FILE}" already exists. Overwrite?`,
+        initialValue: false,
+      })
+      if (!overwrite || prompts.isCancel(overwrite)) {
+        throw new UI.CancelledError()
+      }
+    }
 
-        prompts.outro(
-          [
-            "Next steps:",
-            "",
-            `    1. Commit the \`${WORKFLOW_FILE}\` file and push`,
-            step2,
-            "",
-            "    3. Go to a GitHub issue and comment `/oc summarize` to see the agent in action",
-            "",
-            "   Learn more about the GitHub agent - https://opencode.ai/docs/github/#usage-examples",
-          ].join("\n"),
-        )
+    const envVars = getProviderEnv(provider, providers)
+    const workflowContent = generateWorkflowYaml({ provider, model, envVars })
+
+    let written = false
+    if (!dryRun) {
+      await Filesystem.write(workflowPath, workflowContent)
+      written = true
+    }
+
+    const nextSteps = buildNextSteps({
+      workflowFile: WORKFLOW_FILE,
+      provider,
+      owner: app.owner,
+      repo: app.repo,
+      secrets: envVars,
+    })
+
+    const result = buildGithubInstallResult({
+      workflowFile: WORKFLOW_FILE,
+      workflowPath,
+      provider,
+      model,
+      written,
+      dryRun: dryRun || undefined,
+      secrets: envVars,
+      nextSteps,
+      appInstalled: appInstalled || undefined,
+      content: workflowContent,
+    })
+
+    if (json) {
+      UI.println(JSON.stringify(result, null, 2))
+    } else if (isNonInteractive) {
+      UI.println(formatGithubInstallText(result).join(EOL))
+    } else {
+      prompts.log.success(`Added workflow file: "${WORKFLOW_FILE}"`)
+      printNextSteps()
+    }
+
+    if (output) {
+      const outputContent =
+        output.endsWith(".yml") || output.endsWith(".yaml")
+          ? workflowContent
+          : json
+            ? JSON.stringify(result, null, 2)
+            : formatGithubInstallText(result).join(EOL) + EOL
+      const resolved = await writeOutputFile(output, outputContent)
+      if (!json) {
+        UI.println(`Wrote output to ${resolved}`)
+      }
+    }
+
+    function printNextSteps() {
+      let step2: string
+      if (provider === "amazon-bedrock") {
+        step2 =
+          "Configure OIDC in AWS - https://docs.github.com/en/actions/how-tos/security-for-github-actions/security-hardening-your-deployments/configuring-openid-connect-in-amazon-web-services"
+      } else {
+        const envs = envVars
+        step2 = [
+          `    2. Add the following secrets in org or repo (${app.owner}/${app.repo}) settings`,
+          "",
+          ...envs.map((e) => `       - ${e}`),
+        ].join("\n")
       }
 
-      async function getAppInfo() {
-        const project = ctx.project
-        if (project.vcs !== "git") {
-          prompts.log.error(`Could not find git repository. Please run this command from a git repository.`)
-          throw new UI.CancelledError()
-        }
+      prompts.outro(
+        [
+          "Next steps:",
+          "",
+          `    1. Commit the \`${WORKFLOW_FILE}\` file and push`,
+          step2,
+          "",
+          "    3. Go to a GitHub issue and comment `/oc summarize` to see the agent in action",
+          "",
+          "   Learn more about the GitHub agent - https://opencode.ai/docs/github/#usage-examples",
+        ].join("\n"),
+      )
+    }
 
-        // Get repo info
+    async function getAppInfo() {
+      const project = ctx.project
+      if (project.vcs !== "git" && !dryRun && !json && !args?.provider) {
+        prompts.log.error(`Could not find git repository. Please run this command from a git repository.`)
+        throw new UI.CancelledError()
+      }
+
+      let owner = "owner"
+      let repo = "repo"
+      try {
         const info = await Effect.runPromise(gitSvc.run(["remote", "get-url", "origin"], { cwd: ctx.worktree })).then(
           (x) => x.text().trim(),
         )
         const parsed = parseGitHubRemote(info)
-        if (!parsed) {
+        if (parsed) {
+          owner = parsed.owner
+          repo = parsed.repo
+        } else if (!dryRun && !json && !args?.provider) {
           prompts.log.error(`Could not find git repository. Please run this command from a git repository.`)
           throw new UI.CancelledError()
         }
-        return { owner: parsed.owner, repo: parsed.repo, root: ctx.worktree }
-      }
-
-      async function promptProvider() {
-        const priority: Record<string, number> = {
-          opencode: 0,
-          anthropic: 1,
-          openai: 2,
-          google: 3,
-        }
-        let provider = await prompts.select({
-          message: "Select provider",
-          maxItems: 8,
-          options: pipe(
-            providers,
-            values(),
-            sortBy(
-              (x) => priority[x.id] ?? 99,
-              (x) => x.name ?? x.id,
-            ),
-            map((x) => ({
-              label: x.name,
-              value: x.id,
-              hint: priority[x.id] === 0 ? "recommended" : undefined,
-            })),
-          ),
-        })
-
-        if (prompts.isCancel(provider)) throw new UI.CancelledError()
-
-        return provider
-      }
-
-      async function promptModel() {
-        const providerData = providers[provider]!
-
-        const model = await prompts.select({
-          message: "Select model",
-          maxItems: 8,
-          options: pipe(
-            providerData.models,
-            values(),
-            sortBy((x) => x.name ?? x.id),
-            map((x) => ({
-              label: x.name ?? x.id,
-              value: x.id,
-            })),
-          ),
-        })
-
-        if (prompts.isCancel(model)) throw new UI.CancelledError()
-        return model
-      }
-
-      async function installGitHubApp() {
-        const s = prompts.spinner()
-        s.start("Installing GitHub app")
-
-        // Get installation
-        const installation = await getInstallation()
-        if (installation) return s.stop("GitHub app already installed")
-
-        // Open browser
-        const url = "https://github.com/apps/opencode-agent"
-        const command =
-          process.platform === "darwin"
-            ? `open "${url}"`
-            : process.platform === "win32"
-              ? `start "" "${url}"`
-              : `xdg-open "${url}"`
-
-        exec(command, (error) => {
-          if (error) {
-            prompts.log.warn(`Could not open browser. Please visit: ${url}`)
-          }
-        })
-
-        // Wait for installation
-        s.message("Waiting for GitHub app to be installed")
-        const MAX_RETRIES = 120
-        let retries = 0
-        do {
-          const installation = await getInstallation()
-          if (installation) break
-
-          if (retries > MAX_RETRIES) {
-            s.stop(
-              `Failed to detect GitHub app installation. Make sure to install the app for the \`${app.owner}/${app.repo}\` repository.`,
-            )
-            throw new UI.CancelledError()
-          }
-
-          retries++
-          await sleep(1000)
-        } while (true) // oxlint-disable-line no-constant-condition
-
-        s.stop("Installed GitHub app")
-
-        async function getInstallation() {
-          return await fetch(`https://api.opencode.ai/get_github_app_installation?owner=${app.owner}&repo=${app.repo}`)
-            .then((res) => res.json())
-            .then((data) => data.installation)
+      } catch {
+        if (!dryRun && !json && !args?.provider) {
+          prompts.log.error(`Could not find git remote origin. Please configure a GitHub remote.`)
+          throw new UI.CancelledError()
         }
       }
+      return { owner, repo, root: ctx.worktree }
+    }
 
-      async function addWorkflowFiles() {
-        const envStr =
-          provider === "amazon-bedrock"
-            ? ""
-            : `\n        env:${providers[provider].env.map((e) => `\n          ${e}: \${{ secrets.${e} }}`).join("")}`
+    async function promptProvider() {
+      if (!providers || Object.keys(providers).length === 0) {
+        return "opencode"
+      }
+      const priority: Record<string, number> = {
+        opencode: 0,
+        anthropic: 1,
+        openai: 2,
+        google: 3,
+      }
+      let provider = await prompts.select({
+        message: "Select provider",
+        maxItems: 8,
+        options: pipe(
+          providers,
+          values(),
+          sortBy(
+            (x) => priority[x.id] ?? 99,
+            (x) => x.name ?? x.id,
+          ),
+          map((x) => ({
+            label: x.name,
+            value: x.id,
+            hint: priority[x.id] === 0 ? "recommended" : undefined,
+          })),
+        ),
+      })
 
-        await Filesystem.write(
-          path.join(app.root, WORKFLOW_FILE),
-          `name: opencode
+      if (prompts.isCancel(provider)) throw new UI.CancelledError()
 
-on:
-  issue_comment:
-    types: [created]
-  pull_request_review_comment:
-    types: [created]
+      return provider
+    }
 
-jobs:
-  opencode:
-    if: |
-      contains(github.event.comment.body, ' /oc') ||
-      startsWith(github.event.comment.body, '/oc') ||
-      contains(github.event.comment.body, ' /opencode') ||
-      startsWith(github.event.comment.body, '/opencode')
-    runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      contents: read
-      pull-requests: read
-      issues: read
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-        with:
-          persist-credentials: false
+    async function promptModel() {
+      const providerData = providers[provider]
+      if (!providerData?.models || Object.keys(providerData.models).length === 0) {
+        return getDefaultModel(provider, providers)
+      }
 
-      - name: Run opencode
-        uses: anomalyco/opencode/github@latest${envStr}
-        with:
-          model: ${provider}/${model}`,
-        )
+      const model = await prompts.select({
+        message: "Select model",
+        maxItems: 8,
+        options: pipe(
+          providerData.models,
+          values(),
+          sortBy((x) => x.name ?? x.id),
+          map((x) => ({
+            label: x.name ?? x.id,
+            value: x.id,
+          })),
+        ),
+      })
 
-        prompts.log.success(`Added workflow file: "${WORKFLOW_FILE}"`)
+      if (prompts.isCancel(model)) throw new UI.CancelledError()
+      return model
+    }
+
+    async function installGitHubApp(): Promise<boolean> {
+      const s = prompts.spinner()
+      s.start("Installing GitHub app")
+
+      // Get installation
+      const installation = await getInstallation().catch(() => null)
+      if (installation) {
+        s.stop("GitHub app already installed")
+        return true
+      }
+
+      // Open browser
+      const url = "https://github.com/apps/opencode-agent"
+      const command =
+        process.platform === "darwin"
+          ? `open "${url}"`
+          : process.platform === "win32"
+            ? `start "" "${url}"`
+            : `xdg-open "${url}"`
+
+      exec(command, (error) => {
+        if (error) {
+          prompts.log.warn(`Could not open browser. Please visit: ${url}`)
+        }
+      })
+
+      // Wait for installation
+      s.message("Waiting for GitHub app to be installed")
+      const MAX_RETRIES = 120
+      let retries = 0
+      do {
+        const inst = await getInstallation().catch(() => null)
+        if (inst) break
+
+        if (retries > MAX_RETRIES) {
+          s.stop(
+            `Failed to detect GitHub app installation. Make sure to install the app for the \`${app.owner}/${app.repo}\` repository.`,
+          )
+          throw new UI.CancelledError()
+        }
+
+        retries++
+        await sleep(1000)
+      } while (true)
+
+      s.stop("Installed GitHub app")
+      return true
+
+      async function getInstallation() {
+        return await fetch(`https://api.opencode.ai/get_github_app_installation?owner=${app.owner}&repo=${app.repo}`)
+          .then((res) => res.json())
+          .then((data) => data.installation)
       }
     }
   })
