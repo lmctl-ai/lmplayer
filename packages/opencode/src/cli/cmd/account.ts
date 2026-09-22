@@ -1,3 +1,6 @@
+import path from "node:path"
+import { EOL } from "node:os"
+import stripAnsi from "strip-ansi"
 import { cmd } from "./cmd"
 import { Duration, Effect, Match, Option } from "effect"
 import { UI } from "../ui"
@@ -147,14 +150,161 @@ const switchEffect = Effect.fn("switch")(function* () {
   yield* Prompt.outro("Switched to " + choice.label)
 })
 
-const orgsEffect = Effect.fn("orgs")(function* () {
+function* writeOutputFile(filePath: string, content: string, label: string) {
+  const resolved = path.resolve(filePath)
+  yield* Effect.promise(async () => {
+    const fs = await import("node:fs/promises")
+    await fs.mkdir(path.dirname(resolved), { recursive: true })
+    await fs.writeFile(resolved, content, "utf-8")
+  })
+  UI.println(`Wrote ${label} to ${resolved}`)
+}
+
+export interface ConsoleOrgItem {
+  id: string
+  name: string
+  active: boolean
+}
+
+export interface ConsoleAccountItem {
+  id: string
+  email: string
+  url: string
+  active: boolean
+  active_org_id: string | null
+  orgs: ConsoleOrgItem[]
+}
+
+export function buildAccountOrgsData(
+  groups: readonly {
+    account: { id: string; email: string; url: string; active_org_id?: string | null }
+    orgs: readonly { id: string; name: string }[]
+  }[],
+  active: Option.Option<{ id: AccountID; active_org_id: OrgID | null }>,
+): ConsoleAccountItem[] {
+  return groups.map((group) => {
+    const isAccountActive = Option.isSome(active) && active.value.id === group.account.id
+    return {
+      id: group.account.id,
+      email: group.account.email,
+      url: group.account.url,
+      active: isAccountActive,
+      active_org_id: group.account.active_org_id ?? null,
+      orgs: group.orgs.map((org) => ({
+        id: org.id,
+        name: org.name,
+        active: isActiveOrgChoice(active, {
+          accountID: group.account.id as AccountID,
+          orgID: org.id as OrgID,
+        }),
+      })),
+    }
+  })
+}
+
+export interface ConsoleStatusData {
+  authenticated: boolean
+  account: {
+    id: string
+    email: string
+    url: string
+  } | null
+  org: {
+    id: string
+    name?: string
+  } | null
+}
+
+export function buildConsoleStatusData(
+  activeAccount: Option.Option<{ id: string; email: string; url: string; active_org_id?: string | null }>,
+  activeOrg: Option.Option<{ id: string; name: string }>,
+): ConsoleStatusData {
+  if (Option.isNone(activeAccount)) {
+    return {
+      authenticated: false,
+      account: null,
+      org: null,
+    }
+  }
+
+  const account = activeAccount.value
+  return {
+    authenticated: true,
+    account: {
+      id: account.id,
+      email: account.email,
+      url: account.url,
+    },
+    org: Option.isSome(activeOrg)
+      ? {
+          id: activeOrg.value.id,
+          name: activeOrg.value.name,
+        }
+      : account.active_org_id
+        ? {
+            id: account.active_org_id,
+          }
+        : null,
+  }
+}
+
+export function formatConsoleStatusText(status: ConsoleStatusData): string[] {
+  if (!status.authenticated || !status.account) {
+    return ["Not logged in"]
+  }
+  const lines: string[] = []
+  lines.push(`Account: ${status.account.email} (${status.account.url}) [${status.account.id}]`)
+  if (status.org) {
+    const orgLabel = status.org.name ? `${status.org.name} (${status.org.id})` : status.org.id
+    lines.push(`Active Org: ${orgLabel}`)
+  } else {
+    lines.push("Active Org: (none)")
+  }
+  return lines
+}
+
+export const orgsEffect = Effect.fn("orgs")(function* (args?: { output?: string; json?: boolean }) {
   const service = yield* Account.Service
 
   const groups = yield* service.orgsByAccount()
+  const active = yield* service.active()
+
+  const data = buildAccountOrgsData(groups, active)
+  const jsonStr = JSON.stringify(data, null, 2) + EOL
+
+  if (args?.output) {
+    if (args.json) {
+      yield* writeOutputFile(args.output, jsonStr, "console orgs")
+      return
+    }
+
+    if (groups.length === 0) {
+      yield* writeOutputFile(args.output, "No accounts found" + EOL, "console orgs")
+      return
+    }
+    if (!groups.some((group) => group.orgs.length > 0)) {
+      yield* writeOutputFile(args.output, "No orgs found" + EOL, "console orgs")
+      return
+    }
+
+    const lines: string[] = []
+    for (const group of groups) {
+      for (const org of group.orgs) {
+        const isActive = isActiveOrgChoice(active, { accountID: group.account.id, orgID: org.id })
+        lines.push(stripAnsi(formatOrgLine(group.account, org, isActive)))
+      }
+    }
+    yield* writeOutputFile(args.output, lines.join(EOL) + EOL, "console orgs")
+    return
+  }
+
+  if (args?.json) {
+    process.stdout.write(jsonStr)
+    return
+  }
+
   if (groups.length === 0) return yield* println("No accounts found")
   if (!groups.some((group) => group.orgs.length > 0)) return yield* println("No orgs found")
-
-  const active = yield* service.active()
 
   for (const group of groups) {
     for (const org of group.orgs) {
@@ -164,12 +314,66 @@ const orgsEffect = Effect.fn("orgs")(function* () {
   }
 })
 
-const openEffect = Effect.fn("open")(function* () {
+export const statusEffect = Effect.fn("status")(function* (args?: { output?: string; json?: boolean }) {
+  const service = yield* Account.Service
+  const activeAccount = yield* service.active()
+  const activeOrgResult = yield* service.activeOrg().pipe(Effect.catch(() => Effect.succeed(Option.none())))
+  const org = Option.map(activeOrgResult, (r) => ({ id: r.org.id, name: r.org.name }))
+  const data = buildConsoleStatusData(activeAccount, org)
+
+  const jsonStr = JSON.stringify(data, null, 2) + EOL
+  const textLines = formatConsoleStatusText(data)
+  const textStr = textLines.join(EOL) + EOL
+
+  if (args?.output) {
+    yield* writeOutputFile(args.output, args.json ? jsonStr : textStr, "console status")
+    return
+  }
+
+  if (args?.json) {
+    process.stdout.write(jsonStr)
+    return
+  }
+
+  for (const line of textLines) {
+    yield* println(line)
+  }
+})
+
+export const openEffect = Effect.fn("open")(function* (args?: { print?: boolean; output?: string; json?: boolean }) {
   const service = yield* Account.Service
   const active = yield* service.active()
-  if (Option.isNone(active)) return yield* println("No active account")
+  if (Option.isNone(active)) {
+    if (args?.json) {
+      const jsonStr = JSON.stringify({ url: null }, null, 2) + EOL
+      if (args.output) {
+        yield* writeOutputFile(args.output, jsonStr, "console url")
+        return
+      }
+      process.stdout.write(jsonStr)
+      return
+    }
+    if (args?.output) {
+      yield* writeOutputFile(args.output, "No active account" + EOL, "console url")
+      return
+    }
+    return yield* println("No active account")
+  }
 
   const url = active.value.url
+  if (args?.output) {
+    const content = args.json ? JSON.stringify({ url }, null, 2) + EOL : url + EOL
+    yield* writeOutputFile(args.output, content, "console url")
+    return
+  }
+  if (args?.json) {
+    process.stdout.write(JSON.stringify({ url }, null, 2) + EOL)
+    return
+  }
+  if (args?.print) {
+    process.stdout.write(url + EOL)
+    return
+  }
   yield* openBrowser(url)
   yield* Prompt.outro("Opened " + url)
 })
@@ -218,9 +422,46 @@ export const OrgsCommand = effectCmd({
   command: "orgs",
   describe: false,
   instance: false,
-  handler: Effect.fn("Cli.account.orgs")(function* () {
-    UI.empty()
-    yield* Effect.orDie(orgsEffect())
+  builder: (yargs) =>
+    yargs
+      .option("output", {
+        alias: "o",
+        type: "string",
+        describe: "write orgs output to file path",
+      })
+      .option("json", {
+        type: "boolean",
+        describe: "output as JSON",
+      }),
+  handler: Effect.fn("Cli.account.orgs")(function* (args: { output?: string; json?: boolean }) {
+    if (!args.json && !args.output) {
+      UI.empty()
+    }
+    yield* Effect.orDie(orgsEffect(args))
+  }),
+})
+
+export const StatusCommand = effectCmd({
+  command: "status",
+  aliases: ["whoami"],
+  describe: false,
+  instance: false,
+  builder: (yargs) =>
+    yargs
+      .option("output", {
+        alias: "o",
+        type: "string",
+        describe: "write status output to file path",
+      })
+      .option("json", {
+        type: "boolean",
+        describe: "output as JSON",
+      }),
+  handler: Effect.fn("Cli.account.status")(function* (args: { output?: string; json?: boolean }) {
+    if (!args.json && !args.output) {
+      UI.empty()
+    }
+    yield* Effect.orDie(statusEffect(args))
   }),
 })
 
@@ -228,14 +469,33 @@ export const OpenCommand = effectCmd({
   command: "open",
   describe: false,
   instance: false,
-  handler: Effect.fn("Cli.account.open")(function* () {
-    UI.empty()
-    yield* Effect.orDie(openEffect())
+  builder: (yargs) =>
+    yargs
+      .option("print", {
+        alias: "p",
+        type: "boolean",
+        describe: "print active console URL instead of opening browser",
+      })
+      .option("output", {
+        alias: "o",
+        type: "string",
+        describe: "write console URL to file path",
+      })
+      .option("json", {
+        type: "boolean",
+        describe: "output as JSON",
+      }),
+  handler: Effect.fn("Cli.account.open")(function* (args: { print?: boolean; output?: string; json?: boolean }) {
+    if (!args.print && !args.json && !args.output) {
+      UI.empty()
+    }
+    yield* Effect.orDie(openEffect(args))
   }),
 })
 
 export const ConsoleCommand = cmd({
   command: "console",
+  aliases: ["account"],
   describe: false,
   builder: (yargs) =>
     yargs
@@ -254,6 +514,10 @@ export const ConsoleCommand = cmd({
       .command({
         ...OrgsCommand,
         describe: "list orgs",
+      })
+      .command({
+        ...StatusCommand,
+        describe: "show console account status",
       })
       .command({
         ...OpenCommand,
