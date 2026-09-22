@@ -13,7 +13,14 @@ import {
   buildAccountOrgsData,
   buildConsoleStatusData,
   formatConsoleStatusText,
+  LoginCommand,
+  LogoutCommand,
+  SwitchCommand,
+  OrgsCommand,
+  StatusCommand,
+  OpenCommand,
 } from "../../src/cli/cmd/account"
+import yargs, { type Argv } from "yargs"
 
 describe("console account display and data builders", () => {
   test("uses opencode.ai/console as the default login URL", () => {
@@ -149,6 +156,68 @@ describe("console account display and data builders", () => {
       "Account: two@example.com (https://two.example.com) [acc-2]",
       "Active Org: (none)",
     ])
+  })
+})
+
+describe("console command options and builders", () => {
+  test("LoginCommand registers output, o, and json options", () => {
+    const builder = LoginCommand.builder as (y: Argv) => Argv<any>
+    const parser = builder(yargs())
+    const options = (parser as any).getOptions()
+    expect(options.key.output).toBeDefined()
+    expect(options.key.o).toBeDefined()
+    expect(options.key.json).toBeDefined()
+  })
+
+  test("LogoutCommand registers force, f, output, o, and json options", () => {
+    const builder = LogoutCommand.builder as (y: Argv) => Argv<any>
+    const parser = builder(yargs())
+    const options = (parser as any).getOptions()
+    expect(options.key.force).toBeDefined()
+    expect(options.key.f).toBeDefined()
+    expect(options.key.output).toBeDefined()
+    expect(options.key.o).toBeDefined()
+    expect(options.key.json).toBeDefined()
+  })
+
+  test("SwitchCommand registers output, o, and json options", () => {
+    const builder = SwitchCommand.builder as (y: Argv) => Argv<any>
+    const parser = builder(yargs())
+    const options = (parser as any).getOptions()
+    expect(options.key.output).toBeDefined()
+    expect(options.key.o).toBeDefined()
+    expect(options.key.json).toBeDefined()
+  })
+
+  test("LogoutCommand parses options from arguments", async () => {
+    const builder = LogoutCommand.builder as (y: Argv) => Argv<any>
+    const parsed = await builder(yargs()).parseAsync([
+      "--force",
+      "--output",
+      "logout.json",
+      "--json",
+    ])
+    expect(parsed.force).toBe(true)
+    expect(parsed.output).toBe("logout.json")
+    expect(parsed.json).toBe(true)
+  })
+
+  test("LogoutCommand parses -o and -f short aliases", async () => {
+    const builder = LogoutCommand.builder as (y: Argv) => Argv<any>
+    const parsed = await builder(yargs()).parseAsync(["-f", "-o", "logout.txt"])
+    expect(parsed.force).toBe(true)
+    expect(parsed.output).toBe("logout.txt")
+  })
+
+  test("SwitchCommand parses options from arguments", async () => {
+    const builder = SwitchCommand.builder as (y: Argv) => Argv<any>
+    const parsed = await builder(yargs()).parseAsync([
+      "--output",
+      "switch.json",
+      "--json",
+    ])
+    expect(parsed.output).toBe("switch.json")
+    expect(parsed.json).toBe(true)
   })
 })
 

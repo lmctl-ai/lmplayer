@@ -44,6 +44,9 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
 - `auth login [url] [--provider p|-p p] [--method m|-m m] [--key k|-k k] [--output file|-o file] [--json]` (OAuth device flow or API key; e.g. `auth login --provider github-copilot --method 'Login with GitHub Copilot'`). Supports direct file export (`--output` / `-o`) and structured JSON output (`--json`). Token -> ~/.local/share/lmcode/auth.json.
 
 ## Console & account management
+- `console login [url]` (alias `account login`) `[--output file|-o file] [--json]` — log in to console server via OAuth device authorization, with direct file export (`--output` / `-o`) and structured JSON output (`--json`).
+- `console logout [email]` (alias `account logout`) `[--force|-f] [--output file|-o file] [--json]` — log out from a console account with force guard, structured JSON confirmation, and direct file export (`--output` / `-o`).
+- `console switch [org]` (alias `account switch`) `[--output file|-o file] [--json]` — switch active organization across console accounts, with non-interactive org identifier support, structured JSON response, and direct file export (`--output` / `-o`).
 - `console orgs` (alias `account orgs`) `[--output file|-o file] [--json]` — list organizations across logged-in console accounts with active account and org indicator, with structured JSON output and direct file export (`--output` / `-o`).
 - `console status` (aliases: `account status`, `console whoami`, `account whoami`) `[--output file|-o file] [--json]` — inspect active console account, server URL, and active organization status with structured JSON output (`authenticated`, `account`, `org`) and direct file export (`--output` / `-o`).
 - `console open` (alias `account open`) `[--print|-p] [--output file|-o file] [--json]` — open active console URL in browser, or print URL directly without browser launch (`--print`), or export URL as text/JSON (`--output` / `-o`, `--json`).
