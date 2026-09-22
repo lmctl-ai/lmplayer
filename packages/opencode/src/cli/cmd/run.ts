@@ -216,6 +216,10 @@ export const RunCommand = effectCmd({
         default: "default",
         describe: "format: default (formatted) or json (raw JSON events)",
       })
+      .option("json", {
+        type: "boolean",
+        describe: "output raw JSON events (equivalent to --format json)",
+      })
       .option("output", {
         alias: ["o"],
         type: "string",
@@ -339,6 +343,9 @@ export const RunCommand = effectCmd({
     const flags = yield* RuntimeFlags.Service
     const localInstance = yield* InstanceRef
     yield* Effect.promise(async () => {
+      if (args.json) {
+        args.format = "json"
+      }
       const rawMessage = [...args.message, ...(args["--"] || [])].join(" ")
       const interactive = args.mini
       const auto = args.auto || args.yolo || args["dangerously-skip-permissions"]
@@ -1206,6 +1213,7 @@ export async function runMini(input: MiniCommandInput) {
     model: input.model,
     agent: input.agent,
     format: "default",
+    json: undefined,
     output: undefined,
     o: undefined,
     file: undefined,

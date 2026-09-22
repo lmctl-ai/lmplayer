@@ -11,16 +11,52 @@ import {
 import { GenerateCommand } from "../../src/cli/cmd/generate"
 
 describe("RunCommand builder and output options", () => {
-  test("RunCommand registers output and format options", () => {
+  test("RunCommand registers output, format, and json options", () => {
     const builder = RunCommand.builder as (y: Argv) => Argv<any>
     const parser = builder(yargs())
     const options = (parser as any).getOptions()
     expect(options.key.output).toBeDefined()
     expect(options.key.o).toBeDefined()
     expect(options.key.format).toBeDefined()
+    expect(options.key.json).toBeDefined()
     expect(options.key.message).toBeDefined()
     expect(options.key.model).toBeDefined()
     expect(options.key.agent).toBeDefined()
+  })
+
+  test("RunCommand parses output and json options from arguments", async () => {
+    const builder = RunCommand.builder as (y: Argv) => Argv<any>
+    const parsed = await builder(yargs()).parseAsync([
+      "--output",
+      "result.json",
+      "--json",
+    ])
+    expect(parsed.output).toBe("result.json")
+    expect(parsed.json).toBe(true)
+  })
+
+  test("RunCommand parses positional message, output, and json when registered as command", async () => {
+    const parsed = await yargs()
+      .command({
+        ...RunCommand,
+        handler: () => {},
+      })
+      .parseAsync([
+        "run",
+        "hello world",
+        "--output",
+        "result.json",
+        "--json",
+      ])
+    expect(parsed.message).toEqual(["hello world"])
+    expect(parsed.output).toBe("result.json")
+    expect(parsed.json).toBe(true)
+  })
+
+  test("RunCommand parses -o short alias", async () => {
+    const builder = RunCommand.builder as (y: Argv) => Argv<any>
+    const parsed = await builder(yargs()).parseAsync(["-o", "result.txt"])
+    expect(parsed.output).toBe("result.txt")
   })
 })
 
