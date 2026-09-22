@@ -112,6 +112,11 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
 - `db check` (aliases: `verify`, `integrity`) `[--output file|-o file] [--json]` — verify database integrity and foreign key constraints via `PRAGMA integrity_check` and `PRAGMA foreign_key_check`, reporting check results and failing with exit code 1 if issues or violations are detected, with `--output` (`-o`) direct file export.
 - `db vacuum` (aliases: `optimize`, `clean`) `[--wal] [--analyze] [--output file|-o file] [--json]` — reclaim disk space and defragment database storage via `VACUUM` and `PRAGMA wal_checkpoint(TRUNCATE)`, run `PRAGMA optimize`, and optionally run query planner analysis (`--analyze`) or WAL checkpoint only (`--wal` / `--checkpoint`), reporting before/after byte sizes and reclaimed space, with `--output` (`-o`) direct file export.
 
+## GitHub & Pull Request integration
+- `pr <number> [--branch name|-b name] [--no-run] [--output file|-o file] [--json]` — fetch and checkout a GitHub PR branch, resolve fork remotes, auto-import associated sessions, and optionally launch lmplayer (or checkout only with `--no-run`), with structured JSON output (`pr`, `branch`, `checkedOut`, `forkRemote`, `session`, `sessionUrl`) and direct file export (`--output` / `-o`).
+- `github install` — install the GitHub agent workflow in repository.
+- `github run [--event event] [--token token]` — run GitHub agent against event context or mock payload.
+
 ## Container orchestration & failover
 - `orchestrator status [--registry file] [--output file|-o file] [--json]` — health-check registered containers and show the durable assignment map with container IDs, URLs, and epochs, with direct file export (`--output` / `-o`) and structured JSON.
 - `orchestrator handover --session id --from id --to id [--tail n] [--registry file] [--output file|-o file] [--json]` — move a session between containers via export/import bundle transfer with monotonic epoch bumping and direct file export (`--output` / `-o`).
