@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { Effect } from "effect"
 import path from "path"
 import { cliIt } from "../lib/cli-process"
-import { McpListCommand, McpShowCommand, McpAuthListCommand, McpLogoutCommand } from "../../src/cli/cmd/mcp"
+import { McpListCommand, McpShowCommand, McpAuthCommand, McpAuthListCommand, McpLogoutCommand } from "../../src/cli/cmd/mcp"
 import yargs, { type Argv } from "yargs"
 
 describe("McpCommand builders and options", () => {
@@ -45,6 +45,32 @@ describe("McpCommand builders and options", () => {
     expect(options.key.force).toBeDefined()
     expect(options.key.json).toBeDefined()
     expect(options.key.output).toBeDefined()
+  })
+
+  test("McpAuthCommand registers name, json, and output options", () => {
+    const builder = McpAuthCommand.builder as (y: Argv) => Argv<any>
+    const parser = builder(yargs())
+    const options = (parser as any).getOptions()
+    expect(options.key.json).toBeDefined()
+    expect(options.key.output).toBeDefined()
+    expect(options.key.o).toBeDefined()
+  })
+
+  test("McpAuthCommand parses options from arguments", async () => {
+    const builder = McpAuthCommand.builder as (y: Argv) => Argv<any>
+    const parsed = await builder(yargs()).parseAsync([
+      "--output",
+      "auth-summary.json",
+      "--json",
+    ])
+    expect(parsed.output).toBe("auth-summary.json")
+    expect(parsed.json).toBe(true)
+  })
+
+  test("McpAuthCommand parses -o short alias", async () => {
+    const builder = McpAuthCommand.builder as (y: Argv) => Argv<any>
+    const parsed = await builder(yargs()).parseAsync(["-o", "auth.txt"])
+    expect(parsed.output).toBe("auth.txt")
   })
 })
 

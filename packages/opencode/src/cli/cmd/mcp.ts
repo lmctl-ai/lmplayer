@@ -453,16 +453,77 @@ export const McpAuthCommand = effectCmd({
         describe: "name of the MCP server",
         type: "string",
       })
+      .option("output", {
+        alias: "o",
+        type: "string",
+        describe: "write auth result to output file path",
+      })
+      .option("json", {
+        type: "boolean",
+        describe: "output auth result as JSON",
+      })
       .command(McpAuthListCommand),
-  handler: Effect.fn("Cli.mcp.auth")(function* (args) {
-    UI.empty()
-    prompts.intro("MCP OAuth Authentication")
+  handler: Effect.fn("Cli.mcp.auth")(function* (args: {
+    name?: string
+    output?: string
+    json?: boolean
+  }) {
+    const writeAuthResult = (result: {
+      ok: boolean
+      name?: string
+      status: string
+      url?: string
+      error?: string
+      message?: string
+    }) =>
+      Effect.gen(function* () {
+        if (args.json) {
+          const jsonStr = JSON.stringify(result, null, 2) + EOL
+          if (args.output) {
+            const resolved = path.resolve(args.output)
+            yield* Effect.promise(async () => {
+              const fs = await import("fs/promises")
+              await fs.mkdir(path.dirname(resolved), { recursive: true })
+              await fs.writeFile(resolved, jsonStr, "utf-8")
+            })
+          }
+          process.stdout.write(jsonStr)
+          if (!result.ok) process.exitCode = 1
+          return
+        }
+        if (args.output) {
+          const resolved = path.resolve(args.output)
+          yield* Effect.promise(async () => {
+            const fs = await import("fs/promises")
+            await fs.mkdir(path.dirname(resolved), { recursive: true })
+            const text = result.ok
+              ? `MCP OAuth authentication ${result.status}: ${result.name ?? ""}${result.message ? ` (${result.message})` : ""}${EOL}`
+              : `MCP OAuth authentication failed: ${result.error ?? result.message ?? "error"}${EOL}`
+            await fs.writeFile(resolved, text, "utf-8")
+          })
+          UI.println(`Wrote auth result to ${resolved}`)
+        }
+        if (!result.ok) process.exitCode = 1
+      })
+
+    if (!args.json) {
+      UI.empty()
+      prompts.intro("MCP OAuth Authentication")
+    }
 
     const { config, auth } = yield* authState()
     const mcpServers = config.mcp ?? {}
     const servers = oauthServers(config)
 
     if (servers.length === 0) {
+      if (args.json || args.output) {
+        yield* writeAuthResult({
+          ok: false,
+          status: "none",
+          error: "No OAuth-capable MCP servers configured",
+        })
+        if (args.json) return
+      }
       prompts.log.warn("No OAuth-capable MCP servers configured")
       prompts.log.info("Remote MCP servers support OAuth by default. Add a remote server in opencode.json:")
       prompts.log.info(`
@@ -478,6 +539,16 @@ export const McpAuthCommand = effectCmd({
 
     let serverName = args.name
     if (!serverName) {
+      if (!process.stdin.isTTY) {
+        yield* writeAuthResult({
+          ok: false,
+          status: "missing_server",
+          error: "Server name is required in non-interactive mode",
+        })
+        if (args.json) return
+        return yield* fail("Server name is required in non-interactive mode. Specify an MCP server name.")
+      }
+
       // Build options with auth status
       const options = servers.map(([name, cfg]) => {
         const authStatus = auth[name]
@@ -503,12 +574,26 @@ export const McpAuthCommand = effectCmd({
 
     const serverConfig = mcpServers[serverName]
     if (!serverConfig) {
+      yield* writeAuthResult({
+        ok: false,
+        name: serverName,
+        status: "not_found",
+        error: `MCP server not found: ${serverName}`,
+      })
+      if (args.json) return
       prompts.log.error(`MCP server not found: ${serverName}`)
       prompts.outro("Done")
       return
     }
 
     if (!isMcpRemote(serverConfig) || serverConfig.oauth === false) {
+      yield* writeAuthResult({
+        ok: false,
+        name: serverName,
+        status: "not_oauth_capable",
+        error: `MCP server ${serverName} is not an OAuth-capable remote server`,
+      })
+      if (args.json) return
       prompts.log.error(`MCP server ${serverName} is not an OAuth-capable remote server`)
       prompts.outro("Done")
       return
@@ -517,38 +602,70 @@ export const McpAuthCommand = effectCmd({
     // Check if already authenticated
     const authStatus = auth[serverName] ?? (yield* MCP.Service.use((mcp) => mcp.getAuthStatus(serverName)))
     if (authStatus === "authenticated") {
+      if (args.json || !process.stdin.isTTY) {
+        yield* writeAuthResult({
+          ok: true,
+          name: serverName,
+          status: "already_authenticated",
+          message: `${serverName} already has valid credentials`,
+        })
+        return
+      }
       const confirm = yield* Effect.promise(() =>
         prompts.confirm({
           message: `${serverName} already has valid credentials. Re-authenticate?`,
         }),
       )
       if (prompts.isCancel(confirm) || !confirm) {
+        if (args.output) {
+          yield* writeAuthResult({
+            ok: true,
+            name: serverName,
+            status: "cancelled",
+            message: "Authentication cancelled",
+          })
+        }
         prompts.outro("Cancelled")
         return
       }
     } else if (authStatus === "expired") {
-      prompts.log.warn(`${serverName} has expired credentials. Re-authenticating...`)
+      if (!args.json) {
+        prompts.log.warn(`${serverName} has expired credentials. Re-authenticating...`)
+      }
     }
 
     const spinner = prompts.spinner()
-    spinner.start("Starting OAuth flow...")
+    if (!args.json) {
+      spinner.start("Starting OAuth flow...")
+    }
 
     yield* MCP.Service.use((mcp) =>
       mcp.authenticate(serverName, (url) => {
-        spinner.stop("Authorize in your browser:")
-        prompts.log.info(url)
-        spinner.start("Waiting for authorization...")
+        if (args.json) {
+          process.stderr.write(`Authorize in your browser: ${url}${EOL}`)
+        } else {
+          spinner.stop("Authorize in your browser:")
+          prompts.log.info(url)
+          spinner.start("Waiting for authorization...")
+        }
       }),
     ).pipe(
       Effect.tap((status) =>
-        Effect.sync(() => {
+        Effect.gen(function* () {
           if (status.status === "connected") {
-            spinner.stop("Authentication successful!")
+            if (!args.json) spinner.stop("Authentication successful!")
+            yield* writeAuthResult({
+              ok: true,
+              name: serverName,
+              status: "connected",
+              url: serverConfig.url,
+            })
           } else if (status.status === "needs_client_registration") {
-            spinner.stop("Authentication failed", 1)
-            prompts.log.error(status.error)
-            prompts.log.info("Add clientId to your MCP server config:")
-            prompts.log.info(`
+            if (!args.json) {
+              spinner.stop("Authentication failed", 1)
+              prompts.log.error(status.error)
+              prompts.log.info("Add clientId to your MCP server config:")
+              prompts.log.info(`
   "mcp": {
     "${serverName}": {
       "type": "remote",
@@ -559,24 +676,55 @@ export const McpAuthCommand = effectCmd({
       }
     }
   }`)
+            }
+            yield* writeAuthResult({
+              ok: false,
+              name: serverName,
+              status: "needs_client_registration",
+              error: status.error,
+              url: serverConfig.url,
+            })
           } else if (status.status === "failed") {
-            spinner.stop("Authentication failed", 1)
-            prompts.log.error(status.error)
+            if (!args.json) {
+              spinner.stop("Authentication failed", 1)
+              prompts.log.error(status.error)
+            }
+            yield* writeAuthResult({
+              ok: false,
+              name: serverName,
+              status: "failed",
+              error: status.error,
+            })
           } else {
-            spinner.stop("Unexpected status: " + status.status, 1)
+            if (!args.json) spinner.stop("Unexpected status: " + status.status, 1)
+            yield* writeAuthResult({
+              ok: false,
+              name: serverName,
+              status: status.status,
+              error: "Unexpected status: " + status.status,
+            })
           }
         }),
       ),
       Effect.catchCause((cause) =>
-        Effect.sync(() => {
-          spinner.stop("Authentication failed", 1)
+        Effect.gen(function* () {
+          if (!args.json) spinner.stop("Authentication failed", 1)
           const error = Cause.squash(cause)
-          prompts.log.error(error instanceof Error ? error.message : String(error))
+          const errorMsg = error instanceof Error ? error.message : String(error)
+          if (!args.json) prompts.log.error(errorMsg)
+          yield* writeAuthResult({
+            ok: false,
+            name: serverName,
+            status: "error",
+            error: errorMsg,
+          })
         }),
       ),
     )
 
-    prompts.outro("Done")
+    if (!args.json) {
+      prompts.outro("Done")
+    }
   }),
 })
 
