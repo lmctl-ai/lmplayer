@@ -79,12 +79,32 @@ describe("db command definitions & builders", () => {
     expect(options.key.json).toBeDefined()
   })
 
-  test("QueryCommand registers $0 [query] and format option", () => {
+  test("QueryCommand registers $0 [query], format, output, o, and json options", () => {
     expect(QueryCommand.command).toBe("$0 [query]")
     const builder = QueryCommand.builder as (y: Argv) => Argv<any>
     const parser = builder(yargs())
     const options = (parser as any).getOptions()
     expect(options.key.format).toBeDefined()
+    expect(options.key.output).toBeDefined()
+    expect(options.key.o).toBeDefined()
+    expect(options.key.json).toBeDefined()
+  })
+
+  test("QueryCommand parses output and json options from arguments", async () => {
+    const builder = QueryCommand.builder as (y: Argv) => Argv<any>
+    const parsed = await builder(yargs()).parseAsync([
+      "--output",
+      "results.json",
+      "--json",
+    ])
+    expect(parsed.output).toBe("results.json")
+    expect(parsed.json).toBe(true)
+  })
+
+  test("QueryCommand parses -o short alias", async () => {
+    const builder = QueryCommand.builder as (y: Argv) => Argv<any>
+    const parsed = await builder(yargs()).parseAsync(["-o", "results.tsv"])
+    expect(parsed.output).toBe("results.tsv")
   })
 
   test("DbCommand registers all subcommands", () => {
