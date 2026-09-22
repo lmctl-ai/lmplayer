@@ -111,6 +111,8 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
 - `debug scrap [--output file|-o file]` — list all registered and active projects JSON, with direct file export (`--output` / `-o`).
 - `debug file search <query> [--output file|-o file] [--json]` / `debug file read <path> [--output file|-o file]` / `debug file list <path> [--output file|-o file]` — query, read, and list files across workspace location services with direct file export (`--output` / `-o`).
 - `debug rg files [--query q] [--glob g] [--limit n] [--output file|-o file] [--json]` / `debug rg search <pattern> [--glob g] [--limit n] [--output file|-o file]` — ripgrep fast file finding and pattern search across instance worktree, with direct file export (`--output` / `-o`) and structured JSON.
+- `debug snapshot track [--output file|-o file]` / `debug snapshot patch <hash> [--output file|-o file]` / `debug snapshot diff <hash> [--output file|-o file]` — inspect worktree snapshot tracking, commit patches, and state diffs with direct file export (`--output` / `-o`).
+- `debug lsp diagnostics <file> [--output file|-o file]` / `debug lsp symbols <query> [--output file|-o file]` / `debug lsp document-symbols <uri> [--output file|-o file]` — query workspace LSP diagnostics and symbol indexes with direct file export (`--output` / `-o`).
 - `generate [--output file|-o file]` — generate OpenAPI schema for the lmplayer server with JavaScript SDK code samples and prettier formatting, with direct file export (`--output` / `-o`).
 
 ## Known gaps / TODO (not yet built)
