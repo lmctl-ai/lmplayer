@@ -4,16 +4,24 @@ import { UI } from "../ui"
 
 type Args = {
   output?: string
+  json?: boolean
 }
 
 export const GenerateCommand = {
   command: "generate",
+  describe: "generate OpenAPI schema",
   builder: (yargs) =>
-    yargs.option("output", {
-      alias: "o",
-      type: "string",
-      describe: "write OpenAPI schema to output file path",
-    }),
+    yargs
+      .option("output", {
+        alias: "o",
+        type: "string",
+        describe: "write OpenAPI schema to output file path",
+      })
+      .option("json", {
+        type: "boolean",
+        describe: "output summary as JSON when writing to file",
+        default: false,
+      }),
   handler: async (args) => {
     const { Server } = await import("../../server/server")
     const specs = (await Server.openapi()) as {
@@ -57,7 +65,21 @@ export const GenerateCommand = {
       const fs = await import("node:fs/promises")
       await fs.mkdir(path.dirname(resolved), { recursive: true })
       await fs.writeFile(resolved, json, "utf-8")
-      UI.println(`Wrote OpenAPI schema to ${resolved}`)
+      if (args.json) {
+        process.stdout.write(
+          JSON.stringify(
+            {
+              ok: true,
+              file: resolved,
+              operations: Object.keys(specs.paths).length,
+            },
+            null,
+            2,
+          ) + "\n",
+        )
+      } else {
+        UI.println(`Wrote OpenAPI schema to ${resolved}`)
+      }
       return
     }
 

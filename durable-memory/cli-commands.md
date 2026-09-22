@@ -24,6 +24,7 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
 - `providers enable <provider>` / `providers disable <provider>` (alias `provider enable/disable`) `[--scope project|global] [--project|-p] [--global|-g] [--output file|-o file] [--json]` — toggle provider enablement in project or global configuration, with structured JSON response and direct file export (`--output` / `-o`).
 
 ## Choose model + effort when prompting
+- `run [message..] [--model <provider/model>] [--effort <tier>] [--format default|json] [--output file|-o file] [--file <path>...] [--continue] [--session <id>] [--fork] [--share] [--title <text>]` — send prompt non-interactively, stream output, and write assistant output to file path (`--output` / `-o`), supporting clean markdown/text or structured JSON (`{ sessionID, text }` or raw events array with `--format json`).
 - `run --model <provider/model> --effort <tier> "<prompt>"` — `--effort` is an alias of `--variant`.
   Effort tiers per model = the model's `variants` keys (see `models --json`). xhigh = "extra high".
 - Non-interactive header now prints `> {agent} · {model} · {effort}`.
@@ -142,7 +143,7 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
 - `debug lsp diagnostics <file> [--output file|-o file]` / `debug lsp symbols <query> [--output file|-o file]` / `debug lsp document-symbols <uri> [--output file|-o file]` — query workspace LSP diagnostics and symbol indexes with direct file export (`--output` / `-o`).
 - `debug startup [--output file|-o file] [--json]` — print application startup timing with structured JSON and direct file export (`--output` / `-o`).
 - `debug agent <name> [--tool toolId] [--params json] [--output file|-o file]` — inspect agent configuration, permissions, and tool capabilities or execute tools directly with file export (`--output` / `-o`).
-- `generate [--output file|-o file]` — generate OpenAPI schema for the lmplayer server with JavaScript SDK code samples and prettier formatting, with direct file export (`--output` / `-o`).
+- `generate [--output file|-o file] [--json]` — generate OpenAPI schema for the lmplayer server with JavaScript SDK code samples and prettier formatting, with direct file export (`--output` / `-o`) and machine-readable JSON write confirmation (`--json`).
 
 ## Known gaps / TODO (not yet built)
 - `models test [provider]` (probe each entitled model) — SHIPPED (with `--json`, `--timeout`, `--concurrency`).
