@@ -39,12 +39,23 @@ function assignmentsPath() {
   return path.join(Global.Path.data, "orchestrator", "assignments.json")
 }
 
-async function loadRegistry(file: string): Promise<Registry> {
+async function loadRegistry(file: string, explicit = false): Promise<Registry> {
   const f = Bun.file(file)
-  if (!(await f.exists())) throw new Error(`registry not found: ${file}`)
+  if (!(await f.exists())) {
+    if (explicit) throw new Error(`registry not found: ${file}`)
+    return { containers: [] }
+  }
   const json = (await f.json()) as Registry
   if (!json || !Array.isArray(json.containers)) throw new Error(`invalid registry (expected { containers: [...] }): ${file}`)
   return json
+}
+
+async function writeOutput(file: string, content: string, label: string) {
+  const resolved = path.resolve(file)
+  const fs = await import("node:fs/promises")
+  await fs.mkdir(path.dirname(resolved), { recursive: true })
+  await fs.writeFile(resolved, content, "utf-8")
+  UI.println(`Wrote ${label} to ${resolved}`)
 }
 
 async function loadAssignments(): Promise<AssignmentMap> {
@@ -141,33 +152,55 @@ const StatusCommand = cmd({
   builder: (yargs: Argv) =>
     yargs
       .option("registry", { describe: "path to containers.json", type: "string" })
+      .option("output", {
+        alias: "o",
+        type: "string",
+        describe: "write status report to output file path",
+      })
       .option("json", { describe: "output as JSON", type: "boolean" }),
-  async handler(args) {
-    const registry = await loadRegistry(args.registry ?? defaultRegistryPath())
+  async handler(args: { registry?: string; output?: string; json?: boolean }) {
+    const registry = await loadRegistry(args.registry ?? defaultRegistryPath(), Boolean(args.registry))
     const assignments = await loadAssignments()
     const healths = await Promise.all(registry.containers.map(health))
 
     if (args.json) {
-      process.stdout.write(JSON.stringify({ containers: healths, assignments }, null, 2) + EOL)
+      const jsonStr = JSON.stringify({ containers: healths, assignments }, null, 2) + EOL
+      if (args.output) {
+        await writeOutput(args.output, jsonStr, "orchestrator status")
+        return
+      }
+      process.stdout.write(jsonStr)
       return
     }
 
-    out(UI.Style.TEXT_HIGHLIGHT_BOLD + "Containers" + UI.Style.TEXT_NORMAL)
-    for (const h of healths) {
-      const mark = h.reachable ? UI.Style.TEXT_SUCCESS_BOLD + "reachable" : UI.Style.TEXT_DANGER_BOLD + "unreachable"
-      out(
-        `  ${h.id}  ${h.url}  ${mark}${UI.Style.TEXT_NORMAL}  (${h.status ?? "-"}, ${h.latencyMs}ms)` +
-          (h.error ? `  ${h.error}` : ""),
-      )
+    const lines: string[] = []
+    lines.push(UI.Style.TEXT_HIGHLIGHT_BOLD + "Containers" + UI.Style.TEXT_NORMAL)
+    if (healths.length === 0) {
+      lines.push("  (none)")
+    } else {
+      for (const h of healths) {
+        const mark = h.reachable ? UI.Style.TEXT_SUCCESS_BOLD + "reachable" : UI.Style.TEXT_DANGER_BOLD + "unreachable"
+        lines.push(
+          `  ${h.id}  ${h.url}  ${mark}${UI.Style.TEXT_NORMAL}  (${h.status ?? "-"}, ${h.latencyMs}ms)` +
+            (h.error ? `  ${h.error}` : ""),
+        )
+      }
     }
 
-    out("")
-    out(UI.Style.TEXT_HIGHLIGHT_BOLD + "Assignments" + UI.Style.TEXT_NORMAL)
+    lines.push("")
+    lines.push(UI.Style.TEXT_HIGHLIGHT_BOLD + "Assignments" + UI.Style.TEXT_NORMAL)
     const entries = Object.entries(assignments)
-    if (entries.length === 0) out("  (none)")
+    if (entries.length === 0) lines.push("  (none)")
     for (const [sessionID, a] of entries) {
-      out(`  ${sessionID}  ->  ${a.containerID} (${a.url})  epoch=${a.epoch}`)
+      lines.push(`  ${sessionID}  ->  ${a.containerID} (${a.url})  epoch=${a.epoch}`)
     }
+
+    const textStr = lines.join(EOL) + EOL
+    if (args.output) {
+      await writeOutput(args.output, textStr, "orchestrator status")
+      return
+    }
+    process.stdout.write(textStr)
   },
 })
 
@@ -184,9 +217,22 @@ const HandoverCommand = cmd({
       .option("to", { describe: "destination container id (or url)", type: "string", demandOption: true })
       .option("tail", { describe: "number of tail messages to carry", type: "number", default: 20 })
       .option("registry", { describe: "path to containers.json", type: "string" })
+      .option("output", {
+        alias: "o",
+        type: "string",
+        describe: "write handover result to output file path",
+      })
       .option("json", { describe: "output as JSON", type: "boolean" }),
-  async handler(args) {
-    const registry = await loadRegistry(args.registry ?? defaultRegistryPath())
+  async handler(args: {
+    session: string
+    from: string
+    to: string
+    tail: number
+    registry?: string
+    output?: string
+    json?: boolean
+  }) {
+    const registry = await loadRegistry(args.registry ?? defaultRegistryPath(), Boolean(args.registry))
     const from = resolveContainer(registry, args.from)
     const to = resolveContainer(registry, args.to)
 
@@ -223,8 +269,21 @@ const HandoverCommand = cmd({
     assignments[args.session] = { containerID: to.id, url: to.url, epoch, updatedAt: Date.now() }
     await saveAssignments(assignments)
 
+    const jsonStr = JSON.stringify({ from: from.id, to: to.id, epoch, ...result }, null, 2) + EOL
+    const textStr =
+      UI.Style.TEXT_SUCCESS_BOLD +
+      `handover ${from.id} -> ${to.id}` +
+      UI.Style.TEXT_NORMAL +
+      `  session=${result.sessionID} messages=${result.messageCount} memory=${result.hadMemory} existed=${result.existed} epoch=${epoch}` +
+      EOL
+
+    if (args.output) {
+      await writeOutput(args.output, args.json ? jsonStr : textStr, "handover result")
+      return
+    }
+
     if (args.json) {
-      process.stdout.write(JSON.stringify({ from: from.id, to: to.id, epoch, ...result }, null, 2) + EOL)
+      process.stdout.write(jsonStr)
       return
     }
     out(
@@ -248,9 +307,14 @@ const RefreshCommand = cmd({
     yargs
       .option("to", { describe: "container id (or url) to refresh", type: "string", demandOption: true })
       .option("registry", { describe: "path to containers.json", type: "string" })
+      .option("output", {
+        alias: "o",
+        type: "string",
+        describe: "write refresh result to output file path",
+      })
       .option("json", { describe: "output as JSON", type: "boolean" }),
-  async handler(args) {
-    const registry = await loadRegistry(args.registry ?? defaultRegistryPath())
+  async handler(args: { to: string; registry?: string; output?: string; json?: boolean }) {
+    const registry = await loadRegistry(args.registry ?? defaultRegistryPath(), Boolean(args.registry))
     const to = resolveContainer(registry, args.to)
     const res = await fetch(`${to.url.replace(/\/$/, "")}/shutdown`, {
       method: "POST",
@@ -260,8 +324,21 @@ const RefreshCommand = cmd({
     if (!res.ok) throw new Error(`shutdown ${to.id} failed: HTTP ${res.status} ${await res.text()}`)
     const body = (await res.json()) as { draining?: boolean }
 
+    const jsonStr = JSON.stringify({ to: to.id, draining: body.draining === true }, null, 2) + EOL
+    const textStr =
+      UI.Style.TEXT_SUCCESS_BOLD +
+      `refresh ${to.id}` +
+      UI.Style.TEXT_NORMAL +
+      `  draining=${body.draining === true} (will finish in-flight run, then exit)` +
+      EOL
+
+    if (args.output) {
+      await writeOutput(args.output, args.json ? jsonStr : textStr, "refresh result")
+      return
+    }
+
     if (args.json) {
-      process.stdout.write(JSON.stringify({ to: to.id, draining: body.draining === true }, null, 2) + EOL)
+      process.stdout.write(jsonStr)
       return
     }
     out(
@@ -284,9 +361,14 @@ const AssignCommand = cmd({
       .option("session", { describe: "session id", type: "string", demandOption: true })
       .option("to", { describe: "destination container id (or url)", type: "string", demandOption: true })
       .option("registry", { describe: "path to containers.json", type: "string" })
+      .option("output", {
+        alias: "o",
+        type: "string",
+        describe: "write assignment result to output file path",
+      })
       .option("json", { describe: "output as JSON", type: "boolean" }),
-  async handler(args) {
-    const registry = await loadRegistry(args.registry ?? defaultRegistryPath())
+  async handler(args: { session: string; to: string; registry?: string; output?: string; json?: boolean }) {
+    const registry = await loadRegistry(args.registry ?? defaultRegistryPath(), Boolean(args.registry))
     const to = resolveContainer(registry, args.to)
     const assignments = await loadAssignments()
     const prev = assignments[args.session]
@@ -296,8 +378,21 @@ const AssignCommand = cmd({
     assignments[args.session] = { containerID: to.id, url: to.url, epoch, updatedAt: Date.now() }
     await saveAssignments(assignments)
 
+    const jsonStr = JSON.stringify({ session: args.session, ...assignments[args.session] }, null, 2) + EOL
+    const textStr =
+      UI.Style.TEXT_SUCCESS_BOLD +
+      `assigned ${args.session} -> ${to.id}` +
+      UI.Style.TEXT_NORMAL +
+      `  epoch=${epoch}` +
+      EOL
+
+    if (args.output) {
+      await writeOutput(args.output, args.json ? jsonStr : textStr, "assignment")
+      return
+    }
+
     if (args.json) {
-      process.stdout.write(JSON.stringify({ session: args.session, ...assignments[args.session] }, null, 2) + EOL)
+      process.stdout.write(jsonStr)
       return
     }
     out(
