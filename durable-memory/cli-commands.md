@@ -50,6 +50,9 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
 - `console status` (aliases: `account status`, `console whoami`, `account whoami`) `[--output file|-o file] [--json]` — inspect active console account, server URL, and active organization status with structured JSON output (`authenticated`, `account`, `org`) and direct file export (`--output` / `-o`).
 - `console open` (alias `account open`) `[--print|-p] [--output file|-o file] [--json]` — open active console URL in browser, or print URL directly without browser launch (`--print`), or export URL as text/JSON (`--output` / `-o`, `--json`).
 
+## Installation, lifecycle & upgrades
+- `upgrade [target] [--check|-c] [--method m] [--output file|-o file] [--json]` — upgrade lmplayer to the latest or specific version, or inspect upgrade availability without installing (`--check` / `-c`), reporting current version, latest version, target, method, and up-to-date status as machine-readable JSON or text with direct file export (`--output` / `-o`).
+- `uninstall [--keep-config|-c] [--keep-data|-d] [--dry-run] [--force|-f] [--output file|-o file] [--json]` — uninstall lmplayer and related data, configuration, cache, state, binary, and shell hooks. In `--dry-run` mode, outputs structured manifest of target paths and byte sizes as JSON or formatted text, with direct file export (`--output` / `-o`). Non-interactive/JSON execution requires `--force` to guard against unintended data loss.
 
 ## Default command (DONE)
 - `lmcode <message>` runs a non-interactive prompt (default `$0`). Piped stdin runs too

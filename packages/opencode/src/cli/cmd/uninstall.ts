@@ -6,20 +6,112 @@ import { Global } from "@opencode-ai/core/global"
 import fs from "fs/promises"
 import path from "path"
 import os from "os"
+import { EOL } from "os"
 import { Filesystem } from "@/util/filesystem"
 import { Process } from "@/util/process"
 
-interface UninstallArgs {
+async function writeOutputFile(filePath: string, content: string, label: string) {
+  const resolved = path.resolve(filePath)
+  await fs.mkdir(path.dirname(resolved), { recursive: true })
+  await fs.writeFile(resolved, content, "utf-8")
+  UI.println(`Wrote ${label} to ${resolved}`)
+}
+
+export interface UninstallArgs {
   keepConfig: boolean
   keepData: boolean
   dryRun: boolean
   force: boolean
+  output?: string
+  json?: boolean
 }
 
-interface RemovalTargets {
+export interface RemovalTargets {
   directories: Array<{ path: string; label: string; keep: boolean }>
   shellConfig: string | null
   binary: string | null
+}
+
+export interface RemovalDirectoryInfo {
+  path: string
+  label: string
+  keep: boolean
+  exists: boolean
+  size: number
+  sizeFormatted: string
+}
+
+export interface UninstallSummary {
+  method: Installation.Method
+  dryRun: boolean
+  directories: RemovalDirectoryInfo[]
+  binary: string | null
+  shellConfig: string | null
+  packageCommand: string | null
+}
+
+export async function buildUninstallSummary(
+  args: { keepConfig: boolean; keepData: boolean; dryRun: boolean },
+  method: Installation.Method,
+  targets: RemovalTargets,
+): Promise<UninstallSummary> {
+  const directories: RemovalDirectoryInfo[] = []
+  for (const dir of targets.directories) {
+    const exists = await fs
+      .access(dir.path)
+      .then(() => true)
+      .catch(() => false)
+    const size = exists ? await getDirectorySize(dir.path) : 0
+    directories.push({
+      path: dir.path,
+      label: dir.label,
+      keep: dir.keep,
+      exists,
+      size,
+      sizeFormatted: formatSize(size),
+    })
+  }
+
+  const packageCommands: Record<string, string> = {
+    npm: "npm uninstall -g opencode-ai",
+    pnpm: "pnpm uninstall -g opencode-ai",
+    bun: "bun remove -g opencode-ai",
+    yarn: "yarn global remove opencode-ai",
+    brew: "brew uninstall opencode",
+    choco: "choco uninstall opencode",
+    scoop: "scoop uninstall opencode",
+  }
+
+  return {
+    method,
+    dryRun: args.dryRun,
+    directories,
+    binary: targets.binary,
+    shellConfig: targets.shellConfig,
+    packageCommand: packageCommands[method] ?? null,
+  }
+}
+
+export function formatUninstallSummaryText(summary: UninstallSummary): string[] {
+  const lines: string[] = []
+  lines.push(`Installation method: ${summary.method}`)
+  lines.push("Removal targets:")
+  for (const dir of summary.directories) {
+    if (!dir.exists) continue
+    const keepLabel = dir.keep ? " (keeping)" : ""
+    const mark = dir.keep ? "○" : "✓"
+    lines.push(`  ${mark} ${dir.label}: ${dir.path} (${dir.sizeFormatted})${keepLabel}`)
+  }
+  if (summary.binary) {
+    lines.push(`  ✓ Binary: ${summary.binary}`)
+  }
+  if (summary.shellConfig) {
+    lines.push(`  ✓ Shell config: ${summary.shellConfig}`)
+  }
+  if (summary.packageCommand) {
+    lines.push(`  ✓ Package command: ${summary.packageCommand}`)
+  }
+  return lines
 }
 
 export const UninstallCommand = {
@@ -49,18 +141,84 @@ export const UninstallCommand = {
         type: "boolean",
         describe: "skip confirmation prompts",
         default: false,
+      })
+      .option("output", {
+        alias: "o",
+        type: "string",
+        describe: "write removal manifest or result to file path",
+      })
+      .option("json", {
+        type: "boolean",
+        describe: "output as JSON",
       }),
 
   handler: async (args: UninstallArgs) => {
+    const method = await Installation.method()
+    const targets = await collectRemovalTargets(args, method)
+
+    if (args.json || args.output) {
+      const summary = await buildUninstallSummary(args, method, targets)
+      const jsonStr = JSON.stringify(summary, null, 2) + EOL
+      const textLines = formatUninstallSummaryText(summary)
+      const textStr = textLines.join(EOL) + EOL
+
+      if (args.dryRun) {
+        if (args.output) {
+          await writeOutputFile(args.output, args.json ? jsonStr : textStr, "uninstall manifest")
+          return
+        }
+        if (args.json) {
+          process.stdout.write(jsonStr)
+          return
+        }
+        for (const line of textLines) {
+          UI.println(line)
+        }
+        return
+      }
+
+      if (!args.force) {
+        const errResult = {
+          executed: false,
+          error: "Uninstallation requires --force when running with --json or --output without --dry-run",
+          summary,
+        }
+        const errJsonStr = JSON.stringify(errResult, null, 2) + EOL
+        if (args.output) {
+          await writeOutputFile(args.output, errJsonStr, "uninstall result")
+          return
+        }
+        process.stdout.write(errJsonStr)
+        return
+      }
+
+      const errors = await executeUninstallProgrammatic(method, targets)
+      const result = {
+        executed: true,
+        success: errors.length === 0,
+        errors,
+        summary,
+      }
+      const resultJsonStr = JSON.stringify(result, null, 2) + EOL
+      const resultTextStr =
+        errors.length === 0
+          ? "Uninstallation complete" + EOL
+          : `Uninstallation finished with errors: ${errors.join(", ")}` + EOL
+
+      if (args.output) {
+        await writeOutputFile(args.output, args.json ? resultJsonStr : resultTextStr, "uninstall result")
+        return
+      }
+      process.stdout.write(resultJsonStr)
+      return
+    }
+
     UI.empty()
     UI.println(UI.logo("  "))
     UI.empty()
     prompts.intro("Uninstall lmplayer")
 
-    const method = await Installation.method()
     prompts.log.info(`Installation method: ${method}`)
-
-    const targets = await collectRemovalTargets(args, method)
 
     await showRemovalSummary(targets, method)
 
@@ -139,6 +297,57 @@ async function showRemovalSummary(targets: RemovalTargets, method: Installation.
     }
     prompts.log.info(`  ✓ Package: ${cmds[method] || method}`)
   }
+}
+
+async function executeUninstallProgrammatic(method: Installation.Method, targets: RemovalTargets): Promise<string[]> {
+  const errors: string[] = []
+
+  for (const dir of targets.directories) {
+    if (dir.keep) continue
+    const exists = await fs
+      .access(dir.path)
+      .then(() => true)
+      .catch(() => false)
+    if (!exists) continue
+
+    try {
+      await fs.rm(dir.path, { recursive: true, force: true })
+    } catch (e) {
+      errors.push(`${dir.label}: ${(e as Error).message}`)
+    }
+  }
+
+  if (targets.shellConfig) {
+    try {
+      await cleanShellConfig(targets.shellConfig)
+    } catch (e) {
+      errors.push(`Shell config: ${(e as Error).message}`)
+    }
+  }
+
+  if (method !== "curl" && method !== "unknown") {
+    const cmds: Record<string, string[]> = {
+      npm: ["npm", "uninstall", "-g", "opencode-ai"],
+      pnpm: ["pnpm", "uninstall", "-g", "opencode-ai"],
+      bun: ["bun", "remove", "-g", "opencode-ai"],
+      yarn: ["yarn", "global", "remove", "opencode-ai"],
+      brew: ["brew", "uninstall", "opencode"],
+      choco: ["choco", "uninstall", "opencode"],
+      scoop: ["scoop", "uninstall", "opencode"],
+    }
+
+    const cmd = cmds[method]
+    if (cmd) {
+      const result = await Process.run(method === "choco" ? ["choco", "uninstall", "opencode", "-y", "-r"] : cmd, {
+        nothrow: true,
+      })
+      if (result.code !== 0) {
+        errors.push(`Package manager uninstall failed: exit code ${result.code}`)
+      }
+    }
+  }
+
+  return errors
 }
 
 async function executeUninstall(method: Installation.Method, targets: RemovalTargets) {
@@ -357,7 +566,7 @@ function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`
 }
 
 function shortenPath(p: string): string {
