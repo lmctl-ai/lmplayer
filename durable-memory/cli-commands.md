@@ -114,7 +114,7 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
 
 ## GitHub & Pull Request integration
 - `pr <number> [--branch name|-b name] [--no-run] [--output file|-o file] [--json]` — fetch and checkout a GitHub PR branch, resolve fork remotes, auto-import associated sessions, and optionally launch lmplayer (or checkout only with `--no-run`), with structured JSON output (`pr`, `branch`, `checkedOut`, `forkRemote`, `session`, `sessionUrl`) and direct file export (`--output` / `-o`).
-- `github install` — install the GitHub agent workflow in repository.
+- `github install [--provider <id>|-p <id>] [--model <id>|-m <id>] [--dry-run] [--skip-app] [--force|-f] [--output file|-o file] [--json]` — install the GitHub agent workflow (`.github/workflows/opencode.yml`) in repository with provider and model selection, dry-run preview mode (`--dry-run`), GitHub App install/polling bypass (`--skip-app`), overwrite guard and force overwrite (`--force` / `-f`), structured JSON output (`--json`), and direct file export (`--output` / `-o`).
 - `github run [--event event] [--token token]` — run GitHub agent against event context or mock payload.
 
 ## Container orchestration & failover

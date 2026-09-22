@@ -1,6 +1,20 @@
 import { test, expect, describe } from "bun:test"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
-import { extractResponseText, formatPromptTooLargeError } from "../../src/cli/cmd/github"
+import {
+  extractResponseText,
+  formatPromptTooLargeError,
+  generateWorkflowYaml,
+  buildGithubInstallResult,
+  formatGithubInstallText,
+  buildNextSteps,
+  getProviderEnv,
+  getDefaultModel,
+  writeOutputFile,
+  WORKFLOW_FILE,
+} from "../../src/cli/cmd/github"
+import os from "node:os"
+import path from "node:path"
+import fs from "node:fs/promises"
 import type { MessageV2 } from "../../src/session/message-v2"
 import { SessionID, MessageID, PartID } from "../../src/session/schema"
 
@@ -197,3 +211,206 @@ describe("formatPromptTooLargeError", () => {
     expect(result).toInclude("img3.gif (9 KB)")
   })
 })
+
+describe("generateWorkflowYaml", () => {
+  test("generates workflow with standard provider and single secret", () => {
+    const yaml = generateWorkflowYaml({
+      provider: "anthropic",
+      model: "claude-sonnet-4-0",
+      envVars: ["ANTHROPIC_API_KEY"],
+    })
+
+    expect(yaml).toInclude("name: opencode")
+    expect(yaml).toInclude("uses: actions/checkout@v6")
+    expect(yaml).toInclude("uses: anomalyco/opencode/github@latest")
+    expect(yaml).toInclude("env:\n          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}")
+    expect(yaml).toInclude("model: anthropic/claude-sonnet-4-0")
+  })
+
+  test("generates workflow with multiple env secrets", () => {
+    const yaml = generateWorkflowYaml({
+      provider: "custom",
+      model: "my-model",
+      envVars: ["API_KEY", "API_BASE_URL"],
+    })
+
+    expect(yaml).toInclude("API_KEY: ${{ secrets.API_KEY }}")
+    expect(yaml).toInclude("API_BASE_URL: ${{ secrets.API_BASE_URL }}")
+    expect(yaml).toInclude("model: custom/my-model")
+  })
+
+  test("omits env block for amazon-bedrock (AWS OIDC authentication)", () => {
+    const yaml = generateWorkflowYaml({
+      provider: "amazon-bedrock",
+      model: "anthropic.claude-v3-sonnet",
+      envVars: ["AWS_ACCESS_KEY_ID"],
+    })
+
+    expect(yaml).not.toInclude("env:")
+    expect(yaml).not.toInclude("secrets.AWS_ACCESS_KEY_ID")
+    expect(yaml).toInclude("model: amazon-bedrock/anthropic.claude-v3-sonnet")
+  })
+
+  test("does not double provider prefix if model already contains slash", () => {
+    const yaml = generateWorkflowYaml({
+      provider: "openai",
+      model: "openai/gpt-5.4",
+      envVars: ["OPENAI_API_KEY"],
+    })
+
+    expect(yaml).toInclude("model: openai/gpt-5.4")
+    expect(yaml).not.toInclude("model: openai/openai/gpt-5.4")
+  })
+
+  test("omits env block when envVars is empty", () => {
+    const yaml = generateWorkflowYaml({
+      provider: "opencode",
+      model: "claude-sonnet-4-0",
+      envVars: [],
+    })
+
+    expect(yaml).not.toInclude("env:")
+    expect(yaml).toInclude("model: opencode/claude-sonnet-4-0")
+  })
+})
+
+describe("getProviderEnv & getDefaultModel", () => {
+  test("resolves default env for known providers", () => {
+    expect(getProviderEnv("anthropic")).toEqual(["ANTHROPIC_API_KEY"])
+    expect(getProviderEnv("openai")).toEqual(["OPENAI_API_KEY"])
+    expect(getProviderEnv("google")).toEqual(["GEMINI_API_KEY"])
+    expect(getProviderEnv("deepseek")).toEqual(["DEEPSEEK_API_KEY"])
+    expect(getProviderEnv("amazon-bedrock")).toEqual([])
+    expect(getProviderEnv("unknown-provider")).toEqual([])
+  })
+
+  test("uses catalog provider env when provided", () => {
+    const catalog = {
+      myprov: { env: ["CUSTOM_TOKEN", "CUSTOM_ORG"] },
+    }
+    expect(getProviderEnv("myprov", catalog)).toEqual(["CUSTOM_TOKEN", "CUSTOM_ORG"])
+  })
+
+  test("resolves default models", () => {
+    expect(getDefaultModel("opencode")).toBe("claude-sonnet-4-0")
+    expect(getDefaultModel("openai")).toBe("gpt-5.4")
+    expect(getDefaultModel("anthropic")).toBe("claude-sonnet-4-0")
+    expect(getDefaultModel("amazon-bedrock")).toBe("anthropic.claude-v3-sonnet")
+    expect(getDefaultModel("unknown")).toBe("default")
+
+    const catalog = {
+      myprov: {
+        models: {
+          "custom-flagship": { id: "custom-flagship", name: "Flagship" },
+        },
+      },
+    }
+    expect(getDefaultModel("myprov", catalog)).toBe("custom-flagship")
+  })
+})
+
+describe("buildNextSteps", () => {
+  test("builds next steps for standard provider", () => {
+    const steps = buildNextSteps({
+      workflowFile: WORKFLOW_FILE,
+      provider: "openai",
+      owner: "myorg",
+      repo: "myrepo",
+      secrets: ["OPENAI_API_KEY"],
+    })
+
+    expect(steps[0]).toBe("Commit the `.github/workflows/opencode.yml` file and push")
+    expect(steps[1]).toBe("Add the following secrets in org or repo (myorg/myrepo) settings: OPENAI_API_KEY")
+    expect(steps[2]).toInclude("/oc summarize")
+  })
+
+  test("builds next steps for amazon-bedrock OIDC", () => {
+    const steps = buildNextSteps({
+      workflowFile: WORKFLOW_FILE,
+      provider: "amazon-bedrock",
+    })
+
+    expect(steps[0]).toBe("Commit the `.github/workflows/opencode.yml` file and push")
+    expect(steps[1]).toInclude("Configure OIDC in AWS")
+  })
+})
+
+describe("buildGithubInstallResult & formatGithubInstallText", () => {
+  test("builds structured install result", () => {
+    const result = buildGithubInstallResult({
+      workflowFile: WORKFLOW_FILE,
+      workflowPath: "/path/to/repo/.github/workflows/opencode.yml",
+      provider: "anthropic",
+      model: "claude-sonnet-4-0",
+      written: true,
+      secrets: ["ANTHROPIC_API_KEY"],
+      nextSteps: ["Step 1", "Step 2"],
+    })
+
+    expect(result.workflowFile).toBe(".github/workflows/opencode.yml")
+    expect(result.workflowPath).toBe("/path/to/repo/.github/workflows/opencode.yml")
+    expect(result.provider).toBe("anthropic")
+    expect(result.model).toBe("claude-sonnet-4-0")
+    expect(result.written).toBe(true)
+    expect(result.dryRun).toBeUndefined()
+    expect(result.secrets).toEqual(["ANTHROPIC_API_KEY"])
+    expect(result.nextSteps).toEqual(["Step 1", "Step 2"])
+  })
+
+  test("builds dry-run result", () => {
+    const result = buildGithubInstallResult({
+      workflowFile: WORKFLOW_FILE,
+      workflowPath: "/path/to/repo/.github/workflows/opencode.yml",
+      provider: "openai",
+      model: "gpt-5.4",
+      written: false,
+      dryRun: true,
+      secrets: ["OPENAI_API_KEY"],
+      content: "name: opencode...",
+    })
+
+    expect(result.written).toBe(false)
+    expect(result.dryRun).toBe(true)
+    expect(result.content).toBe("name: opencode...")
+
+    const formatted = formatGithubInstallText(result)
+    expect(formatted[0]).toBe("[dry-run] Would generate GitHub agent workflow: .github/workflows/opencode.yml")
+    expect(formatted).toContain("Provider: openai")
+    expect(formatted).toContain("Model: gpt-5.4")
+    expect(formatted).toContain("Required secrets: OPENAI_API_KEY")
+  })
+
+  test("formats text with next steps", () => {
+    const result = buildGithubInstallResult({
+      workflowFile: WORKFLOW_FILE,
+      workflowPath: "/path/.github/workflows/opencode.yml",
+      provider: "google",
+      model: "gemini-2.5-pro",
+      written: true,
+      secrets: ["GEMINI_API_KEY"],
+      nextSteps: ["Commit file", "Add secret"],
+    })
+
+    const lines = formatGithubInstallText(result)
+    expect(lines[0]).toBe('Added workflow file: ".github/workflows/opencode.yml"')
+    expect(lines).toContain("    1. Commit file")
+    expect(lines).toContain("    2. Add secret")
+  })
+})
+
+describe("writeOutputFile", () => {
+  test("writes content and creates intermediate directories", async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "github-install-test-"))
+    try {
+      const targetFile = path.join(tempDir, "sub", "dir", "workflow.yml")
+      const resolved = await writeOutputFile(targetFile, "content: test")
+      expect(resolved).toBe(targetFile)
+
+      const read = await fs.readFile(targetFile, "utf-8")
+      expect(read).toBe("content: test")
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true })
+    }
+  })
+})
+
