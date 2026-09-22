@@ -11,7 +11,10 @@ import {
   getDefaultModel,
   writeOutputFile,
   WORKFLOW_FILE,
+  GithubRunCommand,
+  GithubInstallCommand,
 } from "../../src/cli/cmd/github"
+import yargs, { type Argv } from "yargs"
 import os from "node:os"
 import path from "node:path"
 import fs from "node:fs/promises"
@@ -411,6 +414,53 @@ describe("writeOutputFile", () => {
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true })
     }
+  })
+})
+
+describe("github command options and builders", () => {
+  test("GithubRunCommand registers output, o, and json options", () => {
+    const builder = GithubRunCommand.builder as (y: Argv) => Argv<any>
+    const parser = builder(yargs())
+    const options = (parser as any).getOptions()
+    expect(options.key.output).toBeDefined()
+    expect(options.key.o).toBeDefined()
+    expect(options.key.json).toBeDefined()
+    expect(options.key.event).toBeDefined()
+    expect(options.key.token).toBeDefined()
+  })
+
+  test("GithubInstallCommand registers output, o, and json options", () => {
+    const builder = GithubInstallCommand.builder as (y: Argv) => Argv<any>
+    const parser = builder(yargs())
+    const options = (parser as any).getOptions()
+    expect(options.key.output).toBeDefined()
+    expect(options.key.o).toBeDefined()
+    expect(options.key.json).toBeDefined()
+    expect(options.key.provider).toBeDefined()
+    expect(options.key.model).toBeDefined()
+    expect(options.key["dry-run"]).toBeDefined()
+    expect(options.key["skip-app"]).toBeDefined()
+    expect(options.key.force).toBeDefined()
+  })
+
+  test("GithubRunCommand parses options from arguments", async () => {
+    const builder = GithubRunCommand.builder as (y: Argv) => Argv<any>
+    const parsed = await builder(yargs()).parseAsync([
+      "--event",
+      '{"action":"test"}',
+      "--output",
+      "summary.json",
+      "--json",
+    ])
+    expect(parsed.event).toBe('{"action":"test"}')
+    expect(parsed.output).toBe("summary.json")
+    expect(parsed.json).toBe(true)
+  })
+
+  test("GithubRunCommand parses -o short alias", async () => {
+    const builder = GithubRunCommand.builder as (y: Argv) => Argv<any>
+    const parsed = await builder(yargs()).parseAsync(["-o", "run.log"])
+    expect(parsed.output).toBe("run.log")
   })
 })
 

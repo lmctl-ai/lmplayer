@@ -477,7 +477,8 @@ export const githubInstall = Effect.fn("Cli.github.install")(function* (args?: G
   })
 })
 
-export const githubRun = Effect.fn("Cli.github.run")(function* (args: { event?: string; token?: string }) {
+export const githubRun = Effect.fn("Cli.github.run")(
+  function* (args: { event?: string; token?: string; output?: string; json?: boolean }) {
   const ctx = yield* InstanceRef
   if (!ctx) return yield* Effect.die("InstanceRef not provided")
   const gitSvc = yield* Git.Service
@@ -493,6 +494,20 @@ export const githubRun = Effect.fn("Cli.github.run")(function* (args: { event?: 
     const context = isMock ? (JSON.parse(args.event!) as Context) : github.context
     if (!SUPPORTED_EVENTS.includes(context.eventName as (typeof SUPPORTED_EVENTS)[number])) {
       core.setFailed(`Unsupported event type: ${context.eventName}`)
+      const summary = {
+        ok: false,
+        exitCode: 1,
+        error: `Unsupported event type: ${context.eventName}`,
+      }
+      if (args.output) {
+        const outputContent = args.json
+          ? JSON.stringify(summary, null, 2) + EOL
+          : `Unsupported event type: ${context.eventName}` + EOL
+        await writeOutputFile(args.output, outputContent)
+      }
+      if (args.json) {
+        UI.println(JSON.stringify(summary, null, 2))
+      }
       process.exit(1)
     }
 
@@ -536,7 +551,7 @@ export const githubRun = Effect.fn("Cli.github.run")(function* (args: { event?: 
     let octoRest: Octokit
     let octoGraph: typeof graphql
     let gitConfig: string
-    let session: { id: SessionID; title: string; version: string }
+    let session: { id: SessionID; title: string; version: string } = undefined as any
     let shareId: string | undefined
     let exitCode = 0
     let githubClientReady = false
@@ -755,9 +770,38 @@ export const githubRun = Effect.fn("Cli.github.run")(function* (args: { event?: 
       // Also output the clean error message for the action to capture
       //core.setOutput("prepare_error", e.message);
     } finally {
-      if (!useGithubToken) {
-        await restoreGitConfig()
-        await revokeAppToken()
+      try {
+        if (!useGithubToken) {
+          await restoreGitConfig()
+          await revokeAppToken()
+        }
+      } catch (err) {
+        console.error("Cleanup error:", err)
+      }
+      const summary = {
+        ok: exitCode === 0,
+        exitCode,
+        session: session?.id,
+        shareId,
+        runUrl,
+      }
+      if (args.output) {
+        const outputContent = args.json
+          ? JSON.stringify(summary, null, 2) + EOL
+          : [
+              `ok: ${summary.ok}`,
+              `exitCode: ${summary.exitCode}`,
+              ...(summary.session ? [`session: ${summary.session}`] : []),
+              ...(summary.shareId ? [`shareId: ${summary.shareId}`] : []),
+              ...(summary.runUrl ? [`runUrl: ${summary.runUrl}`] : []),
+            ].join(EOL) + EOL
+        const resolved = await writeOutputFile(args.output, outputContent)
+        if (!args.json) {
+          UI.println(`Wrote output to ${resolved}`)
+        }
+      }
+      if (args.json) {
+        UI.println(JSON.stringify(summary, null, 2))
       }
     }
     process.exit(exitCode)
