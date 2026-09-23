@@ -318,6 +318,7 @@ export const StatsCommand = effectCmd({
   builder: (yargs) =>
     yargs
       .option("days", {
+        alias: "d",
         describe: "show stats for the last N days (default: all time)",
         type: "number",
       })
@@ -329,6 +330,7 @@ export const StatsCommand = effectCmd({
         describe: "show model statistics (default: hidden). Pass a number to show top N, otherwise shows all",
       })
       .option("project", {
+        alias: "p",
         describe: "filter by project (default: all projects, empty string: current project)",
         type: "string",
       })

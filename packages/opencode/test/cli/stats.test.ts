@@ -29,16 +29,51 @@ describe("StatsCommand options and builder", () => {
     expect(options.key.json).toBeDefined()
     expect(options.boolean).toContain("json")
     expect(options.key.output).toBeDefined()
+    expect(options.key.o).toBeDefined()
     expect(options.string).toContain("output")
     expect(options.key.days).toBeDefined()
+    expect(options.key.d).toBeDefined()
     expect(options.key.tools).toBeDefined()
     expect(options.key.models).toBeDefined()
     expect(options.key.project).toBeDefined()
+    expect(options.key.p).toBeDefined()
     expect(options.key.provider).toBeDefined()
     expect(options.key.model).toBeDefined()
     expect(options.key.budget).toBeDefined()
     expect(options.key["budget-check"]).toBeDefined()
     expect(options.boolean).toContain("budget-check")
+  })
+
+  test("StatsCommand parses days, project, output, and json options from arguments", async () => {
+    const builder = StatsCommand.builder as (y: Argv) => Argv<any>
+    const parsed = await builder(yargs()).parseAsync([
+      "--days",
+      "7",
+      "--project",
+      "my-project",
+      "--output",
+      "stats.json",
+      "--json",
+    ])
+    expect(parsed.days).toBe(7)
+    expect(parsed.project).toBe("my-project")
+    expect(parsed.output).toBe("stats.json")
+    expect(parsed.json).toBe(true)
+  })
+
+  test("StatsCommand parses -d, -p, and -o short aliases", async () => {
+    const builder = StatsCommand.builder as (y: Argv) => Argv<any>
+    const parsed = await builder(yargs()).parseAsync([
+      "-d",
+      "14",
+      "-p",
+      "scoped-proj",
+      "-o",
+      "stats.txt",
+    ])
+    expect(parsed.days).toBe(14)
+    expect(parsed.project).toBe("scoped-proj")
+    expect(parsed.output).toBe("stats.txt")
   })
 })
 
