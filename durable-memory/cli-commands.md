@@ -124,7 +124,7 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
 ## GitHub & Pull Request integration
 - `pr <number> [--branch name|-b name] [--no-run] [--output file|-o file] [--json]` — fetch and checkout a GitHub PR branch, resolve fork remotes, auto-import associated sessions, and optionally launch lmplayer (or checkout only with `--no-run`), with structured JSON output (`pr`, `branch`, `checkedOut`, `forkRemote`, `session`, `sessionUrl`) and direct file export (`--output` / `-o`).
 - `github install [--provider <id>|-p <id>] [--model <id>|-m <id>] [--dry-run] [--skip-app] [--force|-f] [--output file|-o file] [--json]` — install the GitHub agent workflow (`.github/workflows/opencode.yml`) in repository with provider and model selection, dry-run preview mode (`--dry-run`), GitHub App install/polling bypass (`--skip-app`), overwrite guard and force overwrite (`--force` / `-f`), structured JSON output (`--json`), and direct file export (`--output` / `-o`).
-- `github run [--event event] [--token token] [--output file|-o file] [--json]` — run GitHub agent against event context or mock payload, with run summary file export (`--output` / `-o`) and structured JSON output (`--json`).
+- `github run [--event event|-e event] [--token token|-t token] [--output file|-o file] [--json]` — run GitHub agent against event context or mock payload, with run summary file export (`--output` / `-o`) and structured JSON output (`--json`).
 
 ## Container orchestration & failover
 - `orchestrator status [--registry file|-r file] [--output file|-o file] [--json]` — health-check registered containers and show the durable assignment map with container IDs, URLs, and epochs, with direct file export (`--output` / `-o`) and structured JSON.

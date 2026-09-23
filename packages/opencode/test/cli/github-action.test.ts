@@ -13,6 +13,7 @@ import {
   WORKFLOW_FILE,
   GithubRunCommand,
   GithubInstallCommand,
+  GithubCommand,
 } from "../../src/cli/cmd/github"
 import yargs, { type Argv } from "yargs"
 import os from "node:os"
@@ -418,7 +419,7 @@ describe("writeOutputFile", () => {
 })
 
 describe("github command options and builders", () => {
-  test("GithubRunCommand registers output, o, and json options", () => {
+  test("GithubRunCommand registers output, o, json, event, e, token, and t options", () => {
     const builder = GithubRunCommand.builder as (y: Argv) => Argv<any>
     const parser = builder(yargs())
     const options = (parser as any).getOptions()
@@ -426,10 +427,12 @@ describe("github command options and builders", () => {
     expect(options.key.o).toBeDefined()
     expect(options.key.json).toBeDefined()
     expect(options.key.event).toBeDefined()
+    expect(options.key.e).toBeDefined()
     expect(options.key.token).toBeDefined()
+    expect(options.key.t).toBeDefined()
   })
 
-  test("GithubInstallCommand registers output, o, and json options", () => {
+  test("GithubInstallCommand registers output, o, json, provider, p, model, m, force, f, dry-run, and skip-app options", () => {
     const builder = GithubInstallCommand.builder as (y: Argv) => Argv<any>
     const parser = builder(yargs())
     const options = (parser as any).getOptions()
@@ -437,10 +440,13 @@ describe("github command options and builders", () => {
     expect(options.key.o).toBeDefined()
     expect(options.key.json).toBeDefined()
     expect(options.key.provider).toBeDefined()
+    expect(options.key.p).toBeDefined()
     expect(options.key.model).toBeDefined()
+    expect(options.key.m).toBeDefined()
     expect(options.key["dry-run"]).toBeDefined()
     expect(options.key["skip-app"]).toBeDefined()
     expect(options.key.force).toBeDefined()
+    expect(options.key.f).toBeDefined()
   })
 
   test("GithubRunCommand parses options from arguments", async () => {
@@ -448,19 +454,89 @@ describe("github command options and builders", () => {
     const parsed = await builder(yargs()).parseAsync([
       "--event",
       '{"action":"test"}',
+      "--token",
+      "ghp_test123",
       "--output",
       "summary.json",
       "--json",
     ])
     expect(parsed.event).toBe('{"action":"test"}')
+    expect(parsed.token).toBe("ghp_test123")
     expect(parsed.output).toBe("summary.json")
     expect(parsed.json).toBe(true)
   })
 
-  test("GithubRunCommand parses -o short alias", async () => {
+  test("GithubRunCommand parses short aliases -e, -t, -o", async () => {
     const builder = GithubRunCommand.builder as (y: Argv) => Argv<any>
-    const parsed = await builder(yargs()).parseAsync(["-o", "run.log"])
+    const parsed = await builder(yargs()).parseAsync([
+      "-e",
+      '{"action":"run"}',
+      "-t",
+      "ghp_shorttoken",
+      "-o",
+      "run.log",
+    ])
+    expect(parsed.event).toBe('{"action":"run"}')
+    expect(parsed.token).toBe("ghp_shorttoken")
     expect(parsed.output).toBe("run.log")
+  })
+
+  test("GithubInstallCommand parses options from arguments", async () => {
+    const builder = GithubInstallCommand.builder as (y: Argv) => Argv<any>
+    const parsed = await builder(yargs()).parseAsync([
+      "--provider",
+      "anthropic",
+      "--model",
+      "claude-sonnet-4-0",
+      "--output",
+      "custom-workflow.yml",
+      "--dry-run",
+      "--skip-app",
+      "--force",
+      "--json",
+    ])
+    expect(parsed.provider).toBe("anthropic")
+    expect(parsed.model).toBe("claude-sonnet-4-0")
+    expect(parsed.output).toBe("custom-workflow.yml")
+    expect(parsed["dry-run"]).toBe(true)
+    expect(parsed["skip-app"]).toBe(true)
+    expect(parsed.force).toBe(true)
+    expect(parsed.json).toBe(true)
+  })
+
+  test("GithubInstallCommand parses short aliases -p, -m, -o, -f", async () => {
+    const builder = GithubInstallCommand.builder as (y: Argv) => Argv<any>
+    const parsed = await builder(yargs()).parseAsync([
+      "-p",
+      "openai",
+      "-m",
+      "gpt-5.4",
+      "-o",
+      "out.json",
+      "-f",
+    ])
+    expect(parsed.provider).toBe("openai")
+    expect(parsed.model).toBe("gpt-5.4")
+    expect(parsed.output).toBe("out.json")
+    expect(parsed.force).toBe(true)
+  })
+
+  test("GithubCommand registers install and run subcommands", async () => {
+    expect(GithubCommand.command).toBe("github")
+    const executed = { command: "" }
+    const customGithub = {
+      ...GithubCommand,
+      builder: (y: Argv) =>
+        y
+          .command({ ...GithubInstallCommand, handler: () => { executed.command = "install" } })
+          .command({ ...GithubRunCommand, handler: () => { executed.command = "run" } })
+          .demandCommand(),
+    }
+    const app = yargs().command(customGithub)
+    await app.parseAsync(["github", "install", "--dry-run"])
+    expect(executed.command).toBe("install")
+    await app.parseAsync(["github", "run", "-e", "{}"])
+    expect(executed.command).toBe("run")
   })
 })
 
