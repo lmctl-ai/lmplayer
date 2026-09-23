@@ -8,25 +8,54 @@ import { cliIt } from "../lib/cli-process"
 import yargs, { type Argv } from "yargs"
 
 describe("export and import command definitions & builders", () => {
-  test("ExportCommand registers export and options", () => {
+  test("ExportCommand registers export and options with aliases", () => {
     expect(ExportCommand.command).toBe("export [sessionID]")
     const builder = ExportCommand.builder as (y: Argv) => Argv<any>
     const parser = builder(yargs())
     const options = (parser as any).getOptions()
     expect(options.key.output).toBeDefined()
+    expect(options.key.o).toBeDefined()
+    expect(options.key.file).toBeDefined()
     expect(options.key.sanitize).toBeDefined()
+    expect(options.key.s).toBeDefined()
     expect(options.key.json).toBeDefined()
   })
 
-  test("ImportCommand registers import and options", () => {
+  test("ExportCommand parses short aliases -s and -o", async () => {
+    const parsed = await yargs()
+      .command({ ...ExportCommand, handler: () => {} })
+      .parseAsync(["export", "ses_123", "-s", "-o", "out.json", "--json"])
+    expect(parsed.sessionID).toBe("ses_123")
+    expect(parsed.sanitize).toBe(true)
+    expect(parsed.s).toBe(true)
+    expect(parsed.output).toBe("out.json")
+    expect(parsed.o).toBe("out.json")
+    expect(parsed.json).toBe(true)
+  })
+
+  test("ImportCommand registers import and options with aliases", () => {
     expect(ImportCommand.command).toBe("import <file>")
     const builder = ImportCommand.builder as (y: Argv) => Argv<any>
     const parser = builder(yargs())
     const options = (parser as any).getOptions()
+    expect(options.key.file).toBeDefined()
     expect(options.key.title).toBeDefined()
+    expect(options.key.t).toBeDefined()
     expect(options.key.json).toBeDefined()
     expect(options.key.output).toBeDefined()
-    expect(options.alias.output).toContain("o")
+    expect(options.key.o).toBeDefined()
+  })
+
+  test("ImportCommand parses short aliases -t and -o", async () => {
+    const parsed = await yargs()
+      .command({ ...ImportCommand, handler: () => {} })
+      .parseAsync(["import", "in.json", "-t", "My Title", "-o", "out.json", "--json"])
+    expect(parsed.file).toBe("in.json")
+    expect(parsed.title).toBe("My Title")
+    expect(parsed.t).toBe("My Title")
+    expect(parsed.output).toBe("out.json")
+    expect(parsed.o).toBe("out.json")
+    expect(parsed.json).toBe(true)
   })
 })
 

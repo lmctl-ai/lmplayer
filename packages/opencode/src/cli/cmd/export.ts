@@ -227,6 +227,7 @@ export type ExportArgs = {
   file?: string
   o?: string
   sanitize?: boolean
+  s?: boolean
   json?: boolean
 }
 
@@ -253,6 +254,7 @@ export const ExportCommand = effectCmd({
         type: "string",
       })
       .option("sanitize", {
+        alias: "s",
         describe: "redact sensitive transcript and file data",
         type: "boolean",
       })
@@ -268,7 +270,9 @@ export const ExportCommand = effectCmd({
 export const runExport = Effect.fn("Cli.export.body")(function* (args: ExportArgs) {
   const svc = yield* Session.Service
   let sessionID = args.sessionID ? SessionID.make(args.sessionID) : undefined
-  const targetFile = args.output || args.file || (args as any).o
+  const targetFile = args.output || args.file || args.o
+  const isSanitize = Boolean(args.sanitize ?? args.s)
+  const isJson = Boolean(args.json)
 
   if (!sessionID) {
     const sessions = yield* svc.list()
@@ -314,7 +318,7 @@ export const runExport = Effect.fn("Cli.export.body")(function* (args: ExportArg
     const messages = yield* svc.messages({ sessionID: sessionInfo.id })
 
     const rawData = { info: sessionInfo, messages }
-    const exportData = args.sanitize ? sanitize(rawData) : rawData
+    const exportData = isSanitize ? sanitize(rawData) : rawData
     const jsonStr = JSON.stringify(exportData, null, 2) + EOL
 
     if (targetFile) {
@@ -324,13 +328,13 @@ export const runExport = Effect.fn("Cli.export.body")(function* (args: ExportArg
         await fs.writeFile(resolved, jsonStr, "utf-8")
       })
 
-      if (args.json) {
+      if (isJson) {
         const result: ExportSummaryJson = {
           ok: true,
           session_id: sessionInfo.id,
           file: resolved,
           messages: messages.length,
-          sanitized: Boolean(args.sanitize),
+          sanitized: isSanitize,
         }
         process.stdout.write(JSON.stringify(result, null, 2) + EOL)
         return result
@@ -342,7 +346,7 @@ export const runExport = Effect.fn("Cli.export.body")(function* (args: ExportArg
         session_id: sessionInfo.id,
         file: resolved,
         messages: messages.length,
-        sanitized: Boolean(args.sanitize),
+        sanitized: isSanitize,
       }
     }
 
