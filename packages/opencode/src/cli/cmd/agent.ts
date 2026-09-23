@@ -32,16 +32,24 @@ const AVAILABLE_PERMISSIONS = [
 
 export type AgentCreateArgs = {
   name?: string
+  n?: string
   prompt?: string
+  p?: string
   "prompt-file"?: string
+  prompt_file?: string
   path?: string
   description?: string
+  d?: string
   mode?: AgentMode
   permissions?: string
+  tools?: string
+  perms?: string
   provision?: string
   model?: string
+  m?: string
   json?: boolean
   output?: string
+  o?: string
 }
 
 export const createAgent = Effect.fn("Cli.agent.create")(function* (args: AgentCreateArgs) {
@@ -50,35 +58,40 @@ export const createAgent = Effect.fn("Cli.agent.create")(function* (args: AgentC
   if (!maybeCtx) return yield* Effect.die("InstanceRef not provided")
   const ctx = maybeCtx
 
-  const hasPrompt = args.prompt !== undefined
-  const hasPromptFile = args["prompt-file"] !== undefined
+  const promptArg = args.prompt ?? args.p
+  const promptFileArg = args["prompt-file"] ?? (args as any).prompt_file
+  const hasPrompt = promptArg !== undefined
+  const hasPromptFile = promptFileArg !== undefined
   if (hasPrompt && hasPromptFile) {
     return yield* fail("Cannot provide both --prompt and --prompt-file")
   }
 
   let systemPrompt: string | undefined
   if (hasPrompt) {
-    systemPrompt = args.prompt!
+    systemPrompt = promptArg!
   } else if (hasPromptFile) {
-    const filePath = path.resolve(args["prompt-file"]!)
+    const filePath = path.resolve(promptFileArg!)
     systemPrompt = yield* Effect.tryPromise({
       try: () => fs.readFile(filePath, "utf-8"),
       catch: (err: any) =>
-        new CliError({ message: `Failed to read prompt file "${args["prompt-file"]}": ${err.message}` }),
+        new CliError({ message: `Failed to read prompt file "${promptFileArg}": ${err.message}` }),
     })
   }
 
   const isBypass = systemPrompt !== undefined
   const cliPath = args.path
-  const cliDescription = args.description
+  const cliDescription = args.description ?? args.d
   const cliMode = args.mode as AgentMode | undefined
-  const perms = args.permissions
+  const perms: string | undefined = args.permissions ?? (args as any).tools ?? (args as any).perms
+  const modelArg = args.model ?? args.m
+  const output = args.output ?? args.o
+  const json = Boolean(args.json)
 
   const isFullyNonInteractive =
     isBypass ||
     !process.stdin.isTTY ||
     Boolean(cliPath && cliDescription && cliMode && perms !== undefined) ||
-    Boolean(args.json || args.output)
+    Boolean(json || output)
 
   if (!isFullyNonInteractive) {
     UI.empty()
@@ -125,10 +138,11 @@ export const createAgent = Effect.fn("Cli.agent.create")(function* (args: AgentC
 
   if (isBypass) {
     // Deterministic LLM-bypass path
-    if (args.name) {
-      identifier = args.name.trim()
+    const nameArg = args.name ?? args.n
+    if (nameArg) {
+      identifier = nameArg.trim()
     } else if (hasPromptFile) {
-      identifier = path.basename(args["prompt-file"]!, path.extname(args["prompt-file"]!)).trim()
+      identifier = path.basename(promptFileArg!, path.extname(promptFileArg!)).trim()
     } else if (!process.stdin.isTTY) {
       return yield* fail("Agent name is required when using --prompt. Supply --name <name>.")
     } else {
@@ -285,8 +299,8 @@ export const createAgent = Effect.fn("Cli.agent.create")(function* (args: AgentC
     description: whenToUse,
     mode,
   }
-  if (args.model) {
-    frontmatter.model = args.model
+  if (modelArg) {
+    frontmatter.model = modelArg
   }
   if (provision && provision.length > 0) {
     frontmatter.provision = provision
@@ -317,12 +331,12 @@ export const createAgent = Effect.fn("Cli.agent.create")(function* (args: AgentC
   }
   const summaryText = `Agent created: ${filePath}`
 
-  if (args.output) {
-    const resolved = path.resolve(args.output)
+  if (output) {
+    const resolved = path.resolve(output)
     yield* Effect.promise(async () => {
       const fs = await import("fs/promises")
       await fs.mkdir(path.dirname(resolved), { recursive: true })
-      if (args.json) {
+      if (json) {
         await fs.writeFile(resolved, JSON.stringify(summaryPayload, null, 2) + EOL, "utf-8")
       } else {
         await fs.writeFile(resolved, summaryText + EOL, "utf-8")
@@ -332,7 +346,7 @@ export const createAgent = Effect.fn("Cli.agent.create")(function* (args: AgentC
     return
   }
 
-  if (args.json) {
+  if (json) {
     process.stdout.write(JSON.stringify(summaryPayload, null, 2) + EOL)
     return
   }
@@ -352,10 +366,12 @@ export const AgentCreateCommand = effectCmd({
     yargs
       .option("name", {
         type: "string",
+        alias: ["n"],
         describe: "agent identifier / file name",
       })
       .option("prompt", {
         type: "string",
+        alias: ["p"],
         describe: "system prompt content (bypasses LLM generation)",
       })
       .option("prompt-file", {
@@ -369,6 +385,7 @@ export const AgentCreateCommand = effectCmd({
       })
       .option("description", {
         type: "string",
+        alias: ["d"],
         describe: "what the agent should do",
       })
       .option("mode", {
@@ -378,7 +395,7 @@ export const AgentCreateCommand = effectCmd({
       })
       .option("permissions", {
         type: "string",
-        alias: ["tools"],
+        alias: ["tools", "perms"],
         describe: `comma-separated list of permissions to allow (default: all). Available: "${AVAILABLE_PERMISSIONS.join(", ")}"`,
       })
       .option("provision", {
@@ -407,11 +424,16 @@ export type AgentCloneArgs = {
   target: string
   path?: string
   scope?: "project" | "global"
+  s?: "project" | "global"
   description?: string
+  d?: string
   model?: string
+  m?: string
   force?: boolean
+  f?: boolean
   json?: boolean
   output?: string
+  o?: string
 }
 
 export const cloneAgent = Effect.fn("Cli.agent.clone")(function* (args: AgentCloneArgs) {
@@ -420,6 +442,13 @@ export const cloneAgent = Effect.fn("Cli.agent.clone")(function* (args: AgentClo
   const maybeCtx = yield* InstanceRef
   if (!maybeCtx) return yield* Effect.die("InstanceRef not provided")
   const ctx = maybeCtx
+
+  const description = args.description ?? args.d
+  const model = args.model ?? args.m
+  const force = Boolean(args.force ?? args.f)
+  const scope = args.scope ?? args.s
+  const output = args.output ?? args.o
+  const json = Boolean(args.json)
 
   const agent = yield* Agent.Service.use((svc) => svc.get(args.source))
   if (!agent) {
@@ -435,14 +464,14 @@ export const cloneAgent = Effect.fn("Cli.agent.clone")(function* (args: AgentClo
   if (existing?.native) {
     return yield* fail(`Cannot overwrite built-in agent: ${target}`)
   }
-  if (existing && !args.force) {
+  if (existing && !force) {
     return yield* fail(`Agent already exists: ${target}`)
   }
 
   let targetPath: string
   if (args.path) {
     targetPath = args.path.endsWith("agents") ? args.path : path.join(args.path, "agents")
-  } else if (args.scope === "global") {
+  } else if (scope === "global") {
     targetPath = path.join(Global.Path.config, "agents")
   } else if (ctx.project.vcs === "git") {
     targetPath = path.join(ctx.worktree, ".opencode", "agents")
@@ -458,11 +487,11 @@ export const cloneAgent = Effect.fn("Cli.agent.clone")(function* (args: AgentClo
     provision?: string[]
     permission?: any
   } = {
-    description: args.description ?? agent.description ?? `Cloned from ${args.source}`,
+    description: description ?? agent.description ?? `Cloned from ${args.source}`,
     mode: agent.mode,
   }
-  if (args.model) {
-    frontmatter.model = args.model
+  if (model) {
+    frontmatter.model = model
   } else if (agent.model) {
     frontmatter.model = `${agent.model.providerID}/${agent.model.modelID}`
   }
@@ -479,7 +508,7 @@ export const cloneAgent = Effect.fn("Cli.agent.clone")(function* (args: AgentClo
   const filePath = path.join(targetPath, `${target}.md`)
   yield* Effect.promise(() => fs.mkdir(targetPath, { recursive: true }))
 
-  if (!args.force && (yield* Effect.promise(() => Filesystem.exists(filePath)))) {
+  if (!force && (yield* Effect.promise(() => Filesystem.exists(filePath)))) {
     return yield* fail(`Agent file already exists: ${filePath}`)
   }
 
@@ -496,12 +525,12 @@ export const cloneAgent = Effect.fn("Cli.agent.clone")(function* (args: AgentClo
   }
   const summaryText = `Agent "${args.source}" cloned to "${target}" (${filePath})`
 
-  if (args.output) {
-    const resolved = path.resolve(args.output)
+  if (output) {
+    const resolved = path.resolve(output)
     yield* Effect.promise(async () => {
       const fs = await import("fs/promises")
       await fs.mkdir(path.dirname(resolved), { recursive: true })
-      if (args.json) {
+      if (json) {
         await fs.writeFile(resolved, JSON.stringify(summaryPayload, null, 2) + EOL, "utf-8")
       } else {
         await fs.writeFile(resolved, summaryText + EOL, "utf-8")
@@ -511,7 +540,7 @@ export const cloneAgent = Effect.fn("Cli.agent.clone")(function* (args: AgentClo
     return
   }
 
-  if (args.json) {
+  if (json) {
     process.stdout.write(JSON.stringify(summaryPayload, null, 2) + EOL)
     return
   }
@@ -541,11 +570,13 @@ export const AgentCloneCommand = effectCmd({
       })
       .option("scope", {
         type: "string",
+        alias: ["s"],
         describe: "agent scope (project or global)",
         choices: ["project", "global"] as const,
       })
       .option("description", {
         type: "string",
+        alias: ["d"],
         describe: "custom description for the cloned agent",
       })
       .option("model", {
@@ -574,7 +605,10 @@ export type AgentListArgs = {
   json?: boolean
   mode?: "all" | "primary" | "subagent"
   output?: string
+  o?: string
   search?: string
+  q?: string
+  query?: string
   native?: boolean
 }
 
@@ -582,12 +616,18 @@ export const listAgents = Effect.fn("Cli.agent.list")(function* (args: AgentList
   const { Agent } = yield* Effect.promise(() => import("../../agent/agent"))
   let agents = yield* Agent.Service.use((svc) => svc.list())
 
-  if (args.mode) {
-    agents = agents.filter((a) => a.mode === args.mode || a.mode === "all")
+  const output = args.output ?? args.o
+  const json = Boolean(args.json)
+  const search = args.search ?? args.q ?? args.query
+  const mode = args.mode
+  const native = args.native
+
+  if (mode) {
+    agents = agents.filter((a) => a.mode === mode || a.mode === "all")
   }
 
-  if (args.search) {
-    const q = args.search.toLowerCase()
+  if (search) {
+    const q = search.toLowerCase()
     agents = agents.filter((a) => {
       if (a.name.toLowerCase().includes(q)) return true
       if (a.description && a.description.toLowerCase().includes(q)) return true
@@ -596,8 +636,8 @@ export const listAgents = Effect.fn("Cli.agent.list")(function* (args: AgentList
     })
   }
 
-  if (args.native !== undefined) {
-    agents = agents.filter((a) => Boolean(a.native) === args.native)
+  if (native !== undefined) {
+    agents = agents.filter((a) => Boolean(a.native) === native)
   }
 
   const sortedAgents = agents.sort((a, b) => {
@@ -607,7 +647,7 @@ export const listAgents = Effect.fn("Cli.agent.list")(function* (args: AgentList
     return a.name.localeCompare(b.name)
   })
 
-  if (args.json) {
+  if (json) {
     const jsonStr =
       JSON.stringify(
         sortedAgents.map((a) => ({
@@ -623,8 +663,8 @@ export const listAgents = Effect.fn("Cli.agent.list")(function* (args: AgentList
         null,
         2,
       ) + EOL
-    if (args.output) {
-      const resolved = path.resolve(args.output)
+    if (output) {
+      const resolved = path.resolve(output)
       yield* Effect.promise(async () => {
         await fs.mkdir(path.dirname(resolved), { recursive: true })
         await fs.writeFile(resolved, jsonStr, "utf-8")
@@ -636,7 +676,7 @@ export const listAgents = Effect.fn("Cli.agent.list")(function* (args: AgentList
     return
   }
 
-  if (args.output) {
+  if (output) {
     const lines: string[] = []
     for (const agent of sortedAgents) {
       const tag = agent.native ? " (built-in)" : ""
@@ -649,7 +689,7 @@ export const listAgents = Effect.fn("Cli.agent.list")(function* (args: AgentList
         lines.push(`  provision: ${agent.provision.join(", ")}`)
       }
     }
-    const resolved = path.resolve(args.output)
+    const resolved = path.resolve(output)
     yield* Effect.promise(async () => {
       await fs.mkdir(path.dirname(resolved), { recursive: true })
       await fs.writeFile(resolved, lines.join(EOL) + EOL, "utf-8")
@@ -675,6 +715,7 @@ export type AgentShowArgs = {
   name: string
   json?: boolean
   output?: string
+  o?: string
 }
 
 export const showAgent = Effect.fn("Cli.agent.show")(function* (args: AgentShowArgs) {
@@ -685,7 +726,10 @@ export const showAgent = Effect.fn("Cli.agent.show")(function* (args: AgentShowA
     return yield* fail(`Agent not found: ${args.name}`)
   }
 
-  if (args.json) {
+  const output = args.output ?? args.o
+  const json = Boolean(args.json)
+
+  if (json) {
     const jsonStr =
       JSON.stringify(
         {
@@ -702,8 +746,8 @@ export const showAgent = Effect.fn("Cli.agent.show")(function* (args: AgentShowA
         null,
         2,
       ) + EOL
-    if (args.output) {
-      const resolved = path.resolve(args.output)
+    if (output) {
+      const resolved = path.resolve(output)
       yield* Effect.promise(async () => {
         await fs.mkdir(path.dirname(resolved), { recursive: true })
         await fs.writeFile(resolved, jsonStr, "utf-8")
@@ -715,7 +759,7 @@ export const showAgent = Effect.fn("Cli.agent.show")(function* (args: AgentShowA
     return
   }
 
-  if (args.output) {
+  if (output) {
     const lines: string[] = []
     const tag = agent.native ? " (built-in)" : ""
     lines.push(`${agent.name} (${agent.mode})${tag}`)
@@ -735,7 +779,7 @@ export const showAgent = Effect.fn("Cli.agent.show")(function* (args: AgentShowA
       lines.push(`  Prompt: ${agent.prompt.trim()}`)
     }
     lines.push(`  Permissions: ${JSON.stringify(agent.permission, null, 2)}`)
-    const resolved = path.resolve(args.output)
+    const resolved = path.resolve(output)
     yield* Effect.promise(async () => {
       await fs.mkdir(path.dirname(resolved), { recursive: true })
       await fs.writeFile(resolved, lines.join(EOL) + EOL, "utf-8")
@@ -768,7 +812,9 @@ export type AgentDeleteArgs = {
   name: string
   json?: boolean
   force?: boolean
+  f?: boolean
   output?: string
+  o?: string
 }
 
 export const deleteAgent = Effect.fn("Cli.agent.delete")(function* (args: AgentDeleteArgs) {
@@ -783,6 +829,10 @@ export const deleteAgent = Effect.fn("Cli.agent.delete")(function* (args: AgentD
   if (agent?.native) {
     return yield* fail(`Cannot delete built-in agent: ${args.name}`)
   }
+
+  const force = Boolean(args.force ?? args.f)
+  const output = args.output ?? args.o
+  const json = Boolean(args.json)
 
   const candidates = [
     path.join(ctx.worktree, ".opencode", "agents", `${args.name}.md`),
@@ -813,16 +863,16 @@ export const deleteAgent = Effect.fn("Cli.agent.delete")(function* (args: AgentD
   }
 
   if (!deletedPath) {
-    if (args.force) {
-      if (args.json) {
+    if (force) {
+      if (json) {
         const payload = {
           name: args.name,
           deleted: false,
           message: `Agent not found: ${args.name}`,
         }
         const jsonStr = JSON.stringify(payload, null, 2) + EOL
-        if (args.output) {
-          const resolved = path.resolve(args.output)
+        if (output) {
+          const resolved = path.resolve(output)
           yield* Effect.promise(async () => {
             await fs.mkdir(path.dirname(resolved), { recursive: true })
             await fs.writeFile(resolved, jsonStr, "utf-8")
@@ -831,8 +881,8 @@ export const deleteAgent = Effect.fn("Cli.agent.delete")(function* (args: AgentD
         process.stdout.write(jsonStr)
         return
       }
-      if (args.output) {
-        const resolved = path.resolve(args.output)
+      if (output) {
+        const resolved = path.resolve(output)
         yield* Effect.promise(async () => {
           await fs.mkdir(path.dirname(resolved), { recursive: true })
           await fs.writeFile(resolved, `Agent not found: ${args.name}${EOL}`, "utf-8")
@@ -844,15 +894,15 @@ export const deleteAgent = Effect.fn("Cli.agent.delete")(function* (args: AgentD
     return yield* fail(`Agent not found: ${args.name}`)
   }
 
-  if (args.json) {
+  if (json) {
     const payload = {
       name: args.name,
       file: deletedPath,
       deleted: true,
     }
     const jsonStr = JSON.stringify(payload, null, 2) + EOL
-    if (args.output) {
-      const resolved = path.resolve(args.output)
+    if (output) {
+      const resolved = path.resolve(output)
       yield* Effect.promise(async () => {
         await fs.mkdir(path.dirname(resolved), { recursive: true })
         await fs.writeFile(resolved, jsonStr, "utf-8")
@@ -862,8 +912,8 @@ export const deleteAgent = Effect.fn("Cli.agent.delete")(function* (args: AgentD
     return
   }
 
-  if (args.output) {
-    const resolved = path.resolve(args.output)
+  if (output) {
+    const resolved = path.resolve(output)
     yield* Effect.promise(async () => {
       await fs.mkdir(path.dirname(resolved), { recursive: true })
       await fs.writeFile(resolved, `Agent ${args.name} deleted (${deletedPath})${EOL}`, "utf-8")
