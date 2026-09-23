@@ -1,8 +1,177 @@
-import { describe, expect } from "bun:test"
+import { describe, expect, test } from "bun:test"
 import { Effect } from "effect"
 import path from "path"
 import fs from "node:fs/promises"
+import yargs, { type Argv } from "yargs"
 import { cliIt } from "../lib/cli-process"
+import {
+  ProvidersCommand,
+  ProvidersListCommand,
+  ProvidersShowCommand,
+  ProvidersLoginCommand,
+  ProvidersLogoutCommand,
+  ProvidersEnableCommand,
+  ProvidersDisableCommand,
+} from "../../src/cli/cmd/providers"
+
+describe("providers CLI command builder and option parsing", () => {
+  test("ProvidersCommand registers all subcommands and aliases", () => {
+    expect(ProvidersCommand.command).toBe("providers")
+    expect(ProvidersCommand.aliases).toEqual(["auth", "provider"])
+  })
+
+  test("ProvidersListCommand registers options and parses aliases correctly", () => {
+    const builder = ProvidersListCommand.builder as (y: Argv) => Argv<any>
+    const parser = builder(yargs())
+    const options = (parser as any).getOptions()
+    expect(options.key.json).toBeDefined()
+    expect(options.key.output).toBeDefined()
+    expect(options.key.o).toBeDefined()
+    expect(options.key.search).toBeDefined()
+    expect(options.key.q).toBeDefined()
+    expect(options.key.query).toBeDefined()
+    expect(options.key.all).toBeDefined()
+    expect(options.key.a).toBeDefined()
+
+    const parsed = parser.parseSync(["-q", "anthropic", "-a", "-o", "out.json", "--json"])
+    expect(parsed.search).toBe("anthropic")
+    expect(parsed.q).toBe("anthropic")
+    expect(parsed.all).toBe(true)
+    expect(parsed.a).toBe(true)
+    expect(parsed.output).toBe("out.json")
+    expect(parsed.o).toBe("out.json")
+    expect(parsed.json).toBe(true)
+  })
+
+  test("ProvidersShowCommand registers options and parses aliases correctly", async () => {
+    const builder = ProvidersShowCommand.builder as (y: Argv) => Argv<any>
+    const parser = builder(yargs())
+    const options = (parser as any).getOptions()
+    expect(options.key.json).toBeDefined()
+    expect(options.key.output).toBeDefined()
+    expect(options.key.o).toBeDefined()
+
+    const parsed = await yargs()
+      .command({ ...ProvidersShowCommand, handler: () => {} })
+      .parseAsync(["show", "anthropic", "-o", "out.json", "--json"])
+    expect(parsed.provider).toBe("anthropic")
+    expect(parsed.output).toBe("out.json")
+    expect(parsed.o).toBe("out.json")
+    expect(parsed.json).toBe(true)
+  })
+
+  test("ProvidersLoginCommand registers options and parses aliases correctly", () => {
+    const builder = ProvidersLoginCommand.builder as (y: Argv) => Argv<any>
+    const parser = builder(yargs())
+    const options = (parser as any).getOptions()
+    expect(options.key.provider).toBeDefined()
+    expect(options.key.p).toBeDefined()
+    expect(options.key.method).toBeDefined()
+    expect(options.key.m).toBeDefined()
+    expect(options.key.key).toBeDefined()
+    expect(options.key.k).toBeDefined()
+    expect(options.key["api-key"]).toBeDefined()
+    expect(options.key.output).toBeDefined()
+    expect(options.key.o).toBeDefined()
+    expect(options.key.json).toBeDefined()
+
+    const parsed = parser.parseSync(["-p", "anthropic", "-m", "api", "-k", "sk-secret", "-o", "out.json", "--json"])
+    expect(parsed.provider).toBe("anthropic")
+    expect(parsed.p).toBe("anthropic")
+    expect(parsed.method).toBe("api")
+    expect(parsed.m).toBe("api")
+    expect(parsed.key).toBe("sk-secret")
+    expect(parsed.k).toBe("sk-secret")
+    expect(parsed.output).toBe("out.json")
+    expect(parsed.o).toBe("out.json")
+    expect(parsed.json).toBe(true)
+  })
+
+  test("ProvidersLogoutCommand registers options and parses aliases correctly", async () => {
+    const builder = ProvidersLogoutCommand.builder as (y: Argv) => Argv<any>
+    const parser = builder(yargs())
+    const options = (parser as any).getOptions()
+    expect(options.key.provider).toBeDefined()
+    expect(options.key.p).toBeDefined()
+    expect(options.key.force).toBeDefined()
+    expect(options.key.f).toBeDefined()
+    expect(options.key.output).toBeDefined()
+    expect(options.key.o).toBeDefined()
+    expect(options.key.json).toBeDefined()
+
+    const parsed = await yargs()
+      .command({ ...ProvidersLogoutCommand, handler: () => {} })
+      .parseAsync(["logout", "anthropic", "-f", "-o", "out.json", "--json"])
+    expect(parsed.provider).toBe("anthropic")
+    expect(parsed.force).toBe(true)
+    expect(parsed.f).toBe(true)
+    expect(parsed.output).toBe("out.json")
+    expect(parsed.o).toBe("out.json")
+    expect(parsed.json).toBe(true)
+
+    const parsedOption = await yargs()
+      .command({ ...ProvidersLogoutCommand, handler: () => {} })
+      .parseAsync(["logout", "-p", "openai", "-f"])
+    expect(parsedOption.provider).toBe("openai")
+    expect(parsedOption.p).toBe("openai")
+    expect(parsedOption.force).toBe(true)
+  })
+
+  test("ProvidersEnableCommand and ProvidersDisableCommand register scope options and validate conflicts", async () => {
+    for (const [cmd, name] of [
+      [ProvidersEnableCommand, "enable"] as const,
+      [ProvidersDisableCommand, "disable"] as const,
+    ]) {
+      const builder = cmd.builder as (y: Argv) => Argv<any>
+      const parser = builder(yargs().exitProcess(false))
+      const options = (parser as any).getOptions()
+      expect(options.key.scope).toBeDefined()
+      expect(options.key.s).toBeDefined()
+      expect(options.key.global).toBeDefined()
+      expect(options.key.g).toBeDefined()
+      expect(options.key.project).toBeDefined()
+      expect(options.key.p).toBeDefined()
+      expect(options.key.output).toBeDefined()
+      expect(options.key.o).toBeDefined()
+      expect(options.key.json).toBeDefined()
+
+      const cmdParser = () =>
+        yargs()
+          .exitProcess(false)
+          .fail((msg, err) => {
+            throw err ?? new Error(msg)
+          })
+          .command({ ...cmd, handler: () => {} })
+
+      const parsedShort = await cmdParser().parseAsync([name, "anthropic", "-s", "project", "-o", "out.json", "--json"])
+      expect(parsedShort.provider).toBe("anthropic")
+      expect(parsedShort.scope).toBe("project")
+      expect(parsedShort.s).toBe("project")
+      expect(parsedShort.output).toBe("out.json")
+      expect(parsedShort.o).toBe("out.json")
+      expect(parsedShort.json).toBe(true)
+
+      const parsedG = await cmdParser().parseAsync([name, "anthropic", "-g"])
+      expect(parsedG.global).toBe(true)
+      expect(parsedG.g).toBe(true)
+
+      const parsedP = await cmdParser().parseAsync([name, "anthropic", "-p"])
+      expect(parsedP.project).toBe(true)
+      expect(parsedP.p).toBe(true)
+
+      // Conflict checks
+      await expect(async () => {
+        await cmdParser().parseAsync([name, "anthropic", "-p", "-g"])
+      }).toThrow("Cannot specify both global and project scope")
+      await expect(async () => {
+        await cmdParser().parseAsync([name, "anthropic", "-s", "project", "-g"])
+      }).toThrow("Cannot specify both --scope and --project/--global")
+      await expect(async () => {
+        await cmdParser().parseAsync([name, "anthropic", "--scope", "global", "--project"])
+      }).toThrow("Cannot specify both --scope and --project/--global")
+    }
+  })
+})
 
 describe("opencode providers / auth CLI subprocess", () => {
   cliIt.concurrent(

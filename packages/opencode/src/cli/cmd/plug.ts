@@ -269,10 +269,18 @@ export const PluginCommand = effectCmd({
     force?: boolean
     json?: boolean
     output?: string
+    g?: boolean
+    f?: boolean
+    o?: string
   }) {
     const mod = String(args.module ?? "").trim()
+    const isGlobal = Boolean(args.global ?? args.g)
+    const isForce = Boolean(args.force ?? args.f)
+    const isJson = Boolean(args.json)
+    const output = args.output ?? args.o
+
     if (!mod) {
-      if (args.json) {
+      if (isJson) {
         process.stdout.write(
           JSON.stringify(
             {
@@ -290,7 +298,7 @@ export const PluginCommand = effectCmd({
       return
     }
 
-    const isNonInteractive = Boolean(args.json || args.output)
+    const isNonInteractive = Boolean(isJson || output)
     if (!isNonInteractive) {
       UI.empty()
       intro(`Install plugin ${mod}`)
@@ -299,8 +307,8 @@ export const PluginCommand = effectCmd({
     const run = createPlugTaskDetailed(
       {
         mod,
-        global: Boolean(args.global),
-        force: Boolean(args.force),
+        global: isGlobal,
+        force: isForce,
       },
       isNonInteractive ? silentPlugDeps : defaultPlugDeps,
     )
@@ -319,12 +327,12 @@ export const PluginCommand = effectCmd({
       outro("Done")
     }
 
-    if (args.output) {
-      const resolved = path.resolve(args.output)
+    if (output) {
+      const resolved = path.resolve(output)
       yield* Effect.promise(async () => {
         const fs = await import("node:fs/promises")
         await fs.mkdir(path.dirname(resolved), { recursive: true })
-        if (args.json) {
+        if (isJson) {
           await fs.writeFile(resolved, JSON.stringify(res, null, 2) + os.EOL, "utf-8")
         } else {
           await fs.writeFile(
@@ -341,7 +349,7 @@ export const PluginCommand = effectCmd({
       return
     }
 
-    if (args.json) {
+    if (isJson) {
       process.stdout.write(JSON.stringify(res, null, 2) + os.EOL)
       if (!res.ok) process.exitCode = 1
       return
