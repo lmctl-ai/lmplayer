@@ -8,6 +8,7 @@ import {
   AgentListCommand,
   AgentShowCommand,
   AgentDeleteCommand,
+  AgentCommand,
   listAgents,
   showAgent,
   deleteAgent,
@@ -29,17 +30,25 @@ describe("AgentCreateCommand builder", () => {
     return builder
   }
 
-  test("registers name, prompt, prompt-file, and provision options", () => {
+  test("registers name, prompt, prompt-file, description, permissions, model, provision, and output options and aliases", () => {
     const parser = getBuilder()(yargs())
     const options = (parser as any).getOptions()
     expect(options.key.name).toBeDefined()
+    expect(options.key.n).toBeDefined()
     expect(options.key.prompt).toBeDefined()
+    expect(options.key.p).toBeDefined()
     expect(options.key["prompt-file"]).toBeDefined()
+    expect(options.key.description).toBeDefined()
+    expect(options.key.d).toBeDefined()
+    expect(options.key.permissions).toBeDefined()
+    expect(options.key.tools).toBeDefined()
+    expect(options.key.perms).toBeDefined()
+    expect(options.key.model).toBeDefined()
+    expect(options.key.m).toBeDefined()
     expect(options.key.provision).toBeDefined()
     expect(options.key.json).toBeDefined()
     expect(options.key.output).toBeDefined()
-    expect(options.string).toContain("output")
-    expect(options.alias.output).toContain("o")
+    expect(options.key.o).toBeDefined()
   })
 
   test("parses non-interactive flags correctly", () => {
@@ -61,6 +70,32 @@ describe("AgentCreateCommand builder", () => {
     expect(parsed.mode).toBe("subagent")
     expect(parsed.permissions).toBe("read,grep,glob")
     expect(parsed.provision).toBe("read,grep")
+  })
+
+  test("parses short aliases -n, -p, -d, -m, -o, and --perms correctly", () => {
+    const parser = getBuilder()(yargs())
+    const parsed = parser.parseSync([
+      "-n",
+      "reviewer-short",
+      "-p",
+      "Prompt content",
+      "-d",
+      "Short description",
+      "-m",
+      "anthropic/claude-sonnet-4-0",
+      "--perms",
+      "read,grep",
+      "-o",
+      "agent.md",
+      "--json",
+    ])
+    expect(parsed.name).toBe("reviewer-short")
+    expect(parsed.prompt).toBe("Prompt content")
+    expect(parsed.description).toBe("Short description")
+    expect(parsed.model).toBe("anthropic/claude-sonnet-4-0")
+    expect(parsed.permissions).toBe("read,grep")
+    expect(parsed.output).toBe("agent.md")
+    expect(parsed.json).toBe(true)
   })
 })
 
@@ -384,8 +419,32 @@ describe("AgentListCommand, AgentShowCommand, AgentDeleteCommand", () => {
     expect(options.key.json).toBeDefined()
     expect(options.key.mode).toBeDefined()
     expect(options.key.output).toBeDefined()
+    expect(options.key.o).toBeDefined()
     expect(options.key.search).toBeDefined()
+    expect(options.key.q).toBeDefined()
+    expect(options.key.query).toBeDefined()
     expect(options.key.native).toBeDefined()
+  })
+
+  test("AgentListCommand parses options and short aliases -q and -o", async () => {
+    const parsed = await yargs().command({ ...AgentListCommand, handler: () => {} }).parseAsync([
+      "list",
+      "-q",
+      "coder",
+      "-o",
+      "list.json",
+      "--mode",
+      "primary",
+      "--native",
+      "--json",
+    ])
+    expect(parsed.q).toBe("coder")
+    expect(parsed.search).toBe("coder")
+    expect(parsed.o).toBe("list.json")
+    expect(parsed.output).toBe("list.json")
+    expect(parsed.mode).toBe("primary")
+    expect(parsed.native).toBe(true)
+    expect(parsed.json).toBe(true)
   })
 
   test("AgentShowCommand registers name, json, and output options and aliases get", () => {
@@ -395,6 +454,21 @@ describe("AgentListCommand, AgentShowCommand, AgentDeleteCommand", () => {
     const options = (parser as any).getOptions()
     expect(options.key.json).toBeDefined()
     expect(options.key.output).toBeDefined()
+    expect(options.key.o).toBeDefined()
+  })
+
+  test("AgentShowCommand parses options and short alias -o", async () => {
+    const parsed = await yargs().command({ ...AgentShowCommand, handler: () => {} }).parseAsync([
+      "show",
+      "build",
+      "-o",
+      "agent.json",
+      "--json",
+    ])
+    expect(parsed.name).toBe("build")
+    expect(parsed.o).toBe("agent.json")
+    expect(parsed.output).toBe("agent.json")
+    expect(parsed.json).toBe(true)
   })
 
   test("AgentDeleteCommand registers name, force, json, and output options and aliases rm", () => {
@@ -404,7 +478,26 @@ describe("AgentListCommand, AgentShowCommand, AgentDeleteCommand", () => {
     const options = (parser as any).getOptions()
     expect(options.key.json).toBeDefined()
     expect(options.key.force).toBeDefined()
+    expect(options.key.f).toBeDefined()
     expect(options.key.output).toBeDefined()
+    expect(options.key.o).toBeDefined()
+  })
+
+  test("AgentDeleteCommand parses options and short aliases -f and -o", async () => {
+    const parsed = await yargs().command({ ...AgentDeleteCommand, handler: () => {} }).parseAsync([
+      "delete",
+      "custom-agent",
+      "-f",
+      "-o",
+      "del.json",
+      "--json",
+    ])
+    expect(parsed.name).toBe("custom-agent")
+    expect(parsed.f).toBe(true)
+    expect(parsed.force).toBe(true)
+    expect(parsed.o).toBe("del.json")
+    expect(parsed.output).toBe("del.json")
+    expect(parsed.json).toBe(true)
   })
 
   test("AgentListCommand lists agents in json format, filters by mode/search/native, and exports to file", async () => {
@@ -618,13 +711,70 @@ describe("AgentCloneCommand builder and handler", () => {
     const options = (parser as any).getOptions()
     expect(options.key.path).toBeDefined()
     expect(options.key.scope).toBeDefined()
+    expect(options.key.s).toBeDefined()
     expect(options.key.description).toBeDefined()
+    expect(options.key.d).toBeDefined()
     expect(options.key.model).toBeDefined()
+    expect(options.key.m).toBeDefined()
     expect(options.key.force).toBeDefined()
+    expect(options.key.f).toBeDefined()
     expect(options.key.json).toBeDefined()
     expect(options.key.output).toBeDefined()
-    expect(options.string).toContain("output")
-    expect(options.alias.output).toContain("o")
+    expect(options.key.o).toBeDefined()
+  })
+
+  test("AgentCloneCommand parses short aliases -s, -d, -m, -f, -o", async () => {
+    const parsed = await yargs().command({ ...AgentCloneCommand, handler: () => {} }).parseAsync([
+      "clone",
+      "build",
+      "my-custom-agent",
+      "-s",
+      "global",
+      "-d",
+      "Cloned builder",
+      "-m",
+      "openai/gpt-5.4",
+      "-f",
+      "-o",
+      "clone.json",
+      "--json",
+    ])
+    expect(parsed.source).toBe("build")
+    expect(parsed.target).toBe("my-custom-agent")
+    expect(parsed.s).toBe("global")
+    expect(parsed.scope).toBe("global")
+    expect(parsed.d).toBe("Cloned builder")
+    expect(parsed.description).toBe("Cloned builder")
+    expect(parsed.m).toBe("openai/gpt-5.4")
+    expect(parsed.model).toBe("openai/gpt-5.4")
+    expect(parsed.f).toBe(true)
+    expect(parsed.force).toBe(true)
+    expect(parsed.o).toBe("clone.json")
+    expect(parsed.output).toBe("clone.json")
+    expect(parsed.json).toBe(true)
+  })
+
+  test("AgentCommand registers create, clone, list, show, and delete subcommands", async () => {
+    expect(AgentCommand.command).toBe("agent")
+    const executed = { command: "" }
+    const customAgent = {
+      ...AgentCommand,
+      builder: (y: Argv) =>
+        y
+          .command({ ...AgentCreateCommand, handler: () => { executed.command = "create" } })
+          .command({ ...AgentCloneCommand, handler: () => { executed.command = "clone" } })
+          .command({ ...AgentListCommand, handler: () => { executed.command = "list" } })
+          .command({ ...AgentShowCommand, handler: () => { executed.command = "show" } })
+          .command({ ...AgentDeleteCommand, handler: () => { executed.command = "delete" } })
+          .demandCommand(),
+    }
+    const app = yargs().command(customAgent)
+    await app.parseAsync(["agent", "list", "--json"])
+    expect(executed.command).toBe("list")
+    await app.parseAsync(["agent", "show", "build"])
+    expect(executed.command).toBe("show")
+    await app.parseAsync(["agent", "delete", "custom-agent", "-f"])
+    expect(executed.command).toBe("delete")
   })
 
   test("clones a built-in agent with overrides, preserves prompt, and outputs json", async () => {
