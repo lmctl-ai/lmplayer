@@ -60,8 +60,15 @@ export const GithubInstallCommand = effectCmd({
       }),
   handler: (args) =>
     Effect.gen(function* () {
+      const normalizedArgs = {
+        ...args,
+        provider: args.provider ?? (args as any).p,
+        model: args.model ?? (args as any).m,
+        output: args.output ?? (args as any).o,
+        force: args.force ?? (args as any).f,
+      }
       const { githubInstall } = yield* Effect.promise(() => import("./github.handler"))
-      return yield* githubInstall(args)
+      return yield* githubInstall(normalizedArgs)
     }),
 })
 
@@ -71,10 +78,12 @@ export const GithubRunCommand = effectCmd({
   builder: (yargs) =>
     yargs
       .option("event", {
+        alias: ["e"],
         type: "string",
         describe: "GitHub mock event to run the agent for",
       })
       .option("token", {
+        alias: ["t"],
         type: "string",
         describe: "GitHub personal access token (github_pat_********)",
       })
@@ -88,10 +97,23 @@ export const GithubRunCommand = effectCmd({
         describe: "output as JSON",
         default: false,
       }),
-  handler: (args: { event?: string; token?: string; output?: string; json?: boolean }) =>
+  handler: (args: {
+    event?: string
+    e?: string
+    token?: string
+    t?: string
+    output?: string
+    o?: string
+    json?: boolean
+  }) =>
     Effect.gen(function* () {
       const { githubRun } = yield* Effect.promise(() => import("./github.handler"))
-      return yield* githubRun(args)
+      return yield* githubRun({
+        event: args.event ?? (args as any).e,
+        token: args.token ?? (args as any).t,
+        output: args.output ?? (args as any).o,
+        json: args.json ?? false,
+      })
     }),
 })
 

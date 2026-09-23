@@ -168,13 +168,17 @@ type RepoEvent = (typeof REPO_EVENTS)[number]
 
 export interface GithubInstallArgs {
   provider?: string
+  p?: string
   model?: string
+  m?: string
   output?: string
+  o?: string
   "dry-run"?: boolean
   dryRun?: boolean
   "skip-app"?: boolean
   skipApp?: boolean
   force?: boolean
+  f?: boolean
   json?: boolean
 }
 
@@ -187,10 +191,12 @@ export const githubInstall = Effect.fn("Cli.github.install")(function* (args?: G
 
   const dryRun = Boolean(args?.["dry-run"] ?? args?.dryRun)
   const skipApp = Boolean(args?.["skip-app"] ?? args?.skipApp)
-  const force = Boolean(args?.force)
+  const force = Boolean(args?.force ?? (args as any)?.f)
   const json = Boolean(args?.json)
-  const output = args?.output
-  const isNonInteractive = json || dryRun || Boolean(output) || Boolean(args?.provider)
+  const output = args?.output ?? (args as any)?.o
+  const providerArg = args?.provider ?? (args as any)?.p
+  const modelArg = args?.model ?? (args as any)?.m
+  const isNonInteractive = json || dryRun || Boolean(output) || Boolean(providerArg)
 
   yield* Effect.promise(async () => {
     if (!isNonInteractive) {
@@ -215,8 +221,8 @@ export const githubInstall = Effect.fn("Cli.github.install")(function* (args?: G
       .catch(() => ({} as Record<string, any>))
 
     let provider: string
-    if (args?.provider) {
-      provider = args.provider
+    if (providerArg) {
+      provider = providerArg
     } else if (isNonInteractive) {
       provider = "opencode"
     } else {
@@ -224,8 +230,8 @@ export const githubInstall = Effect.fn("Cli.github.install")(function* (args?: G
     }
 
     let model: string
-    if (args?.model) {
-      model = args.model
+    if (modelArg) {
+      model = modelArg
     } else if (isNonInteractive) {
       model = getDefaultModel(provider, providers)
     } else {
@@ -478,7 +484,15 @@ export const githubInstall = Effect.fn("Cli.github.install")(function* (args?: G
 })
 
 export const githubRun = Effect.fn("Cli.github.run")(
-  function* (args: { event?: string; token?: string; output?: string; json?: boolean }) {
+  function* (args: {
+    event?: string
+    e?: string
+    token?: string
+    t?: string
+    output?: string
+    o?: string
+    json?: boolean
+  }) {
   const ctx = yield* InstanceRef
   if (!ctx) return yield* Effect.die("InstanceRef not provided")
   const gitSvc = yield* Git.Service
@@ -489,9 +503,13 @@ export const githubRun = Effect.fn("Cli.github.run")(
   const runLocalEffect = <A, E>(effect: Effect.Effect<A, E>) =>
     Effect.runPromise(effect.pipe(Effect.provideService(InstanceRef, ctx)))
   yield* Effect.promise(async () => {
-    const isMock = args.token || args.event
+    const event = args.event ?? args.e
+    const token = args.token ?? args.t
+    const output = args.output ?? args.o
+    const json = Boolean(args.json)
+    const isMock = Boolean(token || event)
 
-    const context = isMock ? (JSON.parse(args.event!) as Context) : github.context
+    const context = isMock ? (JSON.parse(event!) as Context) : github.context
     if (!SUPPORTED_EVENTS.includes(context.eventName as (typeof SUPPORTED_EVENTS)[number])) {
       core.setFailed(`Unsupported event type: ${context.eventName}`)
       const summary = {
@@ -499,13 +517,13 @@ export const githubRun = Effect.fn("Cli.github.run")(
         exitCode: 1,
         error: `Unsupported event type: ${context.eventName}`,
       }
-      if (args.output) {
-        const outputContent = args.json
+      if (output) {
+        const outputContent = json
           ? JSON.stringify(summary, null, 2) + EOL
           : `Unsupported event type: ${context.eventName}` + EOL
-        await writeOutputFile(args.output, outputContent)
+        await writeOutputFile(output, outputContent)
       }
-      if (args.json) {
+      if (json) {
         UI.println(JSON.stringify(summary, null, 2))
       }
       process.exit(1)
@@ -785,8 +803,8 @@ export const githubRun = Effect.fn("Cli.github.run")(
         shareId,
         runUrl,
       }
-      if (args.output) {
-        const outputContent = args.json
+      if (output) {
+        const outputContent = json
           ? JSON.stringify(summary, null, 2) + EOL
           : [
               `ok: ${summary.ok}`,
@@ -795,12 +813,12 @@ export const githubRun = Effect.fn("Cli.github.run")(
               ...(summary.shareId ? [`shareId: ${summary.shareId}`] : []),
               ...(summary.runUrl ? [`runUrl: ${summary.runUrl}`] : []),
             ].join(EOL) + EOL
-        const resolved = await writeOutputFile(args.output, outputContent)
-        if (!args.json) {
+        const resolved = await writeOutputFile(output, outputContent)
+        if (!json) {
           UI.println(`Wrote output to ${resolved}`)
         }
       }
-      if (args.json) {
+      if (json) {
         UI.println(JSON.stringify(summary, null, 2))
       }
     }
