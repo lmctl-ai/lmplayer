@@ -98,7 +98,10 @@ export type McpListArgs = {
   json?: boolean
   output?: string
   search?: string
+  q?: string
+  query?: string
   type?: "local" | "remote"
+  t?: "local" | "remote"
   enabled?: boolean
 }
 
@@ -106,8 +109,9 @@ export const listMcp = Effect.fn("Cli.mcp.list")(function* (args: McpListArgs = 
   const { config, statuses, stored } = yield* listState()
   let servers = configuredServers(config)
 
-  if (args.search) {
-    const q = args.search.toLowerCase()
+  const searchQuery = args.search ?? args.q ?? args.query
+  if (searchQuery) {
+    const q = searchQuery.toLowerCase()
     servers = servers.filter(([name, serverConfig]) => {
       if (name.toLowerCase().includes(q)) return true
       if (serverConfig.type.toLowerCase().includes(q)) return true
@@ -117,8 +121,9 @@ export const listMcp = Effect.fn("Cli.mcp.list")(function* (args: McpListArgs = 
     })
   }
 
-  if (args.type) {
-    servers = servers.filter(([, serverConfig]) => serverConfig.type === args.type)
+  const filterType = args.type ?? args.t
+  if (filterType) {
+    servers = servers.filter(([, serverConfig]) => serverConfig.type === filterType)
   }
 
   if (args.enabled !== undefined) {
@@ -732,20 +737,25 @@ export type McpAuthListArgs = {
   json?: boolean
   output?: string
   search?: string
+  q?: string
+  query?: string
   status?: string
+  s?: string
 }
 
 export const listMcpAuth = Effect.fn("Cli.mcp.auth.list")(function* (args: McpAuthListArgs = {}) {
   const { config, auth } = yield* authState()
   let servers = oauthServers(config)
 
-  if (args.search) {
-    const q = args.search.toLowerCase()
+  const searchQuery = args.search ?? args.q ?? args.query
+  if (searchQuery) {
+    const q = searchQuery.toLowerCase()
     servers = servers.filter(([name, sCfg]) => name.toLowerCase().includes(q) || sCfg.url.toLowerCase().includes(q))
   }
 
-  if (args.status) {
-    servers = servers.filter(([name]) => (auth[name] ?? "not_authenticated") === args.status)
+  const filterStatus = args.status ?? args.s
+  if (filterStatus) {
+    servers = servers.filter(([name]) => (auth[name] ?? "not_authenticated") === filterStatus)
   }
 
   if (args.json) {
@@ -1054,11 +1064,13 @@ export const McpAddCommand = effectCmd({
         type: "string",
       })
       .option("env", {
+        alias: ["envs"],
         describe: "environment variable for a local MCP server (KEY=VALUE)",
         type: "string",
         array: true,
       })
       .option("header", {
+        alias: ["headers", "H"],
         describe: "HTTP header for a remote MCP server (KEY=VALUE)",
         type: "string",
         array: true,
@@ -1099,8 +1111,10 @@ export const McpAddCommand = effectCmd({
         throw new Error("Cannot specify both global and project scope")
       }
 
+      const envValues = args.env ?? (args as any).envs ?? []
+      const headerValues = args.header ?? (args as any).headers ?? (args as any).H ?? []
       const command = args["--"] ?? []
-      if (!args.name && (args.url || args.env?.length || args.header?.length || command.length)) {
+      if (!args.name && (args.url || envValues.length || headerValues.length || command.length)) {
         throw new Error("A server name is required for non-interactive MCP configuration")
       }
       if (args.name) {
@@ -1110,10 +1124,10 @@ export const McpAddCommand = effectCmd({
         if (args.url && !URL.canParse(args.url)) {
           throw new Error(`Invalid URL: ${args.url}`)
         }
-        if (args.url && args.env?.length) {
+        if (args.url && envValues.length) {
           throw new Error("--env is only valid for local MCP servers")
         }
-        if (command.length && args.header?.length) {
+        if (command.length && headerValues.length) {
           throw new Error("--header is only valid for remote MCP servers")
         }
 
@@ -1125,8 +1139,8 @@ export const McpAddCommand = effectCmd({
               return [entry.slice(0, index), entry.slice(index + 1)]
             }),
           )
-        const environment = entries(args.env ?? [], "environment variable")
-        const headers = entries(args.header ?? [], "HTTP header")
+        const environment = entries(envValues, "environment variable")
+        const headers = entries(headerValues, "HTTP header")
         const mcpConfig: ConfigMCPV1.Info = args.url
           ? {
               type: "remote",

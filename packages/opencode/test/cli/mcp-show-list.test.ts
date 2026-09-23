@@ -2,7 +2,18 @@ import { describe, expect, test } from "bun:test"
 import { Effect } from "effect"
 import path from "path"
 import { cliIt } from "../lib/cli-process"
-import { McpListCommand, McpShowCommand, McpAuthCommand, McpAuthListCommand, McpLogoutCommand } from "../../src/cli/cmd/mcp"
+import {
+  McpListCommand,
+  McpShowCommand,
+  McpAuthCommand,
+  McpAuthListCommand,
+  McpLogoutCommand,
+  McpAddCommand,
+  McpDebugCommand,
+  McpEnableCommand,
+  McpDisableCommand,
+  McpRemoveCommand,
+} from "../../src/cli/cmd/mcp"
 import yargs, { type Argv } from "yargs"
 
 describe("McpCommand builders and options", () => {
@@ -16,6 +27,25 @@ describe("McpCommand builders and options", () => {
     expect(options.key.search).toBeDefined()
     expect(options.key.type).toBeDefined()
     expect(options.key.enabled).toBeDefined()
+  })
+
+  test("McpListCommand parses options from arguments", async () => {
+    const builder = McpListCommand.builder as (y: Argv) => Argv<any>
+    const parsed = await builder(yargs()).parseAsync([
+      "-q",
+      "github",
+      "-t",
+      "remote",
+      "--enabled",
+      "-o",
+      "servers.json",
+      "--json",
+    ])
+    expect(parsed.q).toBe("github")
+    expect(parsed.t).toBe("remote")
+    expect(parsed.enabled).toBe(true)
+    expect(parsed.output).toBe("servers.json")
+    expect(parsed.json).toBe(true)
   })
 
   test("McpShowCommand registers name, json, and output options and aliases get", () => {
@@ -36,6 +66,23 @@ describe("McpCommand builders and options", () => {
     expect(options.key.output).toBeDefined()
     expect(options.key.search).toBeDefined()
     expect(options.key.status).toBeDefined()
+  })
+
+  test("McpAuthListCommand parses options from arguments", async () => {
+    const builder = McpAuthListCommand.builder as (y: Argv) => Argv<any>
+    const parsed = await builder(yargs()).parseAsync([
+      "--query",
+      "linear",
+      "-s",
+      "authenticated",
+      "-o",
+      "oauth.json",
+      "--json",
+    ])
+    expect(parsed.query).toBe("linear")
+    expect(parsed.s).toBe("authenticated")
+    expect(parsed.output).toBe("oauth.json")
+    expect(parsed.json).toBe(true)
   })
 
   test("McpLogoutCommand registers force, json, and output options", () => {
@@ -71,6 +118,113 @@ describe("McpCommand builders and options", () => {
     const builder = McpAuthCommand.builder as (y: Argv) => Argv<any>
     const parsed = await builder(yargs()).parseAsync(["-o", "auth.txt"])
     expect(parsed.output).toBe("auth.txt")
+  })
+
+  test("McpAddCommand registers name, url, env, header, scope, global, project, json, and output options and aliases", () => {
+    const builder = McpAddCommand.builder as (y: Argv) => Argv<any>
+    const parser = builder(yargs())
+    const options = (parser as any).getOptions()
+    expect(options.key.url).toBeDefined()
+    expect(options.key.env).toBeDefined()
+    expect(options.key.envs).toBeDefined()
+    expect(options.key.header).toBeDefined()
+    expect(options.key.headers).toBeDefined()
+    expect(options.key.H).toBeDefined()
+    expect(options.key.scope).toBeDefined()
+    expect(options.key.global).toBeDefined()
+    expect(options.key.g).toBeDefined()
+    expect(options.key.project).toBeDefined()
+    expect(options.key.p).toBeDefined()
+    expect(options.key.json).toBeDefined()
+    expect(options.key.output).toBeDefined()
+    expect(options.key.o).toBeDefined()
+  })
+
+  test("McpAddCommand parses options and aliases from arguments", async () => {
+    const parsed = await yargs().command({ ...McpAddCommand, handler: () => {} }).parseAsync([
+      "add",
+      "my-server",
+      "--url",
+      "https://example.com/mcp",
+      "-H",
+      "Authorization=Bearer token",
+      "-g",
+      "-o",
+      "add.json",
+      "--json",
+    ])
+    expect(parsed.name).toBe("my-server")
+    expect(parsed.url).toBe("https://example.com/mcp")
+    expect(parsed.H).toContain("Authorization=Bearer token")
+    expect(parsed.g).toBe(true)
+    expect(parsed.output).toBe("add.json")
+    expect(parsed.json).toBe(true)
+  })
+
+  test("McpDebugCommand registers name, output, and json options", () => {
+    const builder = McpDebugCommand.builder as (y: Argv) => Argv<any>
+    const parser = builder(yargs())
+    const options = (parser as any).getOptions()
+    expect(options.key.output).toBeDefined()
+    expect(options.key.o).toBeDefined()
+    expect(options.key.json).toBeDefined()
+  })
+
+  test("McpDebugCommand parses options from arguments", async () => {
+    const parsed = await yargs().command({ ...McpDebugCommand, handler: () => {} }).parseAsync(["debug", "my-server", "-o", "debug.json", "--json"])
+    expect(parsed.name).toBe("my-server")
+    expect(parsed.output).toBe("debug.json")
+    expect(parsed.json).toBe(true)
+  })
+
+  test("McpEnableCommand and McpDisableCommand register name, scope, global, project, json, and output options", () => {
+    for (const cmd of [McpEnableCommand, McpDisableCommand]) {
+      const builder = cmd.builder as (y: Argv) => Argv<any>
+      const parser = builder(yargs())
+      const options = (parser as any).getOptions()
+      expect(options.key.scope).toBeDefined()
+      expect(options.key.global).toBeDefined()
+      expect(options.key.g).toBeDefined()
+      expect(options.key.project).toBeDefined()
+      expect(options.key.p).toBeDefined()
+      expect(options.key.output).toBeDefined()
+      expect(options.key.o).toBeDefined()
+      expect(options.key.json).toBeDefined()
+    }
+  })
+
+  test("McpEnableCommand parses options from arguments", async () => {
+    const parsed = await yargs().command({ ...McpEnableCommand, handler: () => {} }).parseAsync(["enable", "my-server", "-g", "-o", "enable.json", "--json"])
+    expect(parsed.name).toBe("my-server")
+    expect(parsed.g).toBe(true)
+    expect(parsed.output).toBe("enable.json")
+    expect(parsed.json).toBe(true)
+  })
+
+  test("McpRemoveCommand registers name, scope, global, project, force, json, and output options and aliases rm", () => {
+    expect(McpRemoveCommand.aliases).toContain("rm")
+    const builder = McpRemoveCommand.builder as (y: Argv) => Argv<any>
+    const parser = builder(yargs())
+    const options = (parser as any).getOptions()
+    expect(options.key.scope).toBeDefined()
+    expect(options.key.global).toBeDefined()
+    expect(options.key.g).toBeDefined()
+    expect(options.key.project).toBeDefined()
+    expect(options.key.p).toBeDefined()
+    expect(options.key.force).toBeDefined()
+    expect(options.key.f).toBeDefined()
+    expect(options.key.output).toBeDefined()
+    expect(options.key.o).toBeDefined()
+    expect(options.key.json).toBeDefined()
+  })
+
+  test("McpRemoveCommand parses options from arguments", async () => {
+    const parsed = await yargs().command({ ...McpRemoveCommand, handler: () => {} }).parseAsync(["remove", "my-server", "-p", "-f", "-o", "rm.json", "--json"])
+    expect(parsed.name).toBe("my-server")
+    expect(parsed.p).toBe(true)
+    expect(parsed.f).toBe(true)
+    expect(parsed.output).toBe("rm.json")
+    expect(parsed.json).toBe(true)
   })
 })
 
