@@ -95,8 +95,10 @@ type ExportData = { info: SDKSession; messages: Array<{ info: Message; parts: Pa
 export type ImportArgs = {
   file: string
   title?: string
+  t?: string
   json?: boolean
   output?: string
+  o?: string
 }
 
 export type ImportResultJson = {
@@ -119,6 +121,7 @@ export const ImportCommand = effectCmd({
         demandOption: true,
       })
       .option("title", {
+        alias: "t",
         describe: "override title of imported session",
         type: "string",
       })
@@ -144,6 +147,9 @@ export const runImport = Effect.fn("Cli.import.body")(function* (
 ) {
   const file = typeof args === "string" ? args : args.file
   const options: Partial<ImportArgs> = typeof args === "string" ? {} : args
+  const title = options.title ?? options.t
+  const output = options.output ?? options.o
+  const isJson = Boolean(options.json)
   const share = yield* ShareNext.Service
   const fs = yield* FSUtil.Service
   const { db } = yield* Database.Service
@@ -204,8 +210,8 @@ export const runImport = Effect.fn("Cli.import.body")(function* (
     return yield* fail(`Failed to read session data from ${file}`)
   }
 
-  if (options.title) {
-    exportData.info.title = options.title
+  if (title) {
+    exportData.info.title = title
   }
 
   const info = Schema.decodeUnknownSync(Session.Info)({
@@ -269,12 +275,12 @@ export const runImport = Effect.fn("Cli.import.body")(function* (
   }
   const summaryText = `Imported session: ${row.id}`
 
-  if (options.output) {
-    const resolved = path.resolve(options.output)
+  if (output) {
+    const resolved = path.resolve(output)
     yield* Effect.promise(async () => {
       const fs = await import("fs/promises")
       await fs.mkdir(path.dirname(resolved), { recursive: true })
-      if (options.json) {
+      if (isJson) {
         await fs.writeFile(resolved, JSON.stringify(summaryPayload, null, 2) + EOL, "utf-8")
       } else {
         await fs.writeFile(resolved, summaryText + EOL, "utf-8")
@@ -284,7 +290,7 @@ export const runImport = Effect.fn("Cli.import.body")(function* (
     return summaryPayload
   }
 
-  if (options.json) {
+  if (isJson) {
     process.stdout.write(JSON.stringify(summaryPayload, null, 2) + EOL)
     return summaryPayload
   }

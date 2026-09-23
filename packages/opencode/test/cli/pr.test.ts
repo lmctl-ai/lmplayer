@@ -116,4 +116,16 @@ describe("PrCommand builder & options", () => {
     const parsed = await builder(yargs()).parseAsync(["-o", "pr.txt"])
     expect(parsed.output).toBe("pr.txt")
   })
+
+  test("PrCommand parses positional number, short aliases -b and -o, and --json", async () => {
+    const parsed = await yargs()
+      .command({ ...PrCommand, handler: () => {} })
+      .parseAsync(["pr", "123", "-b", "fix-bug", "-o", "pr.json", "--json"])
+    expect(parsed.number).toBe(123)
+    expect(parsed.branch).toBe("fix-bug")
+    expect(parsed.b).toBe("fix-bug")
+    expect(parsed.output).toBe("pr.json")
+    expect(parsed.o).toBe("pr.json")
+    expect(parsed.json).toBe(true)
+  })
 })

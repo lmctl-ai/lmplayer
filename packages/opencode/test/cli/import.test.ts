@@ -1,5 +1,7 @@
-import { test, expect } from "bun:test"
+import { test, expect, describe } from "bun:test"
+import yargs, { type Argv } from "yargs"
 import {
+  ImportCommand,
   formatImportFileError,
   parseShareUrl,
   shouldAttachShareAuthHeaders,
@@ -87,4 +89,40 @@ test("returns null for invalid share data", () => {
   expect(transformShareData([])).toBeNull()
   expect(transformShareData([{ type: "message", data: {} as any }])).toBeNull()
   expect(transformShareData([{ type: "session", data: { id: "s" } as any }])).toBeNull() // no messages
+})
+
+describe("ImportCommand builder & option parsing", () => {
+  test("ImportCommand registers file positional and title, output, json options with aliases", () => {
+    expect(ImportCommand.command).toBe("import <file>")
+    const builder = ImportCommand.builder as (y: Argv) => Argv<any>
+    const parser = builder(yargs())
+    const options = (parser as any).getOptions()
+    expect(options.key.file).toBeDefined()
+    expect(options.key.title).toBeDefined()
+    expect(options.key.t).toBeDefined()
+    expect(options.key.output).toBeDefined()
+    expect(options.key.o).toBeDefined()
+    expect(options.key.json).toBeDefined()
+  })
+
+  test("ImportCommand parses short aliases -t and -o", async () => {
+    const parsed = await yargs()
+      .command({ ...ImportCommand, handler: () => {} })
+      .parseAsync(["import", "session.json", "-t", "Custom Title", "-o", "result.json", "--json"])
+    expect(parsed.file).toBe("session.json")
+    expect(parsed.title).toBe("Custom Title")
+    expect(parsed.t).toBe("Custom Title")
+    expect(parsed.output).toBe("result.json")
+    expect(parsed.o).toBe("result.json")
+    expect(parsed.json).toBe(true)
+  })
+
+  test("ImportCommand parses long options correctly", async () => {
+    const parsed = await yargs()
+      .command({ ...ImportCommand, handler: () => {} })
+      .parseAsync(["import", "session.json", "--title", "Long Title", "--output", "out.txt"])
+    expect(parsed.file).toBe("session.json")
+    expect(parsed.title).toBe("Long Title")
+    expect(parsed.output).toBe("out.txt")
+  })
 })
