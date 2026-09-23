@@ -608,8 +608,9 @@ export function parseModelFilterOptions(args: {
   attachments?: boolean
   "min-context"?: number
   minContext?: number
+  ctx?: number
 }): ModelFilterOptions {
-  const minContext = args.minContext ?? args["min-context"]
+  const minContext = args.ctx ?? args.minContext ?? args["min-context"]
   return {
     search: args.search ?? args.q ?? args.query,
     reasoning: Boolean(args.reasoning ?? args.r),
@@ -618,6 +619,8 @@ export function parseModelFilterOptions(args: {
     minContext: typeof minContext === "number" && !isNaN(minContext) ? minContext : undefined,
   }
 }
+
+export const parseModelFilters = parseModelFilterOptions
 
 export const addModelsListOptions = <T>(yargs: Argv<T>) =>
   yargs
@@ -651,6 +654,7 @@ export const addModelsListOptions = <T>(yargs: Argv<T>) =>
       global: false,
     })
     .option("min-context", {
+      alias: ["ctx"],
       describe: "filter models with context window at least this many tokens",
       type: "number",
       global: false,
@@ -690,6 +694,7 @@ export const modelsList = Effect.fn("Cli.models.list")(function* (args: {
   attachments?: boolean
   "min-context"?: number
   minContext?: number
+  ctx?: number
   output?: string
   verbose?: boolean
   json?: boolean

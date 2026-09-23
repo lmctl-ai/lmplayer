@@ -9,7 +9,7 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
 - `models [provider] --reasoning` (alias `-r`) — filter models supporting reasoning effort / thinking.
 - `models [provider] --toolcall` (alias `--tools`) — filter models supporting tool calling.
 - `models [provider] --attachment` (alias `--attachments`) — filter models supporting image and file attachments.
-- `models [provider] --min-context <tokens>` — filter models with context window at least `<tokens>`.
+- `models [provider] --min-context <tokens>` (alias `--ctx`) — filter models with context window at least `<tokens>`.
 - `models [provider] --json` — machine-readable array: {id, provider, name, limit, capabilities, variants[]}.
   `variants[]` are the reasoning-EFFORT choices for that model (low/medium/high/xhigh/max).
 - `models show <model>` (alias `get`) `[--output file|-o file] [--json]` — inspect detailed configuration, limits, capabilities, reasoning-effort variants, and token pricing rates for a specific model, with direct file export.
