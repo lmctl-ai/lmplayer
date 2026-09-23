@@ -127,10 +127,10 @@ All runnable in dev as: `bun run --conditions=browser ./src/index.ts <cmd>` from
 - `github run [--event event] [--token token] [--output file|-o file] [--json]` — run GitHub agent against event context or mock payload, with run summary file export (`--output` / `-o`) and structured JSON output (`--json`).
 
 ## Container orchestration & failover
-- `orchestrator status [--registry file] [--output file|-o file] [--json]` — health-check registered containers and show the durable assignment map with container IDs, URLs, and epochs, with direct file export (`--output` / `-o`) and structured JSON.
-- `orchestrator handover --session id --from id --to id [--tail n] [--registry file] [--output file|-o file] [--json]` — move a session between containers via export/import bundle transfer with monotonic epoch bumping and direct file export (`--output` / `-o`).
-- `orchestrator refresh --to id [--registry file] [--output file|-o file] [--json]` — gracefully drain and shut down a container after its in-flight run completes, with direct file export (`--output` / `-o`).
-- `orchestrator assign --session id --to id [--registry file] [--output file|-o file] [--json]` — record or update a session's home container in the durable assignment map without moving data, with direct file export (`--output` / `-o`).
+- `orchestrator status [--registry file|-r file] [--output file|-o file] [--json]` — health-check registered containers and show the durable assignment map with container IDs, URLs, and epochs, with direct file export (`--output` / `-o`) and structured JSON.
+- `orchestrator handover --session id|-s id --from id|-f id --to id|-t id [--tail n|-n n] [--registry file|-r file] [--output file|-o file] [--json]` — move a session between containers via export/import bundle transfer with monotonic epoch bumping and direct file export (`--output` / `-o`).
+- `orchestrator refresh --to id|-t id [--registry file|-r file] [--output file|-o file] [--json]` — gracefully drain and shut down a container after its in-flight run completes, with direct file export (`--output` / `-o`).
+- `orchestrator assign --session id|-s id --to id|-t id [--registry file|-r file] [--output file|-o file] [--json]` — record or update a session's home container in the durable assignment map without moving data, with direct file export (`--output` / `-o`).
 
 ## Diagnostics, debugging & OpenAPI generation
 - `debug paths [--output file|-o file] [--json]` — inspect global application paths (data, config, state, cache, log, bin), with structured JSON output and direct file export (`--output` / `-o`).
