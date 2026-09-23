@@ -146,20 +146,25 @@ async function health(container: Container): Promise<Health> {
 // ---------------------------------------------------------------------------
 // status
 // ---------------------------------------------------------------------------
-const StatusCommand = cmd({
+export const StatusCommand = cmd({
   command: "status",
   describe: "health-check registered containers and show the assignment map",
   builder: (yargs: Argv) =>
     yargs
-      .option("registry", { describe: "path to containers.json", type: "string" })
+      .option("registry", {
+        alias: ["r"],
+        describe: "path to containers.json",
+        type: "string",
+      })
       .option("output", {
         alias: "o",
         type: "string",
         describe: "write status report to output file path",
       })
       .option("json", { describe: "output as JSON", type: "boolean" }),
-  async handler(args: { registry?: string; output?: string; json?: boolean }) {
-    const registry = await loadRegistry(args.registry ?? defaultRegistryPath(), Boolean(args.registry))
+  async handler(args: { registry?: string; r?: string; output?: string; json?: boolean }) {
+    const registryPath = args.registry ?? args.r ?? defaultRegistryPath()
+    const registry = await loadRegistry(registryPath, Boolean(args.registry ?? args.r))
     const assignments = await loadAssignments()
     const healths = await Promise.all(registry.containers.map(health))
 
@@ -207,16 +212,40 @@ const StatusCommand = cmd({
 // ---------------------------------------------------------------------------
 // handover
 // ---------------------------------------------------------------------------
-const HandoverCommand = cmd({
+export const HandoverCommand = cmd({
   command: "handover",
   describe: "move a session from one container to another via export/import",
   builder: (yargs: Argv) =>
     yargs
-      .option("session", { describe: "session id to hand over", type: "string", demandOption: true })
-      .option("from", { describe: "source container id (or url)", type: "string", demandOption: true })
-      .option("to", { describe: "destination container id (or url)", type: "string", demandOption: true })
-      .option("tail", { describe: "number of tail messages to carry", type: "number", default: 20 })
-      .option("registry", { describe: "path to containers.json", type: "string" })
+      .option("session", {
+        alias: ["s"],
+        describe: "session id to hand over",
+        type: "string",
+        demandOption: true,
+      })
+      .option("from", {
+        alias: ["f"],
+        describe: "source container id (or url)",
+        type: "string",
+        demandOption: true,
+      })
+      .option("to", {
+        alias: ["t"],
+        describe: "destination container id (or url)",
+        type: "string",
+        demandOption: true,
+      })
+      .option("tail", {
+        alias: ["n"],
+        describe: "number of tail messages to carry",
+        type: "number",
+        default: 20,
+      })
+      .option("registry", {
+        alias: ["r"],
+        describe: "path to containers.json",
+        type: "string",
+      })
       .option("output", {
         alias: "o",
         type: "string",
@@ -224,17 +253,27 @@ const HandoverCommand = cmd({
       })
       .option("json", { describe: "output as JSON", type: "boolean" }),
   async handler(args: {
-    session: string
-    from: string
-    to: string
-    tail: number
+    session?: string
+    from?: string
+    to?: string
+    tail?: number
     registry?: string
     output?: string
     json?: boolean
+    s?: string
+    f?: string
+    t?: string
+    n?: number
+    r?: string
   }) {
-    const registry = await loadRegistry(args.registry ?? defaultRegistryPath(), Boolean(args.registry))
-    const from = resolveContainer(registry, args.from)
-    const to = resolveContainer(registry, args.to)
+    const sessionID = args.session ?? args.s!
+    const fromTarget = args.from ?? args.f!
+    const toTarget = args.to ?? args.t!
+    const tailCount = args.tail ?? args.n ?? 20
+    const registryPath = args.registry ?? args.r ?? defaultRegistryPath()
+    const registry = await loadRegistry(registryPath, Boolean(args.registry ?? args.r))
+    const from = resolveContainer(registry, fromTarget)
+    const to = resolveContainer(registry, toTarget)
 
     // MANUAL-SAFE CONSTRAINT (R1): until R2 adds a container-side epoch fence
     // (a revived/stale-epoch container must refuse to run/write its bundle), the
@@ -248,10 +287,10 @@ const HandoverCommand = cmd({
       )
     }
 
-    const exportURL = `${from.url.replace(/\/$/, "")}/session/${args.session}/export?tail=${args.tail}`
+    const exportURL = `${from.url.replace(/\/$/, "")}/session/${sessionID}/export?tail=${tailCount}`
     const exportRes = await fetch(exportURL, { headers: authHeaders(from), signal: AbortSignal.timeout(30000) })
     if (!exportRes.ok) throw new Error(`export from ${from.id} failed: HTTP ${exportRes.status} ${await exportRes.text()}`)
-    const bundle = validateBundle(await exportRes.json(), args.session, from.id)
+    const bundle = validateBundle(await exportRes.json(), sessionID, from.id)
 
     const importRes = await fetch(`${to.url.replace(/\/$/, "")}/session/import`, {
       method: "POST",
@@ -260,13 +299,13 @@ const HandoverCommand = cmd({
       signal: AbortSignal.timeout(30000),
     })
     if (!importRes.ok) throw new Error(`import to ${to.id} failed: HTTP ${importRes.status} ${await importRes.text()}`)
-    const result = validateImportResult(await importRes.json(), args.session, to.id)
+    const result = validateImportResult(await importRes.json(), sessionID, to.id)
 
     // Only AFTER both responses validate do we touch the durable assignment map /
     // bump the epoch. A malformed 200 must never advance the epoch.
     const assignments = await loadAssignments()
-    const epoch = (assignments[args.session]?.epoch ?? 0) + 1
-    assignments[args.session] = { containerID: to.id, url: to.url, epoch, updatedAt: Date.now() }
+    const epoch = (assignments[sessionID]?.epoch ?? 0) + 1
+    assignments[sessionID] = { containerID: to.id, url: to.url, epoch, updatedAt: Date.now() }
     await saveAssignments(assignments)
 
     const jsonStr = JSON.stringify({ from: from.id, to: to.id, epoch, ...result }, null, 2) + EOL
@@ -300,22 +339,33 @@ const HandoverCommand = cmd({
 // ---------------------------------------------------------------------------
 // Signals a container to finish its in-flight run and exit gracefully (it is
 // NOT interrupted). Thin wrapper over POST <to>/shutdown.
-const RefreshCommand = cmd({
+export const RefreshCommand = cmd({
   command: "refresh",
   describe: "gracefully drain-then-exit a container (finish in-flight run, then exit)",
   builder: (yargs: Argv) =>
     yargs
-      .option("to", { describe: "container id (or url) to refresh", type: "string", demandOption: true })
-      .option("registry", { describe: "path to containers.json", type: "string" })
+      .option("to", {
+        alias: ["t"],
+        describe: "container id (or url) to refresh",
+        type: "string",
+        demandOption: true,
+      })
+      .option("registry", {
+        alias: ["r"],
+        describe: "path to containers.json",
+        type: "string",
+      })
       .option("output", {
         alias: "o",
         type: "string",
         describe: "write refresh result to output file path",
       })
       .option("json", { describe: "output as JSON", type: "boolean" }),
-  async handler(args: { to: string; registry?: string; output?: string; json?: boolean }) {
-    const registry = await loadRegistry(args.registry ?? defaultRegistryPath(), Boolean(args.registry))
-    const to = resolveContainer(registry, args.to)
+  async handler(args: { to?: string; registry?: string; output?: string; json?: boolean; t?: string; r?: string }) {
+    const toTarget = args.to ?? args.t!
+    const registryPath = args.registry ?? args.r ?? defaultRegistryPath()
+    const registry = await loadRegistry(registryPath, Boolean(args.registry ?? args.r))
+    const to = resolveContainer(registry, toTarget)
     const res = await fetch(`${to.url.replace(/\/$/, "")}/shutdown`, {
       method: "POST",
       headers: authHeaders(to),
@@ -353,35 +403,61 @@ const RefreshCommand = cmd({
 // ---------------------------------------------------------------------------
 // assign
 // ---------------------------------------------------------------------------
-const AssignCommand = cmd({
+export const AssignCommand = cmd({
   command: "assign",
   describe: "record (or replace) a session's home container without moving data",
   builder: (yargs: Argv) =>
     yargs
-      .option("session", { describe: "session id", type: "string", demandOption: true })
-      .option("to", { describe: "destination container id (or url)", type: "string", demandOption: true })
-      .option("registry", { describe: "path to containers.json", type: "string" })
+      .option("session", {
+        alias: ["s"],
+        describe: "session id",
+        type: "string",
+        demandOption: true,
+      })
+      .option("to", {
+        alias: ["t"],
+        describe: "destination container id (or url)",
+        type: "string",
+        demandOption: true,
+      })
+      .option("registry", {
+        alias: ["r"],
+        describe: "path to containers.json",
+        type: "string",
+      })
       .option("output", {
         alias: "o",
         type: "string",
         describe: "write assignment result to output file path",
       })
       .option("json", { describe: "output as JSON", type: "boolean" }),
-  async handler(args: { session: string; to: string; registry?: string; output?: string; json?: boolean }) {
-    const registry = await loadRegistry(args.registry ?? defaultRegistryPath(), Boolean(args.registry))
-    const to = resolveContainer(registry, args.to)
+  async handler(args: {
+    session?: string
+    to?: string
+    registry?: string
+    output?: string
+    json?: boolean
+    s?: string
+    t?: string
+    r?: string
+  }) {
+    const sessionID = args.session ?? args.s!
+    const toTarget = args.to ?? args.t!
+    const registryPath = args.registry ?? args.r ?? defaultRegistryPath()
+    const registry = await loadRegistry(registryPath, Boolean(args.registry ?? args.r))
+    const to = resolveContainer(registry, toTarget)
     const assignments = await loadAssignments()
-    const prev = assignments[args.session]
+    const prev = assignments[sessionID]
     // First assignment seeds epoch 1; re-assigning a known session keeps its
     // epoch (no data movement = no fence bump).
     const epoch = prev ? prev.epoch : 1
-    assignments[args.session] = { containerID: to.id, url: to.url, epoch, updatedAt: Date.now() }
+    assignments[sessionID] = { containerID: to.id, url: to.url, epoch, updatedAt: Date.now() }
     await saveAssignments(assignments)
 
-    const jsonStr = JSON.stringify({ session: args.session, ...assignments[args.session] }, null, 2) + EOL
+    const jsonStr = JSON.stringify({ session: sessionID, ...assignments[sessionID] }, null, 2) + EOL
     const textStr =
       UI.Style.TEXT_SUCCESS_BOLD +
-      `assigned ${args.session} -> ${to.id}` +
+      `assigned ${sessionID} -> ${to.id}` +
       UI.Style.TEXT_NORMAL +
       `  epoch=${epoch}` +
       EOL
@@ -397,7 +473,7 @@ const AssignCommand = cmd({
     }
     out(
       UI.Style.TEXT_SUCCESS_BOLD +
-        `assigned ${args.session} -> ${to.id}` +
+        `assigned ${sessionID} -> ${to.id}` +
         UI.Style.TEXT_NORMAL +
         `  epoch=${epoch}`,
     )
