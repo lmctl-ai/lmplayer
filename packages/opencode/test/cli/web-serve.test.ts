@@ -29,6 +29,25 @@ describe("WebCommand and ServeCommand builders and options", () => {
     expect(options.key.hostname).toBeDefined()
   })
 
+  test("WebCommand parses options from arguments", async () => {
+    const parsed = await yargs().command({ ...WebCommand, handler: () => {} }).parseAsync([
+      "web",
+      "--port",
+      "8080",
+      "--hostname",
+      "0.0.0.0",
+      "--no-open",
+      "-o",
+      "web.json",
+      "--json",
+    ])
+    expect(parsed.port).toBe(8080)
+    expect(parsed.hostname).toBe("0.0.0.0")
+    expect(parsed.open).toBe(false)
+    expect(parsed.output).toBe("web.json")
+    expect(parsed.json).toBe(true)
+  })
+
   test("ServeCommand registers output, json, and network options", () => {
     const builder = ServeCommand.builder as (y: Argv) => Argv<any>
     const parser = builder(yargs())
@@ -38,6 +57,23 @@ describe("WebCommand and ServeCommand builders and options", () => {
     expect(options.key.json).toBeDefined()
     expect(options.key.port).toBeDefined()
     expect(options.key.hostname).toBeDefined()
+  })
+
+  test("ServeCommand parses options from arguments", async () => {
+    const parsed = await yargs().command({ ...ServeCommand, handler: () => {} }).parseAsync([
+      "serve",
+      "--port",
+      "9090",
+      "--hostname",
+      "127.0.0.1",
+      "-o",
+      "serve.json",
+      "--json",
+    ])
+    expect(parsed.port).toBe(9090)
+    expect(parsed.hostname).toBe("127.0.0.1")
+    expect(parsed.output).toBe("serve.json")
+    expect(parsed.json).toBe(true)
   })
 })
 

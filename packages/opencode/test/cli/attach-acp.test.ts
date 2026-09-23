@@ -27,9 +27,42 @@ describe("AttachCommand and AcpCommand builders and options", () => {
     expect(options.key.o).toBeDefined()
     expect(options.key.json).toBeDefined()
     expect(options.key.dir).toBeDefined()
+    expect(options.key.directory).toBeDefined()
+    expect(options.key.d).toBeDefined()
     expect(options.key.session).toBeDefined()
     expect(options.key.continue).toBeDefined()
     expect(options.key.fork).toBeDefined()
+    expect(options.key.password).toBeDefined()
+    expect(options.key.p).toBeDefined()
+    expect(options.key.username).toBeDefined()
+    expect(options.key.u).toBeDefined()
+  })
+
+  test("AttachCommand parses options and aliases from arguments", async () => {
+    const parsed = await yargs().command({ ...AttachCommand, handler: () => {} }).parseAsync([
+      "attach",
+      "http://localhost:4096",
+      "-d",
+      "/path/to/project",
+      "-s",
+      "ses_123",
+      "--fork",
+      "-p",
+      "secret",
+      "-u",
+      "admin",
+      "-o",
+      "check.json",
+      "--json",
+    ])
+    expect(parsed.url).toBe("http://localhost:4096")
+    expect(parsed.d).toBe("/path/to/project")
+    expect(parsed.s).toBe("ses_123")
+    expect(parsed.fork).toBe(true)
+    expect(parsed.p).toBe("secret")
+    expect(parsed.u).toBe("admin")
+    expect(parsed.output).toBe("check.json")
+    expect(parsed.json).toBe(true)
   })
 
   test("AcpCommand registers cwd, output, json, and network options", () => {
@@ -37,11 +70,34 @@ describe("AttachCommand and AcpCommand builders and options", () => {
     const parser = builder(yargs())
     const options = (parser as any).getOptions()
     expect(options.key.cwd).toBeDefined()
+    expect(options.key.dir).toBeDefined()
+    expect(options.key.directory).toBeDefined()
+    expect(options.key.d).toBeDefined()
     expect(options.key.output).toBeDefined()
     expect(options.key.o).toBeDefined()
     expect(options.key.json).toBeDefined()
     expect(options.key.port).toBeDefined()
     expect(options.key.hostname).toBeDefined()
+  })
+
+  test("AcpCommand parses options and aliases from arguments", async () => {
+    const parsed = await yargs().command({ ...AcpCommand, handler: () => {} }).parseAsync([
+      "acp",
+      "--dir",
+      "/my/working/dir",
+      "--port",
+      "5050",
+      "--hostname",
+      "0.0.0.0",
+      "-o",
+      "acp.json",
+      "--json",
+    ])
+    expect(parsed.dir).toBe("/my/working/dir")
+    expect(parsed.port).toBe(5050)
+    expect(parsed.hostname).toBe("0.0.0.0")
+    expect(parsed.output).toBe("acp.json")
+    expect(parsed.json).toBe(true)
   })
 })
 

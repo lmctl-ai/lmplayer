@@ -63,6 +63,7 @@ export const AcpCommand = effectCmd({
   builder: (yargs) => {
     return withNetworkOptions(yargs)
       .option("cwd", {
+        alias: ["dir", "directory", "d"],
         describe: "working directory",
         type: "string",
         default: process.cwd(),
@@ -87,10 +88,11 @@ export const AcpCommand = effectCmd({
     const server = yield* Effect.promise(() => ACPProfile.measure("cli.acp.server.listen", () => Server.listen(opts)))
 
     if (args.output) {
+      const cwd = args.cwd ?? (args as any).dir ?? (args as any).directory ?? (args as any).d ?? process.cwd()
       const info = buildAcpServerInfo({
         hostname: server.hostname,
         port: server.port,
-        cwd: args.cwd,
+        cwd,
         client: "acp",
         pid: process.pid,
       })

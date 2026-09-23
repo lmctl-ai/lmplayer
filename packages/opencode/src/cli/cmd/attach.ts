@@ -158,6 +158,7 @@ export const AttachCommand = cmd({
         demandOption: true,
       })
       .option("dir", {
+        alias: ["directory", "d"],
         type: "string",
         description: "directory to run in",
       })
@@ -223,14 +224,15 @@ export const AttachCommand = cmd({
     }
     const noReplay = args.replay === false || args.noReplay === true
 
+    const targetDir = args.dir ?? (args as any).directory ?? (args as any).d
     const directory = (() => {
-      if (!args.dir) return undefined
+      if (!targetDir) return undefined
       try {
-        process.chdir(args.dir)
+        process.chdir(targetDir)
         return process.cwd()
       } catch {
         // If the directory doesn't exist locally (remote attach), pass it through.
-        return args.dir
+        return targetDir
       }
     })()
 
