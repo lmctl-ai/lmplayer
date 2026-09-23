@@ -106,10 +106,12 @@ export const PrCommand = effectCmd({
   handler: Effect.fn("Cli.pr")(function* (args: {
     number: number
     branch?: string
+    b?: string
     run?: boolean
     "no-run"?: boolean
     noRun?: boolean
     output?: string
+    o?: string
     json?: boolean
   }) {
     const ctx = yield* InstanceRef
@@ -122,8 +124,10 @@ export const PrCommand = effectCmd({
     const worktree = ctx.worktree
 
     const prNumber = args.number
-    const localBranchName = args.branch || `pr/${prNumber}`
-    if (!args.json && !args.output) {
+    const localBranchName = args.branch || args.b || `pr/${prNumber}`
+    const output = args.output ?? args.o
+    const isJson = Boolean(args.json)
+    if (!isJson && !output) {
       UI.println(`Fetching and checking out PR #${prNumber}...`)
     }
 
@@ -168,7 +172,7 @@ export const PrCommand = effectCmd({
           yield* git.run(["remote", "add", remoteName, `https://github.com/${forkOwner}/${forkName}.git`], {
             cwd: worktree,
           })
-          if (!args.json && !args.output) {
+          if (!isJson && !output) {
             UI.println(`Added fork remote: ${remoteName}`)
           }
         }
@@ -184,7 +188,7 @@ export const PrCommand = effectCmd({
         sessionUrl = extractSessionUrlFromPrBody(prInfo.body)
         if (sessionUrl) {
           const url = sessionUrl
-          if (!args.json && !args.output) {
+          if (!isJson && !output) {
             UI.println(`Found session: ${url}`)
             UI.println(`Importing session...`)
           }
@@ -194,7 +198,7 @@ export const PrCommand = effectCmd({
           )
           if (importResult.code === 0) {
             sessionId = extractSessionIdFromImportOutput(importResult.text)
-            if (sessionId && !args.json && !args.output) {
+            if (sessionId && !isJson && !output) {
               UI.println(`Session imported: ${sessionId}`)
             }
           }
@@ -215,16 +219,16 @@ export const PrCommand = effectCmd({
     const textLines = formatPrCheckoutText(result)
     const textStr = textLines.join(EOL) + EOL
 
-    if (args.output) {
-      yield* writeOutputFile(args.output, args.json ? jsonStr : textStr, "PR checkout")
+    if (output) {
+      yield* writeOutputFile(output, isJson ? jsonStr : textStr, "PR checkout")
     }
 
-    if (args.json) {
+    if (isJson) {
       process.stdout.write(jsonStr)
       return
     }
 
-    if (!args.output) {
+    if (!output) {
       UI.println(`Successfully checked out PR #${prNumber} as branch '${localBranchName}'`)
     }
 
