@@ -1,8 +1,52 @@
-import { describe, expect } from "bun:test"
+import { describe, expect, test } from "bun:test"
 import { Effect } from "effect"
 import path from "path"
 import fs from "node:fs/promises"
+import yargs, { type Argv } from "yargs"
 import { cliIt } from "../lib/cli-process"
+import { PluginCommand } from "../../src/cli/cmd/plug"
+
+describe("plugin CLI command builder and option parsing", () => {
+  test("PluginCommand registers command, aliases, and options", () => {
+    expect(PluginCommand.command).toBe("plugin <module>")
+    expect(PluginCommand.aliases).toEqual(["plug"])
+
+    const builder = PluginCommand.builder as (y: Argv) => Argv<any>
+    const parser = builder(yargs())
+    const options = (parser as any).getOptions()
+    expect(options.key.global).toBeDefined()
+    expect(options.key.g).toBeDefined()
+    expect(options.key.force).toBeDefined()
+    expect(options.key.f).toBeDefined()
+    expect(options.key.output).toBeDefined()
+    expect(options.key.o).toBeDefined()
+    expect(options.key.json).toBeDefined()
+  })
+
+  test("PluginCommand parses short aliases and options correctly", async () => {
+    const parsed = await yargs()
+      .command({ ...PluginCommand, handler: () => {} })
+      .parseAsync(["plugin", "my-package", "-g", "-f", "-o", "result.json", "--json"])
+    expect(parsed.module).toBe("my-package")
+    expect(parsed.global).toBe(true)
+    expect(parsed.g).toBe(true)
+    expect(parsed.force).toBe(true)
+    expect(parsed.f).toBe(true)
+    expect(parsed.output).toBe("result.json")
+    expect(parsed.o).toBe("result.json")
+    expect(parsed.json).toBe(true)
+  })
+
+  test("PluginCommand parses long options correctly", async () => {
+    const parsed = await yargs()
+      .command({ ...PluginCommand, handler: () => {} })
+      .parseAsync(["plugin", "another-package", "--global", "--force", "--output", "out.txt"])
+    expect(parsed.module).toBe("another-package")
+    expect(parsed.global).toBe(true)
+    expect(parsed.force).toBe(true)
+    expect(parsed.output).toBe("out.txt")
+  })
+})
 
 async function createLocalPlugin(dir: string, name: string) {
   const pluginDir = path.join(dir, name)

@@ -324,6 +324,10 @@ export const ProvidersListCommand = effectCmd({
     output?: string
     search?: string
     all?: boolean
+    o?: string
+    q?: string
+    query?: string
+    a?: boolean
   }) {
     const authSvc = yield* Auth.Service
     const modelsDev = yield* ModelsDev.Service
@@ -361,7 +365,12 @@ export const ProvidersListCommand = effectCmd({
 
     const authIDs = new Set(results.map(([id]) => id))
 
-    const query = args.search?.trim().toLowerCase()
+    const search = args.search ?? args.q ?? args.query
+    const isAll = Boolean(args.all ?? args.a)
+    const output = args.output ?? args.o
+    const isJson = Boolean(args.json)
+
+    const query = search?.trim().toLowerCase()
     const matchSearch = (id: string, name?: string) => {
       if (!query) return true
       return id.toLowerCase().includes(query) || (name ? name.toLowerCase().includes(query) : false)
@@ -373,7 +382,7 @@ export const ProvidersListCommand = effectCmd({
       .filter((e) => matchSearch(e.providerID, e.name))
 
     const catalogExtras: Array<{ providerID: string; name: string; env: readonly string[] }> = []
-    if (args.all) {
+    if (isAll) {
       const activeEnvSet = new Set(activeEnvVars.map((e) => e.providerID))
       for (const [id, pDef] of Object.entries(database)) {
         if (!authIDs.has(id) && !activeEnvSet.has(id) && matchSearch(id, pDef.name)) {
@@ -383,7 +392,7 @@ export const ProvidersListCommand = effectCmd({
       catalogExtras.sort((a, b) => a.name.localeCompare(b.name))
     }
 
-    if (args.json) {
+    if (isJson) {
       const out = {
         credentials_path: displayPath,
         providers: [
@@ -404,7 +413,7 @@ export const ProvidersListCommand = effectCmd({
             envVar: e.envVar,
             models: modelsFor(e.providerID),
           })),
-          ...(args.all
+          ...(isAll
             ? catalogExtras.map((e) => ({
                 id: e.providerID,
                 name: e.name,
@@ -418,8 +427,8 @@ export const ProvidersListCommand = effectCmd({
         ],
       }
       const jsonStr = JSON.stringify(out, null, 2) + "\n"
-      if (args.output) {
-        const resolved = path.resolve(args.output)
+      if (output) {
+        const resolved = path.resolve(output)
         yield* Effect.promise(async () => {
           const fs = await import("fs/promises")
           await fs.mkdir(path.dirname(resolved), { recursive: true })
@@ -432,7 +441,7 @@ export const ProvidersListCommand = effectCmd({
       return
     }
 
-    if (args.output) {
+    if (output) {
       const lines: string[] = []
       lines.push(`Credentials ${displayPath}`)
       for (const [providerID, result] of filteredCreds) {
@@ -462,7 +471,7 @@ export const ProvidersListCommand = effectCmd({
         }
         lines.push(`${catalogExtras.length} catalog providers`)
       }
-      const resolved = path.resolve(args.output)
+      const resolved = path.resolve(output)
       yield* Effect.promise(async () => {
         const fs = await import("fs/promises")
         await fs.mkdir(path.dirname(resolved), { recursive: true })
@@ -519,6 +528,7 @@ export const providersShow = Effect.fn("Cli.providers.show")(function* (args: {
   provider: string
   json?: boolean
   output?: string
+  o?: string
 }) {
   const authSvc = yield* Auth.Service
   const modelsDev = yield* ModelsDev.Service
@@ -527,6 +537,9 @@ export const providersShow = Effect.fn("Cli.providers.show")(function* (args: {
   const { Provider } = yield* Effect.promise(() => import("@/provider/provider"))
   const providerSvc = yield* Provider.Service
   const providers = yield* providerSvc.list()
+
+  const output = args.output ?? args.o
+  const isJson = Boolean(args.json)
 
   const inputID = args.provider.trim()
   let providerID = inputID
@@ -583,7 +596,7 @@ export const providersShow = Effect.fn("Cli.providers.show")(function* (args: {
             ? "local"
             : "none"
 
-  if (args.json) {
+  if (isJson) {
     const out = {
       id: providerID,
       name: catalogEntry?.name || providerID,
@@ -597,8 +610,8 @@ export const providersShow = Effect.fn("Cli.providers.show")(function* (args: {
       models,
     }
     const jsonStr = JSON.stringify(out, null, 2) + "\n"
-    if (args.output) {
-      const resolved = path.resolve(args.output)
+    if (output) {
+      const resolved = path.resolve(output)
       yield* Effect.promise(async () => {
         const fs = await import("fs/promises")
         await fs.mkdir(path.dirname(resolved), { recursive: true })
@@ -611,7 +624,7 @@ export const providersShow = Effect.fn("Cli.providers.show")(function* (args: {
     return
   }
 
-  if (args.output) {
+  if (output) {
     const displayName = catalogEntry?.name || providerID
     const lines: string[] = [
       `${displayName} (${providerID})`,
@@ -639,7 +652,7 @@ export const providersShow = Effect.fn("Cli.providers.show")(function* (args: {
         lines.push(`    ${m.id}${variantsText}`)
       }
     }
-    const resolved = path.resolve(args.output)
+    const resolved = path.resolve(output)
     yield* Effect.promise(async () => {
       const fs = await import("fs/promises")
       await fs.mkdir(path.dirname(resolved), { recursive: true })
@@ -708,11 +721,12 @@ export const ProvidersShowCommand = effectCmd({
     provider: string
     json?: boolean
     output?: string
+    o?: string
   }) {
     yield* providersShow({
       provider: args.provider!,
       json: Boolean(args.json),
-      output: args.output,
+      output: args.output ?? args.o,
     })
   }),
 })
@@ -760,10 +774,21 @@ export const ProvidersLoginCommand = effectCmd({
     key?: string
     output?: string
     json?: boolean
+    p?: string
+    m?: string
+    k?: string
+    "api-key"?: string
+    o?: string
   }) {
     const authSvc = yield* Auth.Service
 
-    if (!args.json) {
+    const providerArg = args.provider ?? args.p
+    const methodArg = args.method ?? args.m
+    const keyArg = args.key ?? args.k ?? args["api-key"]
+    const output = args.output ?? args.o
+    const isJson = Boolean(args.json)
+
+    if (!isJson) {
       UI.empty()
       yield* Prompt.intro("Add credential")
     }
@@ -854,8 +879,8 @@ export const ProvidersLoginCommand = effectCmd({
     ]
 
     let provider: string
-    if (args.provider) {
-      const input = args.provider
+    if (providerArg) {
+      const input = providerArg
       const byID = options.find((x) => x.value === input)
       const byName = options.find((x) => x.label.toLowerCase() === input.toLowerCase())
       const byConfig = config.provider?.[input]
@@ -881,21 +906,21 @@ export const ProvidersLoginCommand = effectCmd({
 
     const plugin = hooks.findLast((x) => x.auth?.provider === provider)
     if (plugin && plugin.auth) {
-      const handled = yield* handlePluginAuth({ auth: plugin.auth! }, provider, args.method, args.key)
+      const handled = yield* handlePluginAuth({ auth: plugin.auth! }, provider, methodArg, keyArg)
       if (handled) {
-        if (args.output || args.json) {
+        if (output || isJson) {
           const resultPayload = { ok: true, provider, authenticated: true }
           const jsonStr = JSON.stringify(resultPayload, null, 2) + "\n"
-          if (args.output) {
-            const resolved = path.resolve(args.output)
+          if (output) {
+            const resolved = path.resolve(output)
             yield* Effect.promise(async () => {
               const fs = await import("fs/promises")
               await fs.mkdir(path.dirname(resolved), { recursive: true })
-              await fs.writeFile(resolved, args.json ? jsonStr : `Logged into ${provider}\n`, "utf-8")
+              await fs.writeFile(resolved, isJson ? jsonStr : `Logged into ${provider}\n`, "utf-8")
             })
             UI.println(`Wrote login result to ${resolved}`)
           }
-          if (args.json) {
+          if (isJson) {
             process.stdout.write(jsonStr)
           }
         }
@@ -918,21 +943,21 @@ export const ProvidersLoginCommand = effectCmd({
 
       const customPlugin = hooks.findLast((x) => x.auth?.provider === provider)
       if (customPlugin && customPlugin.auth) {
-        const handled = yield* handlePluginAuth({ auth: customPlugin.auth! }, provider, args.method, args.key)
+        const handled = yield* handlePluginAuth({ auth: customPlugin.auth! }, provider, methodArg, keyArg)
         if (handled) {
-          if (args.output || args.json) {
+          if (output || isJson) {
             const resultPayload = { ok: true, provider, authenticated: true }
             const jsonStr = JSON.stringify(resultPayload, null, 2) + "\n"
-            if (args.output) {
-              const resolved = path.resolve(args.output)
+            if (output) {
+              const resolved = path.resolve(output)
               yield* Effect.promise(async () => {
                 const fs = await import("fs/promises")
                 await fs.mkdir(path.dirname(resolved), { recursive: true })
-                await fs.writeFile(resolved, args.json ? jsonStr : `Logged into ${provider}\n`, "utf-8")
+                await fs.writeFile(resolved, isJson ? jsonStr : `Logged into ${provider}\n`, "utf-8")
               })
               UI.println(`Wrote login result to ${resolved}`)
             }
-            if (args.json) {
+            if (isJson) {
               process.stdout.write(jsonStr)
             }
           }
@@ -969,7 +994,7 @@ export const ProvidersLoginCommand = effectCmd({
       )
     }
 
-    const apiKey = yield* resolveApiKey(args.key)
+    const apiKey = yield* resolveApiKey(keyArg)
     yield* Effect.orDie(authSvc.set(provider, { type: "api", key: apiKey }))
 
     const resultPayload = {
@@ -980,17 +1005,17 @@ export const ProvidersLoginCommand = effectCmd({
     const jsonStr = JSON.stringify(resultPayload, null, 2) + "\n"
     const textStr = `Logged into ${provider}\n`
 
-    if (args.output) {
-      const resolved = path.resolve(args.output)
+    if (output) {
+      const resolved = path.resolve(output)
       yield* Effect.promise(async () => {
         const fs = await import("fs/promises")
         await fs.mkdir(path.dirname(resolved), { recursive: true })
-        await fs.writeFile(resolved, args.json ? jsonStr : textStr, "utf-8")
+        await fs.writeFile(resolved, isJson ? jsonStr : textStr, "utf-8")
       })
       UI.println(`Wrote login result to ${resolved}`)
     }
 
-    if (args.json) {
+    if (isJson) {
       process.stdout.write(jsonStr)
       return
     }
@@ -1006,6 +1031,11 @@ export const ProvidersLogoutCommand = effectCmd({
   builder: (yargs) =>
     yargs
       .positional("provider", {
+        describe: "provider id or name to log out from",
+        type: "string",
+      })
+      .option("provider", {
+        alias: "p",
         describe: "provider id or name to log out from",
         type: "string",
       })
@@ -1030,16 +1060,24 @@ export const ProvidersLogoutCommand = effectCmd({
     force?: boolean
     json?: boolean
     output?: string
+    p?: string
+    f?: boolean
+    o?: string
   }) {
     const authSvc = yield* Auth.Service
     const modelsDev = yield* ModelsDev.Service
 
-    if (!args.provider && !process.stdin.isTTY) {
-      if (args.json) {
+    const providerArg = args.provider ?? args.p
+    const isForce = Boolean(args.force ?? args.f)
+    const isJson = Boolean(args.json)
+    const output = args.output ?? args.o
+
+    if (!providerArg && !process.stdin.isTTY) {
+      if (isJson) {
         const payload = { ok: false, error: "Provider name or ID is required in non-interactive mode" }
         const jsonStr = JSON.stringify(payload, null, 2) + "\n"
-        if (args.output) {
-          const resolved = path.resolve(args.output)
+        if (output) {
+          const resolved = path.resolve(output)
           yield* Effect.promise(async () => {
             const fs = await import("fs/promises")
             await fs.mkdir(path.dirname(resolved), { recursive: true })
@@ -1047,7 +1085,7 @@ export const ProvidersLogoutCommand = effectCmd({
           })
         }
         process.stdout.write(jsonStr)
-        if (!args.force) process.exitCode = 1
+        if (!isForce) process.exitCode = 1
         return
       }
       return yield* fail("Provider name or ID is required in non-interactive mode. Specify a provider ID or name.")
@@ -1055,12 +1093,12 @@ export const ProvidersLogoutCommand = effectCmd({
 
     const credentials: Array<[string, Auth.Info]> = Object.entries(yield* Effect.orDie(authSvc.all()))
     if (credentials.length === 0) {
-      if (args.force) {
-        if (args.json) {
-          const payload = { ok: true, provider: args.provider, removed: false, message: "No credentials found" }
+      if (isForce) {
+        if (isJson) {
+          const payload = { ok: true, provider: providerArg, removed: false, message: "No credentials found" }
           const jsonStr = JSON.stringify(payload, null, 2) + "\n"
-          if (args.output) {
-            const resolved = path.resolve(args.output)
+          if (output) {
+            const resolved = path.resolve(output)
             yield* Effect.promise(async () => {
               const fs = await import("fs/promises")
               await fs.mkdir(path.dirname(resolved), { recursive: true })
@@ -1070,8 +1108,8 @@ export const ProvidersLogoutCommand = effectCmd({
           process.stdout.write(jsonStr)
           return
         }
-        if (args.output) {
-          const resolved = path.resolve(args.output)
+        if (output) {
+          const resolved = path.resolve(output)
           yield* Effect.promise(async () => {
             const fs = await import("fs/promises")
             await fs.mkdir(path.dirname(resolved), { recursive: true })
@@ -1081,11 +1119,11 @@ export const ProvidersLogoutCommand = effectCmd({
         UI.println("No credentials found")
         return
       }
-      if (args.json) {
+      if (isJson) {
         const payload = { ok: false, error: "No credentials found" }
         const jsonStr = JSON.stringify(payload, null, 2) + "\n"
-        if (args.output) {
-          const resolved = path.resolve(args.output)
+        if (output) {
+          const resolved = path.resolve(output)
           yield* Effect.promise(async () => {
             const fs = await import("fs/promises")
             await fs.mkdir(path.dirname(resolved), { recursive: true })
@@ -1108,11 +1146,11 @@ export const ProvidersLogoutCommand = effectCmd({
       label: (database[key]?.name || key) + UI.Style.TEXT_DIM + " (" + value.type + ")",
       value: key,
     }))
-    const provider = args.provider
+    const provider = providerArg
       ? options.find(
           (option) =>
-            option.value === args.provider ||
-            database[option.value]?.name?.toLowerCase() === args.provider?.toLowerCase(),
+            option.value === providerArg ||
+            database[option.value]?.name?.toLowerCase() === providerArg.toLowerCase(),
         )?.value
       : yield* promptValue(
           yield* Prompt.autocomplete({
@@ -1123,12 +1161,12 @@ export const ProvidersLogoutCommand = effectCmd({
         )
 
     if (!provider) {
-      if (args.force) {
-        if (args.json) {
-          const payload = { ok: true, provider: args.provider, removed: false }
+      if (isForce) {
+        if (isJson) {
+          const payload = { ok: true, provider: providerArg, removed: false }
           const jsonStr = JSON.stringify(payload, null, 2) + "\n"
-          if (args.output) {
-            const resolved = path.resolve(args.output)
+          if (output) {
+            const resolved = path.resolve(output)
             yield* Effect.promise(async () => {
               const fs = await import("fs/promises")
               await fs.mkdir(path.dirname(resolved), { recursive: true })
@@ -1138,22 +1176,22 @@ export const ProvidersLogoutCommand = effectCmd({
           process.stdout.write(jsonStr)
           return
         }
-        if (args.output) {
-          const resolved = path.resolve(args.output)
+        if (output) {
+          const resolved = path.resolve(output)
           yield* Effect.promise(async () => {
             const fs = await import("fs/promises")
             await fs.mkdir(path.dirname(resolved), { recursive: true })
-            await fs.writeFile(resolved, `Provider "${args.provider}" was not logged in\n`, "utf-8")
+            await fs.writeFile(resolved, `Provider "${providerArg}" was not logged in\n`, "utf-8")
           })
         }
-        UI.println(`Provider "${args.provider}" was not logged in`)
+        UI.println(`Provider "${providerArg}" was not logged in`)
         return
       }
-      if (args.json) {
-        const payload = { ok: false, error: `Unknown configured provider "${args.provider}"` }
+      if (isJson) {
+        const payload = { ok: false, error: `Unknown configured provider "${providerArg}"` }
         const jsonStr = JSON.stringify(payload, null, 2) + "\n"
-        if (args.output) {
-          const resolved = path.resolve(args.output)
+        if (output) {
+          const resolved = path.resolve(output)
           yield* Effect.promise(async () => {
             const fs = await import("fs/promises")
             await fs.mkdir(path.dirname(resolved), { recursive: true })
@@ -1164,15 +1202,15 @@ export const ProvidersLogoutCommand = effectCmd({
         process.exitCode = 1
         return
       }
-      return yield* fail(`Unknown configured provider "${args.provider}"`)
+      return yield* fail(`Unknown configured provider "${providerArg}"`)
     }
 
     yield* Effect.orDie(authSvc.remove(provider))
-    if (args.json) {
+    if (isJson) {
       const payload = { ok: true, provider, removed: true }
       const jsonStr = JSON.stringify(payload, null, 2) + "\n"
-      if (args.output) {
-        const resolved = path.resolve(args.output)
+      if (output) {
+        const resolved = path.resolve(output)
         yield* Effect.promise(async () => {
           const fs = await import("fs/promises")
           await fs.mkdir(path.dirname(resolved), { recursive: true })
@@ -1183,8 +1221,8 @@ export const ProvidersLogoutCommand = effectCmd({
       return
     }
 
-    if (args.output) {
-      const resolved = path.resolve(args.output)
+    if (output) {
+      const resolved = path.resolve(output)
       yield* Effect.promise(async () => {
         const fs = await import("fs/promises")
         await fs.mkdir(path.dirname(resolved), { recursive: true })
@@ -1200,6 +1238,7 @@ export const ProvidersLogoutCommand = effectCmd({
 const addProviderScopeOptions = <T>(yargs: Argv<T>) =>
   yargs
     .option("scope", {
+      alias: ["s"],
       describe: "configuration target scope (project or global)",
       choices: ["project", "global"] as const,
       type: "string",
@@ -1215,10 +1254,13 @@ const addProviderScopeOptions = <T>(yargs: Argv<T>) =>
       type: "boolean",
     })
     .check((argv) => {
-      if (argv.project && argv.global) {
+      const isProject = Boolean(argv.project || argv.p)
+      const isGlobal = Boolean(argv.global || argv.g)
+      const scopeVal = argv.scope || argv.s
+      if (isProject && isGlobal) {
         throw new Error("Cannot specify both global and project scope")
       }
-      if (argv.scope && (argv.project || argv.global)) {
+      if (scopeVal && (isProject || isGlobal)) {
         throw new Error("Cannot specify both --scope and --project/--global")
       }
       return true
@@ -1252,10 +1294,17 @@ const makeProviderToggleCommand = (action: "enable" | "disable") =>
       scope?: "project" | "global"
       json?: boolean
       output?: string
+      g?: boolean
+      p?: boolean
+      s?: "project" | "global"
+      o?: string
     }) {
       const modelsDev = yield* ModelsDev.Service
       const database = yield* modelsDev.get()
-      const isProject = Boolean(args.project || args.scope === "project")
+      const scope = args.scope ?? args.s
+      const isProject = Boolean(args.project || args.p || scope === "project")
+      const output = args.output ?? args.o
+      const isJson = Boolean(args.json)
 
       let providerID = args.provider
       if (!database[providerID]) {
@@ -1312,12 +1361,12 @@ const makeProviderToggleCommand = (action: "enable" | "disable") =>
       }
       const summaryText = `Provider "${providerID}" ${action}d in ${isProject ? "project" : "global"} configuration${configFilePath ? ` (${configFilePath})` : ""}`
 
-      if (args.output) {
-        const resolved = path.resolve(args.output)
+      if (output) {
+        const resolved = path.resolve(output)
         yield* Effect.promise(async () => {
           const fs = await import("fs/promises")
           await fs.mkdir(path.dirname(resolved), { recursive: true })
-          if (args.json) {
+          if (isJson) {
             await fs.writeFile(resolved, JSON.stringify(summaryPayload, null, 2) + os.EOL, "utf-8")
           } else {
             await fs.writeFile(resolved, summaryText + os.EOL, "utf-8")
@@ -1327,7 +1376,7 @@ const makeProviderToggleCommand = (action: "enable" | "disable") =>
         return
       }
 
-      if (args.json) {
+      if (isJson) {
         process.stdout.write(JSON.stringify(summaryPayload, null, 2) + os.EOL)
         return
       }
