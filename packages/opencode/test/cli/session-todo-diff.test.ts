@@ -8,6 +8,8 @@ import {
   SessionForkCommand,
   SessionDiffCommand,
   SessionTodoCommand,
+  SessionShowCommand,
+  SessionStatusCommand,
   SessionReportCommand,
   SessionMetricsCommand,
   SessionHealthCommand,
@@ -332,6 +334,45 @@ describe("session diff & fork command definitions & builders", () => {
     expect(options.key.json).toBeDefined()
   })
 
+  test("SessionShowCommand registers show, output, and json options", () => {
+    expect(SessionShowCommand.command).toBe("show <sessionID>")
+    const builder = SessionShowCommand.builder as (y: Argv) => Argv<any>
+    const parser = builder(yargs())
+    const options = (parser as any).getOptions()
+    expect(options.key.output).toBeDefined()
+    expect(options.key.o).toBeDefined()
+    expect(options.key.json).toBeDefined()
+  })
+
+  test("SessionShowCommand parses positionals and -o, --json flags", async () => {
+    const parsed = await yargs()
+      .command({ ...SessionShowCommand, handler: () => {} })
+      .parseAsync(["show", "ses_show_1", "-o", "show.json", "--json"])
+    expect(parsed.sessionID).toBe("ses_show_1")
+    expect(parsed.output).toBe("show.json")
+    expect(parsed.o).toBe("show.json")
+    expect(parsed.json).toBe(true)
+  })
+
+  test("SessionStatusCommand registers status, output, and json options", () => {
+    expect(SessionStatusCommand.command).toBe("status [sessionID]")
+    const builder = SessionStatusCommand.builder as (y: Argv) => Argv<any>
+    const parser = builder(yargs())
+    const options = (parser as any).getOptions()
+    expect(options.key.output).toBeDefined()
+    expect(options.key.o).toBeDefined()
+    expect(options.key.json).toBeDefined()
+  })
+
+  test("SessionStatusCommand parses positionals and -o, --json flags", async () => {
+    const parsed = await yargs()
+      .command({ ...SessionStatusCommand, handler: () => {} })
+      .parseAsync(["status", "ses_status_1", "-o", "status.txt"])
+    expect(parsed.sessionID).toBe("ses_status_1")
+    expect(parsed.output).toBe("status.txt")
+    expect(parsed.o).toBe("status.txt")
+  })
+
   test("SessionReportCommand registers report and output options", () => {
     expect(SessionReportCommand.command).toBe("report <sessionID>")
     const builder = SessionReportCommand.builder as (y: Argv) => Argv<any>
@@ -340,6 +381,16 @@ describe("session diff & fork command definitions & builders", () => {
     expect(options.key.output).toBeDefined()
     expect(options.key.o).toBeDefined()
     expect(options.key.json).toBeDefined()
+  })
+
+  test("SessionReportCommand parses positionals and -o, --json flags", async () => {
+    const parsed = await yargs()
+      .command({ ...SessionReportCommand, handler: () => {} })
+      .parseAsync(["report", "ses_rep_1", "-o", "rep.json", "--json"])
+    expect(parsed.sessionID).toBe("ses_rep_1")
+    expect(parsed.output).toBe("rep.json")
+    expect(parsed.o).toBe("rep.json")
+    expect(parsed.json).toBe(true)
   })
 
   test("SessionMetricsCommand registers metrics and output options", () => {
@@ -352,7 +403,17 @@ describe("session diff & fork command definitions & builders", () => {
     expect(options.key.json).toBeDefined()
   })
 
-  test("SessionHealthCommand registers health, output, threshold, and check options", () => {
+  test("SessionMetricsCommand parses positionals and -o, --json flags", async () => {
+    const parsed = await yargs()
+      .command({ ...SessionMetricsCommand, handler: () => {} })
+      .parseAsync(["metrics", "ses_met_1", "-o", "met.json", "--json"])
+    expect(parsed.sessionID).toBe("ses_met_1")
+    expect(parsed.output).toBe("met.json")
+    expect(parsed.o).toBe("met.json")
+    expect(parsed.json).toBe(true)
+  })
+
+  test("SessionHealthCommand registers health, output (-o), threshold (-t), check (-c), and json options", () => {
     expect(SessionHealthCommand.command).toBe("health <sessionID>")
     const builder = SessionHealthCommand.builder as (y: Argv) => Argv<any>
     const parser = builder(yargs())
@@ -362,6 +423,21 @@ describe("session diff & fork command definitions & builders", () => {
     expect(options.key.threshold).toBeDefined()
     expect(options.key.t).toBeDefined()
     expect(options.key.check).toBeDefined()
+    expect(options.key.c).toBeDefined()
     expect(options.key.json).toBeDefined()
+  })
+
+  test("SessionHealthCommand parses positionals and -o, -t, -c, --json flags", async () => {
+    const parsed = await yargs()
+      .command({ ...SessionHealthCommand, handler: () => {} })
+      .parseAsync(["health", "ses_hlth_1", "-o", "health.json", "-t", "75", "-c", "--json"])
+    expect(parsed.sessionID).toBe("ses_hlth_1")
+    expect(parsed.output).toBe("health.json")
+    expect(parsed.o).toBe("health.json")
+    expect(parsed.threshold).toBe(75)
+    expect(parsed.t).toBe(75)
+    expect(parsed.check).toBe(true)
+    expect(parsed.c).toBe(true)
+    expect(parsed.json).toBe(true)
   })
 })

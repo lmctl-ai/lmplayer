@@ -300,8 +300,11 @@ export const SessionShowCommand = effectCmd({
   handler: Effect.fn("Cli.session.show")(function* (args: {
     sessionID: string
     output?: string
+    o?: string
     json?: boolean
   }) {
+    const output = args.output ?? (args as any).o
+    const isJson = Boolean(args.json)
     const sdk = yield* localSdk()
     const info = yield* Effect.promise(() => sdk.session.get({ sessionID: args.sessionID }).then((r) => r.data))
     if (!info) return yield* fail(`Session not found: ${args.sessionID}`)
@@ -379,7 +382,7 @@ export const SessionShowCommand = effectCmd({
         .catch(() => ({ type: "idle" as const })),
     )
 
-    if (args.json) {
+    if (isJson) {
       const jsonStr =
         JSON.stringify(
           {
@@ -424,15 +427,15 @@ export const SessionShowCommand = effectCmd({
           null,
           2,
         ) + EOL
-      if (args.output) {
-        yield* writeOutputFile(args.output, jsonStr, "session details")
+      if (output) {
+        yield* writeOutputFile(output, jsonStr, "session details")
         return
       }
       process.stdout.write(jsonStr)
       return
     }
 
-    if (args.output) {
+    if (output) {
       const lines = [
         `${info.title} (${info.id})`,
         ...(directory ? [`  Directory:  ${directory}`] : []),
@@ -448,7 +451,7 @@ export const SessionShowCommand = effectCmd({
         ...(memoryInfo.exists ? [`  Memory:     recorded (${memoryInfo.bytes} bytes)`] : []),
         ...(shareUrl ? [`  Share:      ${shareUrl}`] : []),
       ]
-      yield* writeOutputFile(args.output, lines.join(EOL) + EOL, "session details")
+      yield* writeOutputFile(output, lines.join(EOL) + EOL, "session details")
       return
     }
 
@@ -505,8 +508,11 @@ export const SessionStatusCommand = effectCmd({
   handler: Effect.fn("Cli.session.status")(function* (args: {
     sessionID?: string
     output?: string
+    o?: string
     json?: boolean
   }) {
+    const output = args.output ?? (args as any).o
+    const isJson = Boolean(args.json)
     const sdk = yield* localSdk()
     const statusRes = yield* Effect.promise(() => sdk.session.status())
     const statusMap = statusRes.data ?? {}
@@ -516,7 +522,7 @@ export const SessionStatusCommand = effectCmd({
       if (!info) return yield* fail(`Session not found: ${args.sessionID}`)
 
       const status = statusMap[args.sessionID] ?? { type: "idle" as const }
-      if (args.json) {
+      if (isJson) {
         const jsonStr =
           JSON.stringify(
             {
@@ -526,8 +532,8 @@ export const SessionStatusCommand = effectCmd({
             null,
             2,
           ) + EOL
-        if (args.output) {
-          yield* writeOutputFile(args.output, jsonStr, "status")
+        if (output) {
+          yield* writeOutputFile(output, jsonStr, "status")
           return
         }
         process.stdout.write(jsonStr)
@@ -541,8 +547,8 @@ export const SessionStatusCommand = effectCmd({
         text = `Session ${args.sessionID}: retry (attempt ${status.attempt}: ${status.message})`
       }
 
-      if (args.output) {
-        yield* writeOutputFile(args.output, text + EOL, "status")
+      if (output) {
+        yield* writeOutputFile(output, text + EOL, "status")
         return
       }
 
@@ -565,17 +571,17 @@ export const SessionStatusCommand = effectCmd({
     }
 
     const entries = Object.entries(statusMap)
-    if (args.json) {
+    if (isJson) {
       const jsonStr = JSON.stringify(statusMap, null, 2) + EOL
-      if (args.output) {
-        yield* writeOutputFile(args.output, jsonStr, "status")
+      if (output) {
+        yield* writeOutputFile(output, jsonStr, "status")
         return
       }
       process.stdout.write(jsonStr)
       return
     }
 
-    if (args.output) {
+    if (output) {
       const lines =
         entries.length === 0
           ? ["No active sessions (all sessions idle)"]
@@ -584,7 +590,7 @@ export const SessionStatusCommand = effectCmd({
                 s.type === "busy" ? "busy" : s.type === "retry" ? `retry (attempt ${s.attempt})` : s.type
               return `${id}: ${typeStr}`
             })
-      yield* writeOutputFile(args.output, lines.join(EOL) + EOL, "status")
+      yield* writeOutputFile(output, lines.join(EOL) + EOL, "status")
       return
     }
 
@@ -623,8 +629,11 @@ export const SessionReportCommand = effectCmd({
   handler: Effect.fn("Cli.session.report")(function* (args: {
     sessionID: string
     output?: string
+    o?: string
     json?: boolean
   }) {
+    const output = args.output ?? (args as any).o
+    const isJson = Boolean(args.json)
     const sdk = yield* localSdk()
     const info = yield* Effect.promise(() => sdk.session.get({ sessionID: args.sessionID }).then((r) => r.data))
     if (!info) return yield* fail(`Session not found: ${args.sessionID}`)
@@ -632,10 +641,10 @@ export const SessionReportCommand = effectCmd({
       const response = await sdk.session.messages({ sessionID: args.sessionID })
       const report = createSessionReport(args.sessionID, response.data ?? [])
 
-      if (args.json) {
+      if (isJson) {
         const jsonOutput = JSON.stringify(report, null, 2)
-        if (args.output) {
-          const resolved = path.resolve(args.output)
+        if (output) {
+          const resolved = path.resolve(output)
           const fs = await import("fs/promises")
           await fs.mkdir(path.dirname(resolved), { recursive: true })
           await fs.writeFile(resolved, jsonOutput + EOL, "utf-8")
@@ -647,8 +656,8 @@ export const SessionReportCommand = effectCmd({
       }
 
       const outputText = formatSessionReport(report)
-      if (args.output) {
-        const resolved = path.resolve(args.output)
+      if (output) {
+        const resolved = path.resolve(output)
         const fs = await import("fs/promises")
         await fs.mkdir(path.dirname(resolved), { recursive: true })
         await fs.writeFile(resolved, outputText + EOL, "utf-8")
@@ -683,8 +692,11 @@ export const SessionMetricsCommand = effectCmd({
   handler: Effect.fn("Cli.session.metrics")(function* (args: {
     sessionID: string
     output?: string
+    o?: string
     json?: boolean
   }) {
+    const output = args.output ?? (args as any).o
+    const isJson = Boolean(args.json)
     const sdk = yield* localSdk()
     const { Provider } = yield* Effect.promise(() => import("@/provider/provider"))
     // FIX 1: fetch session info first and fail fast if not found
@@ -718,10 +730,10 @@ export const SessionMetricsCommand = effectCmd({
     const crons = yield* cronRuntime.list(args.sessionID as SessionID).pipe(Effect.orElseSucceed(() => []))
     yield* Effect.promise(async () => {
       const metrics = createSessionMetrics(args.sessionID, msgs, { session: info, pricing, jobs, crons })
-      if (args.json) {
+      if (isJson) {
         const jsonOutput = JSON.stringify(metrics, null, 2)
-        if (args.output) {
-          const resolved = path.resolve(args.output)
+        if (output) {
+          const resolved = path.resolve(output)
           const fs = await import("fs/promises")
           await fs.mkdir(path.dirname(resolved), { recursive: true })
           await fs.writeFile(resolved, jsonOutput + EOL, "utf-8")
@@ -733,8 +745,8 @@ export const SessionMetricsCommand = effectCmd({
       }
 
       const outputText = formatSessionMetrics(metrics)
-      if (args.output) {
-        const resolved = path.resolve(args.output)
+      if (output) {
+        const resolved = path.resolve(output)
         const fs = await import("fs/promises")
         await fs.mkdir(path.dirname(resolved), { recursive: true })
         await fs.writeFile(resolved, outputText + EOL, "utf-8")
@@ -768,6 +780,7 @@ export const SessionHealthCommand = effectCmd({
         type: "number",
       })
       .option("check", {
+        alias: "c",
         describe: "exit with code 2 if context usage meets or exceeds threshold",
         type: "boolean",
       })
@@ -778,10 +791,18 @@ export const SessionHealthCommand = effectCmd({
   handler: Effect.fn("Cli.session.health")(function* (args: {
     sessionID: string
     output?: string
+    o?: string
     threshold?: number
+    t?: number
     check?: boolean
+    c?: boolean
     json?: boolean
   }) {
+    const output = args.output ?? (args as any).o
+    const rawThreshold = args.threshold ?? (args as any).t
+    const threshold = rawThreshold !== undefined && !isNaN(rawThreshold) ? rawThreshold : 80
+    const check = Boolean(args.check ?? (args as any).c)
+    const isJson = Boolean(args.json)
     const sdk = yield* localSdk()
     const info = yield* Effect.promise(() => sdk.session.get({ sessionID: args.sessionID }).then((r) => r.data))
     if (!info) return yield* fail(`Session not found: ${args.sessionID}`)
@@ -789,7 +810,6 @@ export const SessionHealthCommand = effectCmd({
     const providers = yield* Provider.Service.use((provider) => provider.list()).pipe(
       Effect.orElseSucceed(() => undefined),
     )
-    const threshold = args.threshold !== undefined && !isNaN(args.threshold) ? args.threshold : 80
 
     const health = yield* Effect.promise(async () => {
       const response = await sdk.session.messages({ sessionID: args.sessionID })
@@ -797,13 +817,13 @@ export const SessionHealthCommand = effectCmd({
     })
 
     const exceeded = Boolean(
-      args.check && health.context.percentUsed !== null && health.context.percentUsed >= threshold,
+      check && health.context.percentUsed !== null && health.context.percentUsed >= threshold,
     )
 
-    if (args.json) {
+    if (isJson) {
       const jsonPayload = {
         ...health,
-        healthCheck: args.check
+        healthCheck: check
           ? {
               threshold,
               exceeded,
@@ -812,8 +832,8 @@ export const SessionHealthCommand = effectCmd({
           : undefined,
       }
       const jsonOutput = JSON.stringify(jsonPayload, null, 2)
-      if (args.output) {
-        const resolved = path.resolve(args.output)
+      if (output) {
+        const resolved = path.resolve(output)
         yield* Effect.promise(async () => {
           const fs = await import("fs/promises")
           await fs.mkdir(path.dirname(resolved), { recursive: true })
@@ -830,8 +850,8 @@ export const SessionHealthCommand = effectCmd({
     }
 
     const outputText = formatSessionHealth(health)
-    if (args.output) {
-      const resolved = path.resolve(args.output)
+    if (output) {
+      const resolved = path.resolve(output)
       yield* Effect.promise(async () => {
         const fs = await import("fs/promises")
         await fs.mkdir(path.dirname(resolved), { recursive: true })
