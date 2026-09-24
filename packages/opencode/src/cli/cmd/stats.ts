@@ -206,48 +206,61 @@ export function formatStatsJson(
 
 export const runStats = Effect.fn("Cli.stats.run")(function* (args: {
   days?: number
+  d?: number
   tools?: number
   models?: boolean | number
   project?: string
+  p?: string
   provider?: string
   model?: string
+  m?: string
   budget?: number
+  b?: number
   budgetCheck?: boolean
   json?: boolean
   output?: string
+  o?: string
 }) {
-  if (args.budgetCheck && args.budget === undefined) {
+  const days = args.days ?? args.d
+  const project = args.project ?? args.p
+  const model = args.model ?? args.m
+  const budget = args.budget ?? args.b
+  const output = args.output ?? args.o
+  const isJson = Boolean(args.json)
+  const budgetCheck = Boolean(args.budgetCheck)
+
+  if (budgetCheck && budget === undefined) {
     yield* fail("--budget-check requires --budget <amount> to be specified")
   }
-  if (args.budget !== undefined && (isNaN(args.budget) || args.budget < 0)) {
+  if (budget !== undefined && (isNaN(budget) || budget < 0)) {
     yield* fail("--budget must be a non-negative number")
   }
   const ctx = yield* InstanceRef
   if (!ctx) return
-  const stats = yield* aggregateSessionStats(args.days, args.project, ctx.project, args.provider, args.model)
+  const stats = yield* aggregateSessionStats(days, project, ctx.project, args.provider, model)
   let modelLimit: number | undefined
-  if (args.models === true || ((args.provider || args.model) && args.models === undefined)) {
+  if (args.models === true || ((args.provider || model) && args.models === undefined)) {
     modelLimit = Infinity
   } else if (typeof args.models === "number") {
     modelLimit = args.models
   }
-  const budgetInfo = args.budget !== undefined ? computeBudgetStats(stats.totalCost, args.budget) : undefined
-  if (args.json) {
+  const budgetInfo = budget !== undefined ? computeBudgetStats(stats.totalCost, budget) : undefined
+  if (isJson) {
     const out = formatStatsJson(
       stats,
       args.tools,
       modelLimit,
       {
-        days: args.days,
-        project: args.project,
+        days,
+        project,
         provider: args.provider,
-        model: args.model,
+        model,
       },
       budgetInfo,
     )
     const jsonStr = JSON.stringify(out, null, 2) + "\n"
-    if (args.output) {
-      const resolved = path.resolve(args.output)
+    if (output) {
+      const resolved = path.resolve(output)
       yield* Effect.promise(async () => {
         await fs.mkdir(path.dirname(resolved), { recursive: true })
         await fs.writeFile(resolved, jsonStr, "utf-8")
@@ -256,7 +269,7 @@ export const runStats = Effect.fn("Cli.stats.run")(function* (args: {
     } else {
       process.stdout.write(jsonStr)
     }
-    if (args.budgetCheck && budgetInfo?.exceeded) {
+    if (budgetCheck && budgetInfo?.exceeded) {
       yield* fail(
         `Budget limit exceeded: spent $${budgetInfo.used.toFixed(2)} of $${budgetInfo.limit.toFixed(2)} budget (${budgetInfo.percentage.toFixed(1)}%)`,
         2,
@@ -264,26 +277,26 @@ export const runStats = Effect.fn("Cli.stats.run")(function* (args: {
     }
     return out
   }
-  if (args.output) {
+  if (output) {
     const text = renderStatsText(
       stats,
       args.tools,
       modelLimit,
       {
-        days: args.days,
-        project: args.project,
+        days,
+        project,
         provider: args.provider,
-        model: args.model,
+        model,
       },
       budgetInfo,
     )
-    const resolved = path.resolve(args.output)
+    const resolved = path.resolve(output)
     yield* Effect.promise(async () => {
       await fs.mkdir(path.dirname(resolved), { recursive: true })
       await fs.writeFile(resolved, text, "utf-8")
     })
     UI.println(`Wrote statistics to ${resolved}`)
-    if (args.budgetCheck && budgetInfo?.exceeded) {
+    if (budgetCheck && budgetInfo?.exceeded) {
       yield* fail(
         `Budget limit exceeded: spent $${budgetInfo.used.toFixed(2)} of $${budgetInfo.limit.toFixed(2)} budget (${budgetInfo.percentage.toFixed(1)}%)`,
         2,
@@ -296,14 +309,14 @@ export const runStats = Effect.fn("Cli.stats.run")(function* (args: {
     args.tools,
     modelLimit,
     {
-      days: args.days,
-      project: args.project,
+      days,
+      project,
       provider: args.provider,
-      model: args.model,
+      model,
     },
     budgetInfo,
   )
-  if (args.budgetCheck && budgetInfo?.exceeded) {
+  if (budgetCheck && budgetInfo?.exceeded) {
     yield* fail(
       `Budget limit exceeded: spent $${budgetInfo.used.toFixed(2)} of $${budgetInfo.limit.toFixed(2)} budget (${budgetInfo.percentage.toFixed(1)}%)`,
       2,
@@ -339,10 +352,12 @@ export const StatsCommand = effectCmd({
         type: "string",
       })
       .option("model", {
+        alias: "m",
         describe: "filter by model ID or provider/model (e.g. deepseek-v4.1-flash, kimi-k2.7-code)",
         type: "string",
       })
       .option("budget", {
+        alias: "b",
         describe: "budget limit in USD to compare spend against (e.g. 10.00)",
         type: "number",
       })
@@ -361,16 +376,16 @@ export const StatsCommand = effectCmd({
       }),
   handler: Effect.fn("Cli.stats")(function* (args) {
     yield* runStats({
-      days: args.days,
+      days: args.days ?? (args as any).d,
       tools: args.tools,
       models: args.models as boolean | number | undefined,
-      project: args.project,
+      project: args.project ?? (args as any).p,
       provider: args.provider,
-      model: args.model,
-      budget: args.budget,
+      model: args.model ?? (args as any).m,
+      budget: args.budget ?? (args as any).b,
       budgetCheck: Boolean(args["budget-check"] ?? args.budgetCheck),
       json: Boolean(args.json),
-      output: args.output,
+      output: args.output ?? (args as any).o,
     })
   }),
 })

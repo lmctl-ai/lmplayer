@@ -21,7 +21,7 @@ import { tmpdir } from "../fixture/fixture"
 import yargs, { type Argv } from "yargs"
 
 describe("StatsCommand options and builder", () => {
-  test("StatsCommand registers days, tools, models, project, budget, output, and json options", () => {
+  test("StatsCommand registers days, tools, models, project, model, budget, output, and json options", () => {
     expect(StatsCommand.command).toBe("stats")
     const builder = StatsCommand.builder as (y: Argv) => Argv<any>
     const parser = builder(yargs())
@@ -39,41 +39,60 @@ describe("StatsCommand options and builder", () => {
     expect(options.key.p).toBeDefined()
     expect(options.key.provider).toBeDefined()
     expect(options.key.model).toBeDefined()
+    expect(options.key.m).toBeDefined()
     expect(options.key.budget).toBeDefined()
+    expect(options.key.b).toBeDefined()
     expect(options.key["budget-check"]).toBeDefined()
     expect(options.boolean).toContain("budget-check")
   })
 
-  test("StatsCommand parses days, project, output, and json options from arguments", async () => {
+  test("StatsCommand parses days, project, model, budget, output, and json options from arguments", async () => {
     const builder = StatsCommand.builder as (y: Argv) => Argv<any>
     const parsed = await builder(yargs()).parseAsync([
       "--days",
       "7",
       "--project",
       "my-project",
+      "--model",
+      "deepseek-v4.1-flash",
+      "--budget",
+      "15.5",
       "--output",
       "stats.json",
       "--json",
     ])
     expect(parsed.days).toBe(7)
     expect(parsed.project).toBe("my-project")
+    expect(parsed.model).toBe("deepseek-v4.1-flash")
+    expect(parsed.budget).toBe(15.5)
     expect(parsed.output).toBe("stats.json")
     expect(parsed.json).toBe(true)
   })
 
-  test("StatsCommand parses -d, -p, and -o short aliases", async () => {
+  test("StatsCommand parses -d, -p, -m, -b, and -o short aliases", async () => {
     const builder = StatsCommand.builder as (y: Argv) => Argv<any>
     const parsed = await builder(yargs()).parseAsync([
       "-d",
       "14",
       "-p",
       "scoped-proj",
+      "-m",
+      "kimi-k2.7-code",
+      "-b",
+      "25",
       "-o",
       "stats.txt",
     ])
     expect(parsed.days).toBe(14)
+    expect(parsed.d).toBe(14)
     expect(parsed.project).toBe("scoped-proj")
+    expect(parsed.p).toBe("scoped-proj")
+    expect(parsed.model).toBe("kimi-k2.7-code")
+    expect(parsed.m).toBe("kimi-k2.7-code")
+    expect(parsed.budget).toBe(25)
+    expect(parsed.b).toBe(25)
     expect(parsed.output).toBe("stats.txt")
+    expect(parsed.o).toBe("stats.txt")
   })
 })
 
@@ -609,4 +628,69 @@ describe("StatsCommand in-process execution", () => {
       await InstanceRuntime.disposeInstance(ctx)
     }
   })
+
+  test("runs stats with short alias parameters (d, p, m, b, o)", async () => {
+    const tmp = await tmpdir({ git: true })
+    const ctx = await InstanceRuntime.load({ directory: tmp.path })
+
+    try {
+      const session = await AppRuntime.runPromise(
+        Session.Service.use((svc) => svc.create({ title: "Alias Test Session" })).pipe(
+          Effect.provideService(InstanceRef, ctx),
+        ),
+      )
+
+      await AppRuntime.runPromise(
+        Session.Service.use((svc) =>
+          svc.updateMessage({
+            id: MessageID.ascending(),
+            sessionID: session.id,
+            parentID: MessageID.ascending(),
+            role: "assistant",
+            time: { created: Date.now() },
+            providerID: "ollama-cloud",
+            modelID: "deepseek-v4.1-flash",
+            mode: "",
+            agent: "agent",
+            path: { cwd: "/", root: "/" },
+            cost: 0.025,
+            tokens: {
+              input: 300,
+              output: 150,
+              reasoning: 50,
+              cache: { read: 30, write: 15 },
+            },
+          } as any),
+        ).pipe(Effect.provideService(InstanceRef, ctx)),
+      )
+
+      const aliasOutPath = path.join(tmp.path, "alias-reports", "stats.json")
+      const result = (await AppRuntime.runPromise(
+        runStats({
+          d: 7,
+          p: "",
+          m: "deepseek-v4.1-flash",
+          b: 5.0,
+          o: aliasOutPath,
+          json: true,
+        }).pipe(Effect.provideService(InstanceRef, ctx)),
+      )) as any
+
+      expect(result).toBeDefined()
+      expect(result.total_sessions).toBe(1)
+      expect(result.budget).toBeDefined()
+      expect(result.budget.limit).toBe(5.0)
+      expect(result.budget.used).toBe(0.025)
+      expect(result.model_usage["ollama-cloud/deepseek-v4.1-flash"]).toBeDefined()
+
+      const fileExists = await fs.stat(aliasOutPath).then(() => true, () => false)
+      expect(fileExists).toBe(true)
+      const fileParsed = JSON.parse(await fs.readFile(aliasOutPath, "utf-8"))
+      expect(fileParsed.total_sessions).toBe(1)
+      expect(fileParsed.budget.limit).toBe(5.0)
+    } finally {
+      await InstanceRuntime.disposeInstance(ctx)
+    }
+  })
 })
+
