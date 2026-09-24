@@ -44,6 +44,7 @@ const mapConfigError = <A, R>(effect: Effect.Effect<A, never, R>) =>
 const addScopeOptions = (yargs: Argv) =>
   yargs
     .option("scope", {
+      alias: "s",
       describe: "configuration target scope (project or global)",
       choices: ["project", "global"] as const,
       type: "string",
@@ -59,10 +60,13 @@ const addScopeOptions = (yargs: Argv) =>
       type: "boolean",
     })
     .check((argv) => {
-      if (argv.project && argv.global) {
+      const isProject = Boolean(argv.project ?? (argv as any).p)
+      const isGlobal = Boolean(argv.global ?? (argv as any).g)
+      const scope = argv.scope ?? (argv as any).s
+      if (isProject && isGlobal) {
         throw new Error("Cannot specify both --project and --global")
       }
-      if (argv.scope && (argv.project || argv.global)) {
+      if (scope && (isProject || isGlobal)) {
         throw new Error("Cannot specify both --scope and --project/--global")
       }
       return true
@@ -90,14 +94,21 @@ export const ConfigGetCommand = effectCmd({
   handler: Effect.fn("Cli.config.get")(function* (args: {
     key?: string
     output?: string
+    o?: string
     json?: boolean
     project?: boolean
+    p?: boolean
     global?: boolean
+    g?: boolean
     scope?: "project" | "global"
+    s?: "project" | "global"
   }) {
     const { Config } = yield* Effect.promise(() => import("@/config/config"))
-    const isProject = args.project || args.scope === "project"
-    const isGlobal = args.global || args.scope === "global"
+    const scope = args.scope ?? (args as any).s
+    const isProject = Boolean(args.project ?? (args as any).p) || scope === "project"
+    const isGlobal = Boolean(args.global ?? (args as any).g) || scope === "global"
+    const output = args.output ?? (args as any).o
+    const isJson = Boolean(args.json)
 
     const config = yield* mapConfigError(
       Config.Service.use((cfg) => {
@@ -109,8 +120,8 @@ export const ConfigGetCommand = effectCmd({
 
     if (!args.key) {
       const jsonOut = JSON.stringify(config, null, 2)
-      if (args.output) {
-        const resolved = path.resolve(args.output)
+      if (output) {
+        const resolved = path.resolve(output)
         yield* Effect.promise(async () => {
           const fs = await import("fs/promises")
           await fs.mkdir(path.dirname(resolved), { recursive: true })
@@ -132,9 +143,9 @@ export const ConfigGetCommand = effectCmd({
     }
 
     const out =
-      args.json || (value !== null && typeof value === "object") ? JSON.stringify(value, null, 2) : String(value)
-    if (args.output) {
-      const resolved = path.resolve(args.output)
+      isJson || (value !== null && typeof value === "object") ? JSON.stringify(value, null, 2) : String(value)
+    if (output) {
+      const resolved = path.resolve(output)
       yield* Effect.promise(async () => {
         const fs = await import("fs/promises")
         await fs.mkdir(path.dirname(resolved), { recursive: true })
@@ -165,14 +176,20 @@ export const ConfigListCommand = effectCmd({
       }),
   handler: Effect.fn("Cli.config.list")(function* (args: {
     output?: string
+    o?: string
     json?: boolean
     project?: boolean
+    p?: boolean
     global?: boolean
+    g?: boolean
     scope?: "project" | "global"
+    s?: "project" | "global"
   }) {
     const { Config } = yield* Effect.promise(() => import("@/config/config"))
-    const isProject = args.project || args.scope === "project"
-    const isGlobal = args.global || args.scope === "global"
+    const scope = args.scope ?? (args as any).s
+    const isProject = Boolean(args.project ?? (args as any).p) || scope === "project"
+    const isGlobal = Boolean(args.global ?? (args as any).g) || scope === "global"
+    const output = args.output ?? (args as any).o
 
     const config = yield* mapConfigError(
       Config.Service.use((cfg) => {
@@ -183,8 +200,8 @@ export const ConfigListCommand = effectCmd({
     )
 
     const jsonOut = JSON.stringify(config, null, 2)
-    if (args.output) {
-      const resolved = path.resolve(args.output)
+    if (output) {
+      const resolved = path.resolve(output)
       yield* Effect.promise(async () => {
         const fs = await import("fs/promises")
         await fs.mkdir(path.dirname(resolved), { recursive: true })
@@ -215,9 +232,13 @@ export const ConfigSetCommand = effectCmd({
     value: string
     json?: boolean
     output?: string
+    o?: string
     project?: boolean
+    p?: boolean
     global?: boolean
+    g?: boolean
     scope?: "project" | "global"
+    s?: "project" | "global"
   }) {
     const { Config } = yield* Effect.promise(() => import("@/config/config"))
 
@@ -234,7 +255,9 @@ export const ConfigSetCommand = effectCmd({
       coerced = coerceValue(args.value)
     }
 
-    const isProject = args.project || args.scope === "project"
+    const scope = args.scope ?? (args as any).s
+    const isProject = Boolean(args.project ?? (args as any).p) || scope === "project"
+    const output = args.output ?? (args as any).o
 
     // Build a nested partial Info from the dotted path (model -> {model}, ...).
     const segments = splitKey(args.key)
@@ -248,12 +271,12 @@ export const ConfigSetCommand = effectCmd({
 
     const textResult = `set ${args.key} = ${JSON.stringify(coerced)}${EOL}`
 
-    if (args.output) {
-      const resolved = path.resolve(args.output)
+    if (output) {
+      const resolved = path.resolve(output)
       yield* Effect.promise(async () => {
         const fs = await import("fs/promises")
         await fs.mkdir(path.dirname(resolved), { recursive: true })
-        if (args.output?.endsWith(".json")) {
+        if (output.endsWith(".json")) {
           await fs.writeFile(
             resolved,
             JSON.stringify(
@@ -321,13 +344,20 @@ export const ConfigUnsetCommand = effectCmd({
   handler: Effect.fn("Cli.config.unset")(function* (args: {
     key: string
     output?: string
+    o?: string
     json?: boolean
     project?: boolean
+    p?: boolean
     global?: boolean
+    g?: boolean
     scope?: "project" | "global"
+    s?: "project" | "global"
   }) {
     const { Config } = yield* Effect.promise(() => import("@/config/config"))
-    const isProject = args.project || args.scope === "project"
+    const scope = args.scope ?? (args as any).s
+    const isProject = Boolean(args.project ?? (args as any).p) || scope === "project"
+    const output = args.output ?? (args as any).o
+    const isJson = Boolean(args.json)
     const segments = splitKey(args.key)
 
     const result = yield* mapConfigError(
@@ -347,15 +377,15 @@ export const ConfigUnsetCommand = effectCmd({
         2,
       ) + EOL
 
-    if (args.output) {
-      const resolved = path.resolve(args.output)
+    if (output) {
+      const resolved = path.resolve(output)
       yield* Effect.promise(async () => {
         const fs = await import("fs/promises")
         await fs.mkdir(path.dirname(resolved), { recursive: true })
-        await fs.writeFile(resolved, args.json ? jsonResult : textResult, "utf-8")
+        await fs.writeFile(resolved, isJson ? jsonResult : textResult, "utf-8")
       })
       UI.println(`Wrote config unset result to ${resolved}`)
-    } else if (args.json) {
+    } else if (isJson) {
       process.stdout.write(jsonResult)
     } else {
       process.stdout.write(textResult)
@@ -414,9 +444,12 @@ export const ConfigVerifyCommand = effectCmd({
       }),
   handler: Effect.fn("Cli.config.verify")(function* (args: {
     output?: string
+    o?: string
     json?: boolean
   }) {
     const { Config } = yield* Effect.promise(() => import("@/config/config"))
+    const output = args.output ?? (args as any).o
+    const isJson = Boolean(args.json)
 
     // Load the effective config exactly like the app does. JSONC parsing and
     // schema validation sync-throw a ConfigInvalidError/ConfigJsonError (a
@@ -433,7 +466,7 @@ export const ConfigVerifyCommand = effectCmd({
 
     const sources = configSources(process.cwd())
 
-    if (args.json) {
+    if (isJson) {
       const result = {
         ok: true,
         sources,
@@ -443,8 +476,8 @@ export const ConfigVerifyCommand = effectCmd({
         default_variant: config.default_variant ?? config.variant ?? null,
       }
       const jsonOut = JSON.stringify(result, null, 2)
-      if (args.output) {
-        const resolved = path.resolve(args.output)
+      if (output) {
+        const resolved = path.resolve(output)
         yield* Effect.promise(async () => {
           const fs = await import("fs/promises")
           await fs.mkdir(path.dirname(resolved), { recursive: true })
@@ -457,7 +490,7 @@ export const ConfigVerifyCommand = effectCmd({
       return
     }
 
-    if (args.output) {
+    if (output) {
       const plainReport = [
         "Config OK",
         ...sources.map((s) => `  ${s}`),
@@ -466,7 +499,7 @@ export const ConfigVerifyCommand = effectCmd({
         `  default_agent: ${config.default_agent ?? "(default)"}`,
         `  default_variant: ${config.default_variant ?? config.variant ?? "(default)"}`,
       ].join(EOL) + EOL
-      const resolved = path.resolve(args.output)
+      const resolved = path.resolve(output)
       yield* Effect.promise(async () => {
         const fs = await import("fs/promises")
         await fs.mkdir(path.dirname(resolved), { recursive: true })
@@ -501,14 +534,21 @@ export const ConfigPathCommand = effectCmd({
       }),
   handler: Effect.fn("Cli.config.path")(function* (args: {
     scope?: "project" | "global"
+    s?: "project" | "global"
     project?: boolean
+    p?: boolean
     global?: boolean
+    g?: boolean
     output?: string
+    o?: string
     json?: boolean
   }) {
     const { globalConfigFile, projectConfigFile } = yield* Effect.promise(() => import("@/config/config"))
-    const isProject = args.project || args.scope === "project"
-    const isGlobal = args.global || args.scope === "global"
+    const scope = args.scope ?? (args as any).s
+    const isProject = Boolean(args.project ?? (args as any).p) || scope === "project"
+    const isGlobal = Boolean(args.global ?? (args as any).g) || scope === "global"
+    const output = args.output ?? (args as any).o
+    const isJson = Boolean(args.json)
 
     const projectFile = projectConfigFile(process.cwd())
     const globalFile = globalConfigFile()
@@ -516,7 +556,7 @@ export const ConfigPathCommand = effectCmd({
     let textContent = ""
     let jsonContent: unknown = undefined
 
-    if (args.json) {
+    if (isJson) {
       const sources = configSources(process.cwd())
       jsonContent = {
         project: projectFile,
@@ -533,12 +573,12 @@ export const ConfigPathCommand = effectCmd({
       textContent = sources.join(EOL) + EOL
     }
 
-    if (args.output) {
-      const resolved = path.resolve(args.output)
+    if (output) {
+      const resolved = path.resolve(output)
       yield* Effect.promise(async () => {
         const fs = await import("fs/promises")
         await fs.mkdir(path.dirname(resolved), { recursive: true })
-        if (args.json) {
+        if (isJson) {
           await fs.writeFile(resolved, JSON.stringify(jsonContent, null, 2) + EOL, "utf-8")
         } else {
           await fs.writeFile(resolved, textContent, "utf-8")
@@ -548,7 +588,7 @@ export const ConfigPathCommand = effectCmd({
       return
     }
 
-    if (args.json) {
+    if (isJson) {
       process.stdout.write(JSON.stringify(jsonContent, null, 2) + EOL)
       return
     }
