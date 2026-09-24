@@ -1809,7 +1809,7 @@ export const SessionDiffCommand = effectCmd({
         demandOption: true,
       })
       .option("file", {
-        alias: "path",
+        alias: ["path", "f"],
         describe: "filter diffs by file path",
         type: "string",
       })
@@ -1824,6 +1824,7 @@ export const SessionDiffCommand = effectCmd({
         type: "string",
       })
       .option("stat", {
+        alias: "s",
         describe: "show diffstat summary only",
         type: "boolean",
       })
@@ -1834,11 +1835,21 @@ export const SessionDiffCommand = effectCmd({
   handler: Effect.fn("Cli.session.diff")(function* (args: {
     sessionID: string
     file?: string
+    path?: string
+    f?: string
     output?: string
+    o?: string
     message?: string
+    m?: string
     stat?: boolean
+    s?: boolean
     json?: boolean
   }) {
+    const file = args.file ?? (args as any).path ?? (args as any).f
+    const output = args.output ?? (args as any).o
+    const message = args.message ?? (args as any).m
+    const stat = Boolean(args.stat ?? (args as any).s)
+    const isJson = Boolean(args.json)
     const sdk = yield* localSdk()
     const sessionRes = yield* Effect.promise(async () => {
       return sdk.session.get({ sessionID: args.sessionID })
@@ -1852,7 +1863,7 @@ export const SessionDiffCommand = effectCmd({
     const result = yield* Effect.promise(async () => {
       return sdk.session.diff({
         sessionID: args.sessionID,
-        messageID: args.message,
+        messageID: message,
       })
     })
     if (result.error || !result.data) {
@@ -1863,17 +1874,17 @@ export const SessionDiffCommand = effectCmd({
     }
 
     let diffs = result.data as SessionFileDiff[]
-    if (args.file) {
-      const query = args.file.toLowerCase()
+    if (file) {
+      const query = file.toLowerCase()
       diffs = diffs.filter(
         (d) => d.file && (d.file.toLowerCase().includes(query) || path.basename(d.file).toLowerCase() === query),
       )
     }
 
-    if (args.json) {
+    if (isJson) {
       const jsonOutput = JSON.stringify(diffs, null, 2)
-      if (args.output) {
-        const resolved = path.resolve(args.output)
+      if (output) {
+        const resolved = path.resolve(output)
         yield* Effect.promise(async () => {
           const fs = await import("fs/promises")
           await fs.mkdir(path.dirname(resolved), { recursive: true })
@@ -1886,12 +1897,12 @@ export const SessionDiffCommand = effectCmd({
       return
     }
 
-    const outputText = args.stat
+    const outputText = stat
       ? formatSessionDiffStat(args.sessionID, diffs)
       : formatSessionDiff(args.sessionID, diffs)
 
-    if (args.output) {
-      const resolved = path.resolve(args.output)
+    if (output) {
+      const resolved = path.resolve(output)
       yield* Effect.promise(async () => {
         const fs = await import("fs/promises")
         await fs.mkdir(path.dirname(resolved), { recursive: true })
@@ -1908,11 +1919,16 @@ export const SessionDiffCommand = effectCmd({
 export type SessionMemoryArgs = {
   sessionID: string
   output?: string
+  o?: string
   json?: boolean
   write?: string
+  w?: string
   append?: string
+  a?: string
   file?: string
+  f?: string
   clear?: boolean
+  c?: boolean
 }
 
 export const sessionMemory = Effect.fn("Cli.session.memory")(function* (args: SessionMemoryArgs) {
@@ -1925,7 +1941,14 @@ export const sessionMemory = Effect.fn("Cli.session.memory")(function* (args: Se
     return yield* fail(`Session not found: ${args.sessionID}`)
   }
 
-  const mutatingOptions = [args.write !== undefined, args.append !== undefined, args.file !== undefined, Boolean(args.clear)].filter(
+  const output = args.output ?? (args as any).o
+  const isJson = Boolean(args.json)
+  const write = args.write ?? (args as any).w
+  const append = args.append ?? (args as any).a
+  const file = args.file ?? (args as any).f
+  const clear = Boolean(args.clear ?? (args as any).c)
+
+  const mutatingOptions = [write !== undefined, append !== undefined, file !== undefined, clear].filter(
     Boolean,
   )
   if (mutatingOptions.length > 1) {
@@ -1938,9 +1961,9 @@ export const sessionMemory = Effect.fn("Cli.session.memory")(function* (args: Se
   const writeMemory = (id: string, text: string) => SessionDurableMemory.write(id, text).pipe(Effect.mapError(toCliError))
 
   // 1. Clear mode
-  if (args.clear) {
+  if (clear) {
     yield* writeMemory(args.sessionID, "")
-    if (args.json) {
+    if (isJson) {
       process.stdout.write(
         JSON.stringify(
           {
@@ -1961,14 +1984,14 @@ export const sessionMemory = Effect.fn("Cli.session.memory")(function* (args: Se
   }
 
   // 2. File write mode
-  if (args.file) {
-    const fileContent = yield* fsUtil.readFileStringSafe(args.file).pipe(Effect.mapError(toCliError))
+  if (file) {
+    const fileContent = yield* fsUtil.readFileStringSafe(file).pipe(Effect.mapError(toCliError))
     if (fileContent === undefined) {
-      return yield* fail(`Failed to read file: ${args.file}`)
+      return yield* fail(`Failed to read file: ${file}`)
     }
     yield* writeMemory(args.sessionID, fileContent)
     const bytes = Buffer.byteLength(fileContent, "utf-8")
-    if (args.json) {
+    if (isJson) {
       process.stdout.write(
         JSON.stringify(
           {
@@ -1984,15 +2007,15 @@ export const sessionMemory = Effect.fn("Cli.session.memory")(function* (args: Se
       )
       return
     }
-    console.log(`Durable memory updated for session ${args.sessionID} (${bytes} bytes from ${args.file})`)
+    console.log(`Durable memory updated for session ${args.sessionID} (${bytes} bytes from ${file})`)
     return
   }
 
   // 3. Direct write mode
-  if (args.write !== undefined) {
-    yield* writeMemory(args.sessionID, args.write)
-    const bytes = Buffer.byteLength(args.write, "utf-8")
-    if (args.json) {
+  if (write !== undefined) {
+    yield* writeMemory(args.sessionID, write)
+    const bytes = Buffer.byteLength(write, "utf-8")
+    if (isJson) {
       process.stdout.write(
         JSON.stringify(
           {
@@ -2013,15 +2036,15 @@ export const sessionMemory = Effect.fn("Cli.session.memory")(function* (args: Se
   }
 
   // 4. Append mode
-  if (args.append !== undefined) {
-    if (!args.append.trim()) {
+  if (append !== undefined) {
+    if (!append.trim()) {
       return yield* fail("Durable memory append requires non-empty content")
     }
     const prior = (yield* readMemory(args.sessionID)) ?? ""
-    const updated = prior.trim() ? `${prior.trim()}\n\n${args.append.trim()}` : args.append.trim()
+    const updated = prior.trim() ? `${prior.trim()}\n\n${append.trim()}` : append.trim()
     yield* writeMemory(args.sessionID, updated)
     const bytes = Buffer.byteLength(updated, "utf-8")
-    if (args.json) {
+    if (isJson) {
       process.stdout.write(
         JSON.stringify(
           {
@@ -2046,12 +2069,12 @@ export const sessionMemory = Effect.fn("Cli.session.memory")(function* (args: Se
   const bytes = Buffer.byteLength(content, "utf-8")
   const exists = Boolean(content.trim())
 
-  if (args.output) {
-    const resolved = path.resolve(args.output)
+  if (output) {
+    const resolved = path.resolve(output)
     yield* Effect.promise(async () => {
       const fs = await import("fs/promises")
       await fs.mkdir(path.dirname(resolved), { recursive: true })
-      if (args.json) {
+      if (isJson) {
         await fs.writeFile(
           resolved,
           JSON.stringify({ sessionID: args.sessionID, path: memoryPath, exists, bytes, content }, null, 2) + EOL,
@@ -2061,7 +2084,7 @@ export const sessionMemory = Effect.fn("Cli.session.memory")(function* (args: Se
         await fs.writeFile(resolved, content.endsWith("\n") ? content : content + EOL, "utf-8")
       }
     })
-    if (args.json) {
+    if (isJson) {
       process.stdout.write(JSON.stringify({ ok: true, file: resolved, bytes }, null, 2) + EOL)
     } else {
       UI.println(`Wrote durable memory (${bytes} bytes) to ${resolved}`)
@@ -2069,7 +2092,7 @@ export const sessionMemory = Effect.fn("Cli.session.memory")(function* (args: Se
     return
   }
 
-  if (args.json) {
+  if (isJson) {
     process.stdout.write(
       JSON.stringify(
         {
@@ -2115,18 +2138,22 @@ export const SessionMemoryCommand = effectCmd({
         type: "boolean",
       })
       .option("write", {
+        alias: "w",
         describe: "replace durable memory with markdown text",
         type: "string",
       })
       .option("append", {
+        alias: "a",
         describe: "append markdown text to durable memory",
         type: "string",
       })
       .option("file", {
+        alias: "f",
         describe: "replace durable memory with content from a file",
         type: "string",
       })
       .option("clear", {
+        alias: "c",
         describe: "clear/wipe durable memory for the session",
         type: "boolean",
       }),
