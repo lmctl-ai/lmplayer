@@ -1406,11 +1406,19 @@ export const SessionJobsCommand = effectCmd({
   handler: Effect.fn("Cli.session.jobs")(function* (args: {
     sessionID: string
     output?: string
+    o?: string
     job?: string
+    j?: string
     status?: string
+    s?: string
     file?: string
     json?: boolean
   }) {
+    const outputJob = args.output ?? (args as any).o
+    const job = args.job ?? (args as any).j
+    const status = args.status ?? (args as any).s
+    const file = args.file
+    const isJson = Boolean(args.json)
     const sdk = yield* localSdk()
     const sessionRes = yield* Effect.promise(async () => {
       return sdk.session.get({ sessionID: args.sessionID })
@@ -1421,20 +1429,20 @@ export const SessionJobsCommand = effectCmd({
       )
     }
 
-    if (args.output) {
+    if (outputJob) {
       const result = yield* Effect.promise(async () => {
         return sdk.session.job2.output({
           sessionID: args.sessionID,
-          jobID: args.output!,
+          jobID: outputJob,
         })
       })
       if (result.error || !result.data) {
-        const msg = (result.error as { message?: string } | undefined)?.message ?? `Job not found: ${args.output}`
+        const msg = (result.error as { message?: string } | undefined)?.message ?? `Job not found: ${outputJob}`
         return yield* fail(msg)
       }
-      if (args.file) {
-        if (args.json) {
-          yield* writeOutputFile(args.file, JSON.stringify(result.data, null, 2), "job output")
+      if (file) {
+        if (isJson) {
+          yield* writeOutputFile(file, JSON.stringify(result.data, null, 2), "job output")
         } else {
           let text = ""
           if (result.data.untrustedOutput) {
@@ -1442,15 +1450,15 @@ export const SessionJobsCommand = effectCmd({
               ? result.data.untrustedOutput
               : result.data.untrustedOutput + EOL
           } else if (result.data.outputExpired) {
-            text = `Job ${args.output} output has expired` + EOL
+            text = `Job ${outputJob} output has expired` + EOL
           } else {
-            text = `Job ${args.output} has no output` + EOL
+            text = `Job ${outputJob} has no output` + EOL
           }
-          yield* writeOutputFile(args.file, text, "job output")
+          yield* writeOutputFile(file, text, "job output")
         }
         return
       }
-      if (args.json) {
+      if (isJson) {
         console.log(JSON.stringify(result.data, null, 2))
       } else {
         if (result.data.untrustedOutput) {
@@ -1460,34 +1468,34 @@ export const SessionJobsCommand = effectCmd({
               : result.data.untrustedOutput + "\n",
           )
         } else if (result.data.outputExpired) {
-          console.log(`Job ${args.output} output has expired`)
+          console.log(`Job ${outputJob} output has expired`)
         } else {
-          console.log(`Job ${args.output} has no output`)
+          console.log(`Job ${outputJob} has no output`)
         }
       }
       return
     }
 
-    if (args.job) {
+    if (job) {
       const result = yield* Effect.promise(async () => {
         return sdk.session.job({
           sessionID: args.sessionID,
-          jobID: args.job!,
+          jobID: job,
         })
       })
       if (result.error || !result.data) {
-        const msg = (result.error as { message?: string } | undefined)?.message ?? `Job not found: ${args.job}`
+        const msg = (result.error as { message?: string } | undefined)?.message ?? `Job not found: ${job}`
         return yield* fail(msg)
       }
-      if (args.file) {
-        if (args.json) {
-          yield* writeOutputFile(args.file, JSON.stringify(result.data, null, 2), "job details")
+      if (file) {
+        if (isJson) {
+          yield* writeOutputFile(file, JSON.stringify(result.data, null, 2), "job details")
         } else {
-          yield* writeOutputFile(args.file, formatJobDetail(result.data) + EOL, "job details")
+          yield* writeOutputFile(file, formatJobDetail(result.data) + EOL, "job details")
         }
         return
       }
-      if (args.json) {
+      if (isJson) {
         console.log(JSON.stringify(result.data, null, 2))
       } else {
         console.log(formatJobDetail(result.data))
@@ -1504,32 +1512,32 @@ export const SessionJobsCommand = effectCmd({
     }
 
     let jobs = result.data
-    if (args.status) {
-      jobs = jobs.filter((j) => j.status === args.status)
+    if (status) {
+      jobs = jobs.filter((j) => j.status === status)
     }
 
-    if (args.file) {
-      if (args.json) {
-        yield* writeOutputFile(args.file, JSON.stringify(jobs, null, 2), "jobs")
+    if (file) {
+      if (isJson) {
+        yield* writeOutputFile(file, JSON.stringify(jobs, null, 2), "jobs")
       } else {
         if (jobs.length === 0) {
-          const emptyMsg = args.status
-            ? `No background jobs found with status "${args.status}" for session ${args.sessionID}`
+          const emptyMsg = status
+            ? `No background jobs found with status "${status}" for session ${args.sessionID}`
             : `No background jobs found for session ${args.sessionID}`
-          yield* writeOutputFile(args.file, emptyMsg + EOL, "jobs")
+          yield* writeOutputFile(file, emptyMsg + EOL, "jobs")
         } else {
-          yield* writeOutputFile(args.file, formatJobsTable(jobs) + EOL, "jobs")
+          yield* writeOutputFile(file, formatJobsTable(jobs) + EOL, "jobs")
         }
       }
       return
     }
 
-    if (args.json) {
+    if (isJson) {
       console.log(JSON.stringify(jobs, null, 2))
     } else {
       if (jobs.length === 0) {
-        if (args.status) {
-          console.log(`No background jobs found with status "${args.status}" for session ${args.sessionID}`)
+        if (status) {
+          console.log(`No background jobs found with status "${status}" for session ${args.sessionID}`)
         } else {
           console.log(`No background jobs found for session ${args.sessionID}`)
         }

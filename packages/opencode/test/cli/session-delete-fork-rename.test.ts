@@ -7,6 +7,7 @@ import {
   SessionShareCommand,
   SessionUnshareCommand,
   SessionCompactCommand,
+  SessionJobsCommand,
 } from "../../src/cli/cmd/session"
 
 describe("Session delete, rename, fork, share, unshare option builders", () => {
@@ -153,6 +154,37 @@ describe("Session delete, rename, fork, share, unshare option builders", () => {
     expect(parsed.auto).toBe(true)
     expect(parsed.output).toBe("compact.json")
     expect(parsed.o).toBe("compact.json")
+    expect(parsed.json).toBe(true)
+  })
+
+  test("SessionJobsCommand registers output (-o), job (-j), status (-s), file, and json options", () => {
+    expect(SessionJobsCommand.command).toBe("jobs <sessionID>")
+    const builder = SessionJobsCommand.builder as (y: Argv) => Argv<any>
+    const parser = builder(yargs())
+    const options = (parser as any).getOptions()
+    expect(options.key.output).toBeDefined()
+    expect(options.key.o).toBeDefined()
+    expect(options.key.job).toBeDefined()
+    expect(options.key.j).toBeDefined()
+    expect(options.key.status).toBeDefined()
+    expect(options.key.s).toBeDefined()
+    expect(options.key.file).toBeDefined()
+    expect(options.key.json).toBeDefined()
+    expect(options.boolean).toContain("json")
+  })
+
+  test("SessionJobsCommand parses positionals and -o, -j, -s, --file, --json flags", async () => {
+    const parsed = await yargs()
+      .command({ ...SessionJobsCommand, handler: () => {} })
+      .parseAsync(["jobs", "ses_job_test", "-o", "job_123", "-j", "job_456", "-s", "running", "--file", "jobs.json", "--json"])
+    expect(parsed.sessionID).toBe("ses_job_test")
+    expect(parsed.output).toBe("job_123")
+    expect(parsed.o).toBe("job_123")
+    expect(parsed.job).toBe("job_456")
+    expect(parsed.j).toBe("job_456")
+    expect(parsed.status).toBe("running")
+    expect(parsed.s).toBe("running")
+    expect(parsed.file).toBe("jobs.json")
     expect(parsed.json).toBe(true)
   })
 })
