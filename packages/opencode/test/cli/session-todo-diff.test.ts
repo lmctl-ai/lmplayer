@@ -5,6 +5,8 @@ import {
   formatSessionTodos,
   formatSessionDiffStat,
   formatSessionDiff,
+  SessionLsCommand,
+  SessionTailCommand,
   SessionForkCommand,
   SessionDiffCommand,
   SessionTodoCommand,
@@ -438,6 +440,64 @@ describe("session diff & fork command definitions & builders", () => {
     expect(parsed.t).toBe(75)
     expect(parsed.check).toBe(true)
     expect(parsed.c).toBe(true)
+    expect(parsed.json).toBe(true)
+  })
+
+  test("SessionLsCommand registers limit (-n, --max-count), all (-a), search (-q), output (-o), roots, and json options", () => {
+    expect(SessionLsCommand.command).toBe("ls")
+    const builder = SessionLsCommand.builder as (y: Argv) => Argv<any>
+    const parser = builder(yargs())
+    const options = (parser as any).getOptions()
+    expect(options.key.limit).toBeDefined()
+    expect(options.key.n).toBeDefined()
+    expect(options.key["max-count"]).toBeDefined()
+    expect(options.key.all).toBeDefined()
+    expect(options.key.a).toBeDefined()
+    expect(options.key.search).toBeDefined()
+    expect(options.key.q).toBeDefined()
+    expect(options.key.output).toBeDefined()
+    expect(options.key.o).toBeDefined()
+    expect(options.key.roots).toBeDefined()
+    expect(options.key.json).toBeDefined()
+  })
+
+  test("SessionLsCommand parses -n, -a, -q, -o, --json flags", async () => {
+    const parsed = await yargs()
+      .command({ ...SessionLsCommand, handler: () => {} })
+      .parseAsync(["ls", "-n", "10", "-a", "-q", "refactor", "-o", "sessions.json", "--json"])
+    expect(parsed.limit).toBe(10)
+    expect(parsed.n).toBe(10)
+    expect(parsed.all).toBe(true)
+    expect(parsed.a).toBe(true)
+    expect(parsed.search).toBe("refactor")
+    expect(parsed.q).toBe("refactor")
+    expect(parsed.output).toBe("sessions.json")
+    expect(parsed.o).toBe("sessions.json")
+    expect(parsed.json).toBe(true)
+  })
+
+  test("SessionTailCommand registers lines (-n, --limit), output (-o), and json options", () => {
+    expect(SessionTailCommand.command).toBe("tail <sessionID>")
+    const builder = SessionTailCommand.builder as (y: Argv) => Argv<any>
+    const parser = builder(yargs())
+    const options = (parser as any).getOptions()
+    expect(options.key.lines).toBeDefined()
+    expect(options.key.n).toBeDefined()
+    expect(options.key.limit).toBeDefined()
+    expect(options.key.output).toBeDefined()
+    expect(options.key.o).toBeDefined()
+    expect(options.key.json).toBeDefined()
+  })
+
+  test("SessionTailCommand parses positionals and -n, -o, --json flags", async () => {
+    const parsed = await yargs()
+      .command({ ...SessionTailCommand, handler: () => {} })
+      .parseAsync(["tail", "ses_tail_1", "-n", "5", "-o", "tail.json", "--json"])
+    expect(parsed.sessionID).toBe("ses_tail_1")
+    expect(parsed.lines).toBe(5)
+    expect(parsed.n).toBe(5)
+    expect(parsed.output).toBe("tail.json")
+    expect(parsed.o).toBe("tail.json")
     expect(parsed.json).toBe(true)
   })
 })

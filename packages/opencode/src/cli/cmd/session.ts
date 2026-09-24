@@ -133,17 +133,27 @@ export const SessionLsCommand = effectCmd({
       }),
   handler: Effect.fn("Cli.session.ls")(function* (args: {
     limit?: number
+    n?: number
+    "max-count"?: number
     roots?: boolean
     all?: boolean
+    a?: boolean
     search?: string
+    q?: string
     output?: string
+    o?: string
     json?: boolean
   }) {
-    const limit = Number.isInteger(args.limit) && (args.limit as number) > 0 ? (args.limit as number) : undefined
+    const rawLimit = args.limit ?? (args as any).n ?? (args as any)["max-count"]
+    const limit = Number.isInteger(rawLimit) && (rawLimit as number) > 0 ? (rawLimit as number) : undefined
+    const all = Boolean(args.all ?? (args as any).a)
+    const search = args.search ?? (args as any).q
+    const output = args.output ?? (args as any).o
+    const isJson = Boolean(args.json)
     const svc = yield* Session.Service
-    const sessions = yield* (args.all
-      ? svc.listGlobal({ roots: args.roots, search: args.search, limit })
-      : svc.list({ roots: args.roots, search: args.search, limit }))
+    const sessions = yield* (all
+      ? svc.listGlobal({ roots: args.roots, search, limit })
+      : svc.list({ roots: args.roots, search, limit }))
 
     let sortedSessions = [...sessions].sort((a, b) => b.time.updated - a.time.updated)
     if (limit !== undefined && sortedSessions.length > limit) {
@@ -163,7 +173,7 @@ export const SessionLsCommand = effectCmd({
       { concurrency: 10 },
     )
 
-    if (args.json) {
+    if (isJson) {
       const payload = rows.map((row) => ({
         id: row.session.id,
         title: row.session.title,
@@ -175,17 +185,17 @@ export const SessionLsCommand = effectCmd({
         messageCount: row.messageCount,
       }))
       const jsonStr = JSON.stringify(payload, null, 2) + EOL
-      if (args.output) {
-        yield* writeOutputFile(args.output, jsonStr, "sessions list")
+      if (output) {
+        yield* writeOutputFile(output, jsonStr, "sessions list")
         return
       }
       process.stdout.write(jsonStr)
       return
     }
 
-    if (args.output) {
+    if (output) {
       const lines = rows.map((row) => `${row.session.id} ${row.session.title} ${row.session.directory}`)
-      yield* writeOutputFile(args.output, lines.join(EOL) + (lines.length > 0 ? EOL : ""), "sessions list")
+      yield* writeOutputFile(output, lines.join(EOL) + (lines.length > 0 ? EOL : ""), "sessions list")
       return
     }
 
@@ -226,8 +236,11 @@ export const SessionTailCommand = effectCmd({
     n?: number
     limit?: number
     output?: string
+    o?: string
     json?: boolean
   }) {
+    const output = args.output ?? (args as any).o
+    const isJson = Boolean(args.json)
     const sdk = yield* localSdk()
     const info = yield* Effect.promise(() => sdk.session.get({ sessionID: args.sessionID }).then((r) => r.data))
     if (!info) return yield* fail(`Session not found: ${args.sessionID}`)
@@ -255,19 +268,19 @@ export const SessionTailCommand = effectCmd({
       }
     })
 
-    if (args.json) {
+    if (isJson) {
       const jsonStr = JSON.stringify(rows, null, 2) + EOL
-      if (args.output) {
-        yield* writeOutputFile(args.output, jsonStr, "messages")
+      if (output) {
+        yield* writeOutputFile(output, jsonStr, "messages")
         return
       }
       process.stdout.write(jsonStr)
       return
     }
 
-    if (args.output) {
+    if (output) {
       const textLines = rows.map((row) => `${row.role}: ${row.text}`)
-      yield* writeOutputFile(args.output, textLines.join(EOL) + (textLines.length > 0 ? EOL : ""), "messages")
+      yield* writeOutputFile(output, textLines.join(EOL) + (textLines.length > 0 ? EOL : ""), "messages")
       return
     }
 
