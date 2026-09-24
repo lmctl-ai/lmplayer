@@ -11,7 +11,7 @@ import fs from "fs/promises"
 import path from "path"
 
 describe("SessionMemoryCommand options and builder", () => {
-  test("SessionMemoryCommand registers sessionID, json, write, append, file, clear and aliases brain", () => {
+  test("SessionMemoryCommand registers sessionID, json, write (-w), append (-a), file (-f), clear (-c), output (-o), and aliases brain", () => {
     expect(SessionMemoryCommand.aliases).toContain("brain")
     const builder = SessionMemoryCommand.builder as (y: Argv) => Argv<any>
     const parser = builder(yargs())
@@ -20,9 +20,51 @@ describe("SessionMemoryCommand options and builder", () => {
     expect(options.key.o).toBeDefined()
     expect(options.key.json).toBeDefined()
     expect(options.key.write).toBeDefined()
+    expect(options.key.w).toBeDefined()
     expect(options.key.append).toBeDefined()
+    expect(options.key.a).toBeDefined()
     expect(options.key.file).toBeDefined()
+    expect(options.key.f).toBeDefined()
     expect(options.key.clear).toBeDefined()
+    expect(options.key.c).toBeDefined()
+  })
+
+  test("SessionMemoryCommand parses positionals and -w, -o, --json flags", async () => {
+    const parsed = await yargs()
+      .command({ ...SessionMemoryCommand, handler: () => {} })
+      .parseAsync(["memory", "ses_mem_1", "-w", "# Heading", "-o", "mem.md", "--json"])
+    expect(parsed.sessionID).toBe("ses_mem_1")
+    expect(parsed.write).toBe("# Heading")
+    expect(parsed.w).toBe("# Heading")
+    expect(parsed.output).toBe("mem.md")
+    expect(parsed.o).toBe("mem.md")
+    expect(parsed.json).toBe(true)
+  })
+
+  test("SessionMemoryCommand parses positionals and -a, -f, -c flags", async () => {
+    const parsedAppend = await yargs()
+      .command({ ...SessionMemoryCommand, handler: () => {} })
+      .parseAsync(["memory", "ses_mem_2", "-a", "extra notes"])
+    expect(parsedAppend.sessionID).toBe("ses_mem_2")
+    expect(parsedAppend.append).toBe("extra notes")
+    expect(parsedAppend.a).toBe("extra notes")
+
+    const parsedFile = await yargs()
+      .command({ ...SessionMemoryCommand, handler: () => {} })
+      .parseAsync(["memory", "ses_mem_3", "-f", "notes.md"])
+    expect(parsedFile.sessionID).toBe("ses_mem_3")
+    expect(parsedFile.file).toBe("notes.md")
+    expect(parsedFile.f).toBe("notes.md")
+
+    const parsedClear = await yargs()
+      .command({ ...SessionMemoryCommand, handler: () => {} })
+      .parseAsync(["memory", "ses_mem_4", "-c", "-o", "cleared.json", "--json"])
+    expect(parsedClear.sessionID).toBe("ses_mem_4")
+    expect(parsedClear.clear).toBe(true)
+    expect(parsedClear.c).toBe(true)
+    expect(parsedClear.output).toBe("cleared.json")
+    expect(parsedClear.o).toBe("cleared.json")
+    expect(parsedClear.json).toBe(true)
   })
 })
 
@@ -221,6 +263,93 @@ describe("SessionMemoryCommand handler", () => {
       const clearedData = JSON.parse(captured)
       expect(clearedData.exists).toBe(false)
       expect(clearedData.content).toBe("")
+    } finally {
+      await InstanceRuntime.disposeInstance(ctx)
+    }
+  })
+
+  test("reads, writes, appends, and clears durable memory using alias options (w, a, f, c, o)", async () => {
+    const tmp = await tmpdir({ git: true })
+    const ctx = await InstanceRuntime.load({ directory: tmp.path })
+
+    try {
+      const session = await AppRuntime.runPromise(
+        Session.Service.use((svc) => svc.create({})).pipe(Effect.provideService(InstanceRef, ctx)),
+      )
+      const sessionID = session.id
+
+      // 1. Write memory via alias 'w'
+      let captured = ""
+      const originalWrite = process.stdout.write
+      process.stdout.write = ((chunk: any) => {
+        captured += String(chunk)
+        return true
+      }) as any
+
+      try {
+        await runMemory({ sessionID, w: "## Goal\n- via alias w", json: true }, ctx)
+      } finally {
+        process.stdout.write = originalWrite
+      }
+      const writeData = JSON.parse(captured)
+      expect(writeData.action).toBe("write")
+      expect(writeData.success).toBe(true)
+
+      // 2. Append memory via alias 'a'
+      captured = ""
+      process.stdout.write = ((chunk: any) => {
+        captured += String(chunk)
+        return true
+      }) as any
+
+      try {
+        await runMemory({ sessionID, a: "## Appendix\n- via alias a", json: true }, ctx)
+      } finally {
+        process.stdout.write = originalWrite
+      }
+      const appendData = JSON.parse(captured)
+      expect(appendData.action).toBe("append")
+      expect(appendData.success).toBe(true)
+
+      // 3. Export memory via alias 'o'
+      const outTextFile = path.join(tmp.path, "alias-memory.md")
+      await runMemory({ sessionID, o: outTextFile }, ctx)
+      const exportedContent = await fs.readFile(outTextFile, "utf-8")
+      expect(exportedContent).toContain("via alias w")
+      expect(exportedContent).toContain("via alias a")
+
+      // 4. Write memory via alias 'f'
+      const tmpFile = path.join(tmp.path, "file-alias.md")
+      await fs.writeFile(tmpFile, "## From File Alias\n- ok", "utf-8")
+      captured = ""
+      process.stdout.write = ((chunk: any) => {
+        captured += String(chunk)
+        return true
+      }) as any
+
+      try {
+        await runMemory({ sessionID, f: tmpFile, json: true }, ctx)
+      } finally {
+        process.stdout.write = originalWrite
+      }
+      const fileData = JSON.parse(captured)
+      expect(fileData.action).toBe("write")
+
+      // 5. Clear memory via alias 'c'
+      captured = ""
+      process.stdout.write = ((chunk: any) => {
+        captured += String(chunk)
+        return true
+      }) as any
+
+      try {
+        await runMemory({ sessionID, c: true, json: true }, ctx)
+      } finally {
+        process.stdout.write = originalWrite
+      }
+      const clearData = JSON.parse(captured)
+      expect(clearData.action).toBe("clear")
+      expect(clearData.success).toBe(true)
     } finally {
       await InstanceRuntime.disposeInstance(ctx)
     }
