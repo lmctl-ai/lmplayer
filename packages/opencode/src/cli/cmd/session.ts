@@ -1302,10 +1302,15 @@ export const SessionCompactCommand = effectCmd({
   handler: Effect.fn("Cli.session.compact")(function* (args: {
     sessionID: string
     model?: string
+    m?: string
     auto: boolean
     output?: string
+    o?: string
     json?: boolean
   }) {
+    const modelArg = args.model ?? (args as any).m
+    const output = args.output ?? (args as any).o
+    const isJson = Boolean(args.json)
     const sdk = yield* localSdk()
     const sessionRes = yield* Effect.promise(async () => {
       return sdk.session.get({
@@ -1321,8 +1326,8 @@ export const SessionCompactCommand = effectCmd({
 
     const providerSvc = yield* Provider.Service
     let model: { providerID: ProviderV2.ID; modelID: ModelV2.ID }
-    if (args.model) {
-      model = Provider.parseModel(args.model)
+    if (modelArg) {
+      model = Provider.parseModel(modelArg)
     } else if (sessionInfo.model) {
       model = {
         providerID: ProviderV2.ID.make(sessionInfo.model.providerID),
@@ -1348,16 +1353,16 @@ export const SessionCompactCommand = effectCmd({
     }
 
     const jsonStr = JSON.stringify({ id: args.sessionID, compacted: true }, null, 2)
-    if (args.output) {
-      if (args.json) {
-        yield* writeOutputFile(args.output, jsonStr, "compaction summary")
+    if (output) {
+      if (isJson) {
+        yield* writeOutputFile(output, jsonStr, "compaction summary")
       } else {
-        yield* writeOutputFile(args.output, `Session ${args.sessionID} compacted` + EOL, "compaction summary")
+        yield* writeOutputFile(output, `Session ${args.sessionID} compacted` + EOL, "compaction summary")
       }
       return
     }
 
-    if (args.json) {
+    if (isJson) {
       console.log(jsonStr)
     } else {
       UI.println(UI.Style.TEXT_SUCCESS_BOLD + `Session ${args.sessionID} compacted` + UI.Style.TEXT_NORMAL)

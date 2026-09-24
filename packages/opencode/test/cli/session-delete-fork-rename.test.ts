@@ -6,6 +6,7 @@ import {
   SessionForkCommand,
   SessionShareCommand,
   SessionUnshareCommand,
+  SessionCompactCommand,
 } from "../../src/cli/cmd/session"
 
 describe("Session delete, rename, fork, share, unshare option builders", () => {
@@ -124,6 +125,34 @@ describe("Session delete, rename, fork, share, unshare option builders", () => {
     expect(parsed.sessionID).toBe("ses_unshare_1")
     expect(parsed.output).toBe("unshare.json")
     expect(parsed.o).toBe("unshare.json")
+    expect(parsed.json).toBe(true)
+  })
+
+  test("SessionCompactCommand registers model (-m), auto, output (-o), and json options", () => {
+    expect(SessionCompactCommand.command).toBe("compact <sessionID>")
+    expect(SessionCompactCommand.aliases).toContain("summarize")
+    const builder = SessionCompactCommand.builder as (y: Argv) => Argv<any>
+    const parser = builder(yargs())
+    const options = (parser as any).getOptions()
+    expect(options.key.model).toBeDefined()
+    expect(options.key.m).toBeDefined()
+    expect(options.key.auto).toBeDefined()
+    expect(options.key.output).toBeDefined()
+    expect(options.key.o).toBeDefined()
+    expect(options.key.json).toBeDefined()
+    expect(options.boolean).toContain("json")
+  })
+
+  test("SessionCompactCommand parses positionals and -m, --auto, -o, --json flags", async () => {
+    const parsed = await yargs()
+      .command({ ...SessionCompactCommand, handler: () => {} })
+      .parseAsync(["compact", "ses_compact_1", "-m", "anthropic/claude-sonnet-4-0", "--auto", "-o", "compact.json", "--json"])
+    expect(parsed.sessionID).toBe("ses_compact_1")
+    expect(parsed.model).toBe("anthropic/claude-sonnet-4-0")
+    expect(parsed.m).toBe("anthropic/claude-sonnet-4-0")
+    expect(parsed.auto).toBe(true)
+    expect(parsed.output).toBe("compact.json")
+    expect(parsed.o).toBe("compact.json")
     expect(parsed.json).toBe(true)
   })
 })
