@@ -884,6 +884,9 @@ export const SessionDeleteCommand = effectCmd({
       }),
   handler: Effect.fn("Cli.session.delete")(function* (args) {
     const ids = [args.sessionID, ...(((args.extraSessionIDs as unknown) as string[] | undefined) ?? [])]
+    const force = Boolean(args.force ?? (args as any).f)
+    const output = args.output ?? (args as any).o
+    const isJson = Boolean(args.json)
     const sdk = yield* localSdk()
 
     const deleted: string[] = []
@@ -899,7 +902,7 @@ export const SessionDeleteCommand = effectCmd({
       if (result.error) {
         const msg =
           (result.error as { message?: string } | undefined)?.message ?? `Session not found: ${id}`
-        if (args.force) {
+        if (force) {
           notFound.push(id)
         } else {
           errors.push({ id, error: msg })
@@ -910,37 +913,37 @@ export const SessionDeleteCommand = effectCmd({
     }
 
     if (errors.length > 0) {
-      if (args.output) {
-        if (args.json) {
-          yield* writeOutputFile(args.output, JSON.stringify({ deleted, notFound, errors }, null, 2), "delete result")
+      if (output) {
+        if (isJson) {
+          yield* writeOutputFile(output, JSON.stringify({ deleted, notFound, errors }, null, 2), "delete result")
         } else {
           const lines = [
             ...deleted.map((id) => `Session ${id} deleted`),
             ...errors.map((e) => `Error deleting ${e.id}: ${e.error}`),
           ]
-          yield* writeOutputFile(args.output, lines.join(EOL) + EOL, "delete result")
+          yield* writeOutputFile(output, lines.join(EOL) + EOL, "delete result")
         }
       }
-      if (args.json) {
+      if (isJson) {
         process.stdout.write(JSON.stringify({ deleted, notFound, errors }, null, 2) + "\n")
       }
       return yield* fail(errors.map((e) => e.error).join(", "))
     }
 
-    if (args.output) {
-      if (args.json) {
-        yield* writeOutputFile(args.output, JSON.stringify({ deleted, notFound }, null, 2), "delete result")
+    if (output) {
+      if (isJson) {
+        yield* writeOutputFile(output, JSON.stringify({ deleted, notFound }, null, 2), "delete result")
       } else {
         const lines = [
           ...deleted.map((id) => `Session ${id} deleted`),
           ...notFound.map((id) => `Session ${id} not found`),
         ]
-        yield* writeOutputFile(args.output, lines.join(EOL) + (lines.length > 0 ? EOL : ""), "delete result")
+        yield* writeOutputFile(output, lines.join(EOL) + (lines.length > 0 ? EOL : ""), "delete result")
       }
       return
     }
 
-    if (args.json) {
+    if (isJson) {
       process.stdout.write(JSON.stringify({ deleted, notFound }, null, 2) + "\n")
       return
     }
@@ -979,8 +982,11 @@ export const SessionRenameCommand = effectCmd({
     sessionID: string
     title: string
     output?: string
+    o?: string
     json?: boolean
   }) {
+    const output = args.output ?? (args as any).o
+    const isJson = Boolean(args.json)
     const sdk = yield* localSdk()
     const result = yield* Effect.promise(async () => {
       return sdk.session.update({
@@ -994,19 +1000,19 @@ export const SessionRenameCommand = effectCmd({
       )
     }
     const jsonStr = JSON.stringify({ id: args.sessionID, title: args.title }, null, 2)
-    if (args.output) {
-      if (args.json) {
-        yield* writeOutputFile(args.output, jsonStr, "session rename")
+    if (output) {
+      if (isJson) {
+        yield* writeOutputFile(output, jsonStr, "session rename")
       } else {
         yield* writeOutputFile(
-          args.output,
+          output,
           `Session ${args.sessionID} renamed to "${args.title}"` + EOL,
           "session rename",
         )
       }
       return
     }
-    if (args.json) {
+    if (isJson) {
       console.log(jsonStr)
     } else {
       UI.println(
@@ -1048,15 +1054,22 @@ export const SessionForkCommand = effectCmd({
   handler: Effect.fn("Cli.session.fork")(function* (args: {
     sessionID: string
     title?: string
+    t?: string
     message?: string
+    m?: string
     output?: string
+    o?: string
     json?: boolean
   }) {
+    const title = args.title ?? (args as any).t
+    const message = args.message ?? (args as any).m
+    const output = args.output ?? (args as any).o
+    const isJson = Boolean(args.json)
     const sdk = yield* localSdk()
     const result = yield* Effect.promise(async () => {
       return sdk.session.fork({
         sessionID: args.sessionID,
-        messageID: args.message,
+        messageID: message,
       })
     })
     if (result.error || !result.data) {
@@ -1065,27 +1078,27 @@ export const SessionForkCommand = effectCmd({
       )
     }
 
-    if (args.title) {
+    if (title) {
       const updateRes = yield* Effect.promise(async () => {
         return sdk.session.update({
           sessionID: result.data.id,
-          title: args.title!,
+          title: title!,
         })
       })
       if (!updateRes.error && updateRes.data) {
         result.data = updateRes.data
       } else if (!updateRes.error) {
-        result.data.title = args.title
+        result.data.title = title
       }
     }
 
     const jsonStr = JSON.stringify(result.data, null, 2)
-    if (args.output) {
-      if (args.json) {
-        yield* writeOutputFile(args.output, jsonStr, "forked session")
+    if (output) {
+      if (isJson) {
+        yield* writeOutputFile(output, jsonStr, "forked session")
       } else {
         yield* writeOutputFile(
-          args.output,
+          output,
           `Forked session ${args.sessionID} to ${result.data.id}` + EOL,
           "forked session",
         )
@@ -1093,7 +1106,7 @@ export const SessionForkCommand = effectCmd({
       return
     }
 
-    if (args.json) {
+    if (isJson) {
       console.log(jsonStr)
     } else {
       UI.println(
@@ -1130,8 +1143,11 @@ export const SessionShareCommand = effectCmd({
     sessionID: string
     unshare?: boolean
     output?: string
+    o?: string
     json?: boolean
   }) {
+    const output = args.output ?? (args as any).o
+    const isJson = Boolean(args.json)
     const sdk = yield* localSdk()
     if (args.unshare) {
       const result = yield* Effect.promise(async () => {
@@ -1145,15 +1161,15 @@ export const SessionShareCommand = effectCmd({
         )
       }
       const jsonStr = JSON.stringify({ id: args.sessionID, shared: false }, null, 2)
-      if (args.output) {
-        if (args.json) {
-          yield* writeOutputFile(args.output, jsonStr, "share result")
+      if (output) {
+        if (isJson) {
+          yield* writeOutputFile(output, jsonStr, "share result")
         } else {
-          yield* writeOutputFile(args.output, `Session ${args.sessionID} unshared` + EOL, "share result")
+          yield* writeOutputFile(output, `Session ${args.sessionID} unshared` + EOL, "share result")
         }
         return
       }
-      if (args.json) {
+      if (isJson) {
         console.log(jsonStr)
       } else {
         UI.println(UI.Style.TEXT_SUCCESS_BOLD + `Session ${args.sessionID} unshared` + UI.Style.TEXT_NORMAL)
@@ -1173,19 +1189,19 @@ export const SessionShareCommand = effectCmd({
     }
     const shareUrl = result.data.share?.url
     const jsonStr = JSON.stringify({ id: args.sessionID, url: shareUrl, shared: true }, null, 2)
-    if (args.output) {
-      if (args.json) {
-        yield* writeOutputFile(args.output, jsonStr, "share result")
+    if (output) {
+      if (isJson) {
+        yield* writeOutputFile(output, jsonStr, "share result")
       } else {
         yield* writeOutputFile(
-          args.output,
+          output,
           `Session ${args.sessionID} shared` + (shareUrl ? `: ${shareUrl}` : "") + EOL,
           "share result",
         )
       }
       return
     }
-    if (args.json) {
+    if (isJson) {
       console.log(jsonStr)
     } else {
       UI.println(
@@ -1220,8 +1236,11 @@ export const SessionUnshareCommand = effectCmd({
   handler: Effect.fn("Cli.session.unshare")(function* (args: {
     sessionID: string
     output?: string
+    o?: string
     json?: boolean
   }) {
+    const output = args.output ?? (args as any).o
+    const isJson = Boolean(args.json)
     const sdk = yield* localSdk()
     const result = yield* Effect.promise(async () => {
       return sdk.session.unshare({
@@ -1234,15 +1253,15 @@ export const SessionUnshareCommand = effectCmd({
       )
     }
     const jsonStr = JSON.stringify({ id: args.sessionID, shared: false }, null, 2)
-    if (args.output) {
-      if (args.json) {
-        yield* writeOutputFile(args.output, jsonStr, "unshare result")
+    if (output) {
+      if (isJson) {
+        yield* writeOutputFile(output, jsonStr, "unshare result")
       } else {
-        yield* writeOutputFile(args.output, `Session ${args.sessionID} unshared` + EOL, "unshare result")
+        yield* writeOutputFile(output, `Session ${args.sessionID} unshared` + EOL, "unshare result")
       }
       return
     }
-    if (args.json) {
+    if (isJson) {
       console.log(jsonStr)
     } else {
       UI.println(UI.Style.TEXT_SUCCESS_BOLD + `Session ${args.sessionID} unshared` + UI.Style.TEXT_NORMAL)
