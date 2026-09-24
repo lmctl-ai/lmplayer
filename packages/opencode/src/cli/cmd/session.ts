@@ -2230,39 +2230,53 @@ export const SessionListCommand = effectCmd({
         describe: "output format",
         choices: ["table", "json"],
         default: "table",
+      })
+      .option("json", {
+        describe: "output as JSON (shortcut for --format json)",
+        type: "boolean",
       }),
   handler: Effect.fn("Cli.session.list")(function* (args: {
     maxCount?: number
     limit?: number
+    n?: number
     roots?: boolean
     all?: boolean
+    a?: boolean
     search?: string
+    q?: string
     output?: string
+    o?: string
     format?: string
+    json?: boolean
   }) {
-    const limit = args.maxCount ?? (args as any).limit
+    const rawLimit = args.maxCount ?? (args as any).limit ?? (args as any).n
+    const limit = Number.isInteger(rawLimit) && (rawLimit as number) > 0 ? (rawLimit as number) : undefined
+    const all = Boolean(args.all ?? (args as any).a)
+    const search = args.search ?? (args as any).q
+    const output = args.output ?? (args as any).o
+    const format = Boolean(args.json) ? "json" : (args.format ?? "table")
     const sessions = yield* Session.Service.use((svc) =>
-      args.all
-        ? svc.listGlobal({ roots: args.roots, search: args.search, limit })
-        : svc.list({ roots: args.roots, search: args.search, limit }),
+      all
+        ? svc.listGlobal({ roots: args.roots, search, limit })
+        : svc.list({ roots: args.roots, search, limit }),
     )
 
     if (sessions.length === 0) {
-      if (args.output) {
-        yield* writeOutputFile(args.output, args.format === "json" ? "[]" + EOL : "", "sessions list")
+      if (output) {
+        yield* writeOutputFile(output, format === "json" ? "[]" + EOL : "", "sessions list")
         return
       }
       return
     }
 
-    const output = args.format === "json" ? formatSessionJSON(sessions) : formatSessionTable(sessions)
+    const outputText = format === "json" ? formatSessionJSON(sessions) : formatSessionTable(sessions)
 
-    if (args.output) {
-      yield* writeOutputFile(args.output, output.endsWith(EOL) ? output : output + EOL, "sessions list")
+    if (output) {
+      yield* writeOutputFile(output, outputText.endsWith(EOL) ? outputText : outputText + EOL, "sessions list")
       return
     }
 
-    const shouldPaginate = process.stdout.isTTY && !limit && args.format === "table"
+    const shouldPaginate = process.stdout.isTTY && !limit && format === "table"
 
     if (shouldPaginate) {
       yield* Effect.promise(async () => {
@@ -2273,16 +2287,16 @@ export const SessionListCommand = effectCmd({
         })
 
         if (!proc.stdin) {
-          console.log(output)
+          console.log(outputText)
           return
         }
 
-        proc.stdin.write(output)
+        proc.stdin.write(outputText)
         proc.stdin.end()
         await proc.exited
       })
     } else {
-      console.log(output)
+      console.log(outputText)
     }
   }),
 })

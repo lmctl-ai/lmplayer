@@ -6,6 +6,7 @@ import {
   formatSessionDiffStat,
   formatSessionDiff,
   SessionLsCommand,
+  SessionListCommand,
   SessionTailCommand,
   SessionForkCommand,
   SessionDiffCommand,
@@ -498,6 +499,40 @@ describe("session diff & fork command definitions & builders", () => {
     expect(parsed.n).toBe(5)
     expect(parsed.output).toBe("tail.json")
     expect(parsed.o).toBe("tail.json")
+    expect(parsed.json).toBe(true)
+  })
+
+  test("SessionListCommand registers max-count (-n, --limit), all (-a), search (-q), output (-o), format, roots, and json options", () => {
+    expect(SessionListCommand.command).toBe("list")
+    const builder = SessionListCommand.builder as (y: Argv) => Argv<any>
+    const parser = builder(yargs())
+    const options = (parser as any).getOptions()
+    expect(options.key["max-count"]).toBeDefined()
+    expect(options.key.n).toBeDefined()
+    expect(options.key.limit).toBeDefined()
+    expect(options.key.all).toBeDefined()
+    expect(options.key.a).toBeDefined()
+    expect(options.key.search).toBeDefined()
+    expect(options.key.q).toBeDefined()
+    expect(options.key.output).toBeDefined()
+    expect(options.key.o).toBeDefined()
+    expect(options.key.format).toBeDefined()
+    expect(options.key.roots).toBeDefined()
+    expect(options.key.json).toBeDefined()
+  })
+
+  test("SessionListCommand parses -n, -a, -q, -o, --json flags", async () => {
+    const parsed = await yargs()
+      .command({ ...SessionListCommand, handler: () => {} })
+      .parseAsync(["list", "-n", "8", "-a", "-q", "workflow", "-o", "list.json", "--json"])
+    expect(parsed.maxCount).toBe(8)
+    expect(parsed.n).toBe(8)
+    expect(parsed.all).toBe(true)
+    expect(parsed.a).toBe(true)
+    expect(parsed.search).toBe("workflow")
+    expect(parsed.q).toBe("workflow")
+    expect(parsed.output).toBe("list.json")
+    expect(parsed.o).toBe("list.json")
     expect(parsed.json).toBe(true)
   })
 })
