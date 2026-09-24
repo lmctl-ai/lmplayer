@@ -1580,10 +1580,17 @@ export const SessionCronsCommand = effectCmd({
   handler: Effect.fn("Cli.session.crons")(function* (args: {
     sessionID: string
     cron?: string
+    c?: string
     delete?: string
+    d?: string
     output?: string
+    o?: string
     json?: boolean
   }) {
+    const cronId = args.cron ?? (args as any).c
+    const deleteId = args.delete ?? (args as any).d
+    const output = args.output ?? (args as any).o
+    const isJson = Boolean(args.json)
     const sessionSvc = yield* Session.Service
     yield* sessionSvc
       .get(args.sessionID as SessionID)
@@ -1591,49 +1598,49 @@ export const SessionCronsCommand = effectCmd({
 
     const cronRuntime = yield* SessionCronRuntime.Service
 
-    if (args.delete) {
+    if (deleteId) {
       const removed = yield* cronRuntime
-        .remove(args.sessionID as SessionID, args.delete)
+        .remove(args.sessionID as SessionID, deleteId)
         .pipe(
           Effect.mapError(
-            (err) => new CliError({ message: (err as Error).message ?? `Cron not found: ${args.delete}` }),
+            (err) => new CliError({ message: (err as Error).message ?? `Cron not found: ${deleteId}` }),
           ),
         )
 
-      if (args.json) {
+      if (isJson) {
         const jsonStr = JSON.stringify(removed, null, 2) + EOL
-        if (args.output) {
-          yield* writeOutputFile(args.output, jsonStr, "cron deletion")
+        if (output) {
+          yield* writeOutputFile(output, jsonStr, "cron deletion")
           return
         }
         process.stdout.write(jsonStr)
       } else {
-        if (args.output) {
-          yield* writeOutputFile(args.output, `Cron ${args.delete} deleted` + EOL, "cron deletion")
+        if (output) {
+          yield* writeOutputFile(output, `Cron ${deleteId} deleted` + EOL, "cron deletion")
         }
-        UI.println(UI.Style.TEXT_SUCCESS_BOLD + `Cron ${args.delete} deleted` + UI.Style.TEXT_NORMAL)
+        UI.println(UI.Style.TEXT_SUCCESS_BOLD + `Cron ${deleteId} deleted` + UI.Style.TEXT_NORMAL)
       }
       return
     }
 
     const crons = yield* cronRuntime.list(args.sessionID as SessionID)
 
-    if (args.cron) {
-      const target = crons.find((c) => c.id === args.cron)
+    if (cronId) {
+      const target = crons.find((c) => c.id === cronId)
       if (!target) {
-        return yield* fail(`Cron not found: ${args.cron}`)
+        return yield* fail(`Cron not found: ${cronId}`)
       }
-      if (args.json) {
+      if (isJson) {
         const jsonStr = JSON.stringify(target, null, 2) + EOL
-        if (args.output) {
-          yield* writeOutputFile(args.output, jsonStr, "cron details")
+        if (output) {
+          yield* writeOutputFile(output, jsonStr, "cron details")
           return
         }
         process.stdout.write(jsonStr)
       } else {
         const text = formatCronDetail(target)
-        if (args.output) {
-          yield* writeOutputFile(args.output, text + EOL, "cron details")
+        if (output) {
+          yield* writeOutputFile(output, text + EOL, "cron details")
           return
         }
         console.log(text)
@@ -1641,26 +1648,26 @@ export const SessionCronsCommand = effectCmd({
       return
     }
 
-    if (args.json) {
+    if (isJson) {
       const jsonStr = JSON.stringify(crons, null, 2) + EOL
-      if (args.output) {
-        yield* writeOutputFile(args.output, jsonStr, "cron jobs")
+      if (output) {
+        yield* writeOutputFile(output, jsonStr, "cron jobs")
         return
       }
       process.stdout.write(jsonStr)
     } else {
       if (crons.length === 0) {
         const text = `No scheduled cron jobs found for session ${args.sessionID}`
-        if (args.output) {
-          yield* writeOutputFile(args.output, text + EOL, "cron jobs")
+        if (output) {
+          yield* writeOutputFile(output, text + EOL, "cron jobs")
           return
         }
         console.log(text)
         return
       }
       const text = formatCronsTable(crons)
-      if (args.output) {
-        yield* writeOutputFile(args.output, text + EOL, "cron jobs")
+      if (output) {
+        yield* writeOutputFile(output, text + EOL, "cron jobs")
         return
       }
       console.log(text)

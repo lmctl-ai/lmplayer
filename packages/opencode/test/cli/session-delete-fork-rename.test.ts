@@ -8,6 +8,7 @@ import {
   SessionUnshareCommand,
   SessionCompactCommand,
   SessionJobsCommand,
+  SessionCronsCommand,
 } from "../../src/cli/cmd/session"
 
 describe("Session delete, rename, fork, share, unshare option builders", () => {
@@ -185,6 +186,35 @@ describe("Session delete, rename, fork, share, unshare option builders", () => {
     expect(parsed.status).toBe("running")
     expect(parsed.s).toBe("running")
     expect(parsed.file).toBe("jobs.json")
+    expect(parsed.json).toBe(true)
+  })
+
+  test("SessionCronsCommand registers cron (-c), delete (-d), output (-o), and json options", () => {
+    expect(SessionCronsCommand.command).toBe("crons <sessionID>")
+    const builder = SessionCronsCommand.builder as (y: Argv) => Argv<any>
+    const parser = builder(yargs())
+    const options = (parser as any).getOptions()
+    expect(options.key.cron).toBeDefined()
+    expect(options.key.c).toBeDefined()
+    expect(options.key.delete).toBeDefined()
+    expect(options.key.d).toBeDefined()
+    expect(options.key.output).toBeDefined()
+    expect(options.key.o).toBeDefined()
+    expect(options.key.json).toBeDefined()
+    expect(options.boolean).toContain("json")
+  })
+
+  test("SessionCronsCommand parses positionals and -c, -d, -o, --json flags", async () => {
+    const parsed = await yargs()
+      .command({ ...SessionCronsCommand, handler: () => {} })
+      .parseAsync(["crons", "ses_cron_test", "-c", "cron_123", "-d", "cron_del_456", "-o", "cron.json", "--json"])
+    expect(parsed.sessionID).toBe("ses_cron_test")
+    expect(parsed.cron).toBe("cron_123")
+    expect(parsed.c).toBe("cron_123")
+    expect(parsed.delete).toBe("cron_del_456")
+    expect(parsed.d).toBe("cron_del_456")
+    expect(parsed.output).toBe("cron.json")
+    expect(parsed.o).toBe("cron.json")
     expect(parsed.json).toBe(true)
   })
 })
