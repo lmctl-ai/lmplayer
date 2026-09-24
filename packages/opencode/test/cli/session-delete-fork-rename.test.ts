@@ -9,6 +9,7 @@ import {
   SessionCompactCommand,
   SessionJobsCommand,
   SessionCronsCommand,
+  SessionTodoCommand,
 } from "../../src/cli/cmd/session"
 
 describe("Session delete, rename, fork, share, unshare option builders", () => {
@@ -215,6 +216,40 @@ describe("Session delete, rename, fork, share, unshare option builders", () => {
     expect(parsed.d).toBe("cron_del_456")
     expect(parsed.output).toBe("cron.json")
     expect(parsed.o).toBe("cron.json")
+    expect(parsed.json).toBe(true)
+  })
+
+  test("SessionTodoCommand registers status (-s), priority (-p), search (-q), output (-o), and json options", () => {
+    expect(SessionTodoCommand.command).toBe("todo <sessionID>")
+    const builder = SessionTodoCommand.builder as (y: Argv) => Argv<any>
+    const parser = builder(yargs())
+    const options = (parser as any).getOptions()
+    expect(options.key.status).toBeDefined()
+    expect(options.key.s).toBeDefined()
+    expect(options.key.priority).toBeDefined()
+    expect(options.key.p).toBeDefined()
+    expect(options.key.search).toBeDefined()
+    expect(options.key.q).toBeDefined()
+    expect(options.key.query).toBeDefined()
+    expect(options.key.output).toBeDefined()
+    expect(options.key.o).toBeDefined()
+    expect(options.key.json).toBeDefined()
+    expect(options.boolean).toContain("json")
+  })
+
+  test("SessionTodoCommand parses positionals and -s, -p, -q, -o, --json flags", async () => {
+    const parsed = await yargs()
+      .command({ ...SessionTodoCommand, handler: () => {} })
+      .parseAsync(["todo", "ses_todo_test", "-s", "completed", "-p", "high", "-q", "refactor", "-o", "todos.json", "--json"])
+    expect(parsed.sessionID).toBe("ses_todo_test")
+    expect(parsed.status).toBe("completed")
+    expect(parsed.s).toBe("completed")
+    expect(parsed.priority).toBe("high")
+    expect(parsed.p).toBe("high")
+    expect(parsed.search).toBe("refactor")
+    expect(parsed.q).toBe("refactor")
+    expect(parsed.output).toBe("todos.json")
+    expect(parsed.o).toBe("todos.json")
     expect(parsed.json).toBe(true)
   })
 })

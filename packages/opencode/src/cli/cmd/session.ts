@@ -1712,11 +1712,21 @@ export const SessionTodoCommand = effectCmd({
   handler: Effect.fn("Cli.session.todo")(function* (args: {
     sessionID: string
     status?: string
+    s?: string
     priority?: string
+    p?: string
     search?: string
+    q?: string
+    query?: string
     output?: string
+    o?: string
     json?: boolean
   }) {
+    const status = args.status ?? (args as any).s
+    const priority = args.priority ?? (args as any).p
+    const search = args.search ?? (args as any).q ?? (args as any).query
+    const output = args.output ?? (args as any).o
+    const isJson = Boolean(args.json)
     const sdk = yield* localSdk()
     const sessionRes = yield* Effect.promise(async () => {
       return sdk.session.get({ sessionID: args.sessionID })
@@ -1739,25 +1749,25 @@ export const SessionTodoCommand = effectCmd({
 
     let todos = (result.data ?? []) as SessionTodoItem[]
 
-    if (args.status) {
-      const statusFilter = args.status.toLowerCase()
+    if (status) {
+      const statusFilter = status.toLowerCase()
       todos = todos.filter((t) => t.status && t.status.toLowerCase() === statusFilter)
     }
 
-    if (args.priority) {
-      const priorityFilter = args.priority.toLowerCase()
+    if (priority) {
+      const priorityFilter = priority.toLowerCase()
       todos = todos.filter((t) => t.priority && t.priority.toLowerCase() === priorityFilter)
     }
 
-    if (args.search) {
-      const query = args.search.toLowerCase()
+    if (search) {
+      const query = search.toLowerCase()
       todos = todos.filter((t) => t.content && t.content.toLowerCase().includes(query))
     }
 
-    if (args.json) {
+    if (isJson) {
       const jsonOutput = JSON.stringify(todos, null, 2)
-      if (args.output) {
-        const resolved = path.resolve(args.output)
+      if (output) {
+        const resolved = path.resolve(output)
         yield* Effect.promise(async () => {
           const fs = await import("fs/promises")
           await fs.mkdir(path.dirname(resolved), { recursive: true })
@@ -1770,11 +1780,11 @@ export const SessionTodoCommand = effectCmd({
       return
     }
 
-    const hasFilter = Boolean(args.status || args.priority || args.search)
+    const hasFilter = Boolean(status || priority || search)
     const outputText = formatSessionTodos(args.sessionID, todos, hasFilter)
 
-    if (args.output) {
-      const resolved = path.resolve(args.output)
+    if (output) {
+      const resolved = path.resolve(output)
       yield* Effect.promise(async () => {
         const fs = await import("fs/promises")
         await fs.mkdir(path.dirname(resolved), { recursive: true })
