@@ -19,12 +19,13 @@ export const ConfigCommand = effectCmd({
         describe: "output JSON",
         default: false,
       }),
-  handler: Effect.fn("Cli.debug.config")(function* (args: { output?: string; json?: boolean }) {
+  handler: Effect.fn("Cli.debug.config")(function* (args: { output?: string; o?: string; json?: boolean }) {
+    const output = args.output ?? args.o
     const { Config } = yield* Effect.promise(() => import("@/config/config"))
     const config = yield* Config.Service.use((cfg) => cfg.get())
     const json = JSON.stringify(config, null, 2) + EOL
-    if (args.output) {
-      const resolved = path.resolve(args.output)
+    if (output) {
+      const resolved = path.resolve(output)
       yield* Effect.promise(async () => {
         const fs = await import("node:fs/promises")
         await fs.mkdir(path.dirname(resolved), { recursive: true })

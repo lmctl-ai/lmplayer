@@ -12,10 +12,12 @@ export const AgentCommand = effectCmd({
         description: "Agent name",
       })
       .option("tool", {
+        alias: "t",
         type: "string",
         description: "Tool id to execute",
       })
       .option("params", {
+        alias: "p",
         type: "string",
         description: "Tool params as JSON or a JS object literal",
       })
@@ -29,7 +31,16 @@ export const AgentCommand = effectCmd({
         describe: "output JSON",
         default: false,
       }),
-  handler: (args: { name: string; tool?: string; params?: string; output?: string; json?: boolean }) =>
+  handler: (args: {
+    name: string
+    tool?: string
+    t?: string
+    params?: string
+    p?: string
+    output?: string
+    o?: string
+    json?: boolean
+  }) =>
     Effect.gen(function* () {
       const { debugAgent } = yield* Effect.promise(() => import("./agent.handler"))
       return yield* debugAgent(args)

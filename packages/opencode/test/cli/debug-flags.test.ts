@@ -75,6 +75,94 @@ describe("debug command builders output and json options", () => {
     expect(searchParsed.o).toBe("res.json")
   })
 
+  test("AgentCommand registers and parses option aliases -t, -p, -o", async () => {
+    const agentBuilder = AgentCommand.builder as (y: Argv) => Argv<any>
+    const agentParser = agentBuilder(yargs())
+    const agentOpts = (agentParser as any).getOptions()
+    expect(agentOpts.key.tool).toBeDefined()
+    expect(agentOpts.key.t).toBeDefined()
+    expect(agentOpts.key.params).toBeDefined()
+    expect(agentOpts.key.p).toBeDefined()
+    expect(agentOpts.key.output).toBeDefined()
+    expect(agentOpts.key.o).toBeDefined()
+    expect(agentOpts.key.json).toBeDefined()
+
+    const parsed = await yargs()
+      .command({ ...AgentCommand, handler: () => {} })
+      .parseAsync(["agent", "coder", "-t", "bash", "-p", "{}", "-o", "agent.json", "--json"])
+    expect(parsed.name).toBe("coder")
+    expect(parsed.t).toBe("bash")
+    expect(parsed.p).toBe("{}")
+    expect(parsed.o).toBe("agent.json")
+    expect(parsed.json).toBe(true)
+  })
+
+  test("debug file commands parse -o and --json options", async () => {
+    const searchParsed = await yargs()
+      .command({ ...FileSearchCommand, handler: () => {} })
+      .parseAsync(["search", "test-query", "-o", "found.txt", "--json"])
+    expect(searchParsed.query).toBe("test-query")
+    expect(searchParsed.o).toBe("found.txt")
+    expect(searchParsed.json).toBe(true)
+
+    const readParsed = await yargs()
+      .command({ ...FileReadCommand, handler: () => {} })
+      .parseAsync(["read", "src/index.ts", "-o", "content.json", "--json"])
+    expect(readParsed.path).toBe("src/index.ts")
+    expect(readParsed.o).toBe("content.json")
+    expect(readParsed.json).toBe(true)
+
+    const listParsed = await yargs()
+      .command({ ...FileListCommand, handler: () => {} })
+      .parseAsync(["list", "src", "-o", "list.json", "--json"])
+    expect(listParsed.path).toBe("src")
+    expect(listParsed.o).toBe("list.json")
+    expect(listParsed.json).toBe(true)
+  })
+
+  test("debug snapshot and lsp commands parse -o and --json options", async () => {
+    const trackParsed = await yargs()
+      .command({ ...TrackCommand, handler: () => {} })
+      .parseAsync(["track", "-o", "track.json", "--json"])
+    expect(trackParsed.o).toBe("track.json")
+    expect(trackParsed.json).toBe(true)
+
+    const patchParsed = await yargs()
+      .command({ ...PatchCommand, handler: () => {} })
+      .parseAsync(["patch", "abc1234", "-o", "patch.diff", "--json"])
+    expect(patchParsed.hash).toBe("abc1234")
+    expect(patchParsed.o).toBe("patch.diff")
+    expect(patchParsed.json).toBe(true)
+
+    const diffParsed = await yargs()
+      .command({ ...DiffCommand, handler: () => {} })
+      .parseAsync(["diff", "abc1234", "-o", "diff.txt", "--json"])
+    expect(diffParsed.hash).toBe("abc1234")
+    expect(diffParsed.o).toBe("diff.txt")
+    expect(diffParsed.json).toBe(true)
+
+    const diagParsed = await yargs()
+      .command({ ...DiagnosticsCommand, handler: () => {} })
+      .parseAsync(["diagnostics", "file.ts", "-o", "diag.json", "--json"])
+    expect(diagParsed.file).toBe("file.ts")
+    expect(diagParsed.o).toBe("diag.json")
+    expect(diagParsed.json).toBe(true)
+
+    const symParsed = await yargs()
+      .command({ ...SymbolsCommand, handler: () => {} })
+      .parseAsync(["symbols", "mySymbol", "-o", "sym.json", "--json"])
+    expect(symParsed.query).toBe("mySymbol")
+    expect(symParsed.o).toBe("sym.json")
+    expect(symParsed.json).toBe(true)
+
+    const docSymParsed = await yargs()
+      .command({ ...DocumentSymbolsCommand, handler: () => {} })
+      .parseAsync(["document-symbols", "file:///doc.ts", "-o", "docsym.json", "--json"])
+    expect(docSymParsed.uri).toBe("file:///doc.ts")
+    expect(docSymParsed.o).toBe("docsym.json")
+    expect(docSymParsed.json).toBe(true)
+  })
+
   for (const { name, cmd } of commands) {
     test(`${name} registers output and json options`, () => {
       const builder = cmd.builder as (y: Argv) => Argv<any>

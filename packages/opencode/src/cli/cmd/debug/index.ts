@@ -62,7 +62,9 @@ export const InfoCommand = effectCmd({
         type: "string",
         describe: "write debug information to output file path",
       }),
-  handler: Effect.fn("Cli.debug.info")(function* (args: { json?: boolean; output?: string }) {
+  handler: Effect.fn("Cli.debug.info")(function* (args: { json?: boolean; output?: string; o?: string }) {
+    const output = args.output ?? args.o
+    const isJson = Boolean(args.json)
     const { Config } = yield* Effect.promise(() => import("@/config/config"))
     const { ConfigPlugin } = yield* Effect.promise(() => import("@/config/plugin"))
     const config = yield* Config.Service.use((cfg) => cfg.get())
@@ -100,12 +102,12 @@ export const InfoCommand = effectCmd({
     ]
     const text = lines.join(os.EOL)
 
-    if (args.output) {
-      const resolved = path.resolve(args.output)
+    if (output) {
+      const resolved = path.resolve(output)
       yield* Effect.promise(async () => {
         const fs = await import("node:fs/promises")
         await fs.mkdir(path.dirname(resolved), { recursive: true })
-        if (args.json) {
+        if (isJson) {
           await fs.writeFile(resolved, JSON.stringify(info, null, 2) + os.EOL, "utf-8")
         } else {
           await fs.writeFile(resolved, text + os.EOL, "utf-8")
@@ -115,7 +117,7 @@ export const InfoCommand = effectCmd({
       return
     }
 
-    if (args.json) {
+    if (isJson) {
       process.stdout.write(JSON.stringify(info, null, 2) + os.EOL)
       return
     }
@@ -138,18 +140,20 @@ export const PathsCommand = effectCmd({
         type: "string",
         describe: "write global paths to output file path",
       }),
-  handler: Effect.fn("Cli.debug.paths")(function* (args: { json?: boolean; output?: string }) {
+  handler: Effect.fn("Cli.debug.paths")(function* (args: { json?: boolean; output?: string; o?: string }) {
+    const output = args.output ?? args.o
+    const isJson = Boolean(args.json)
     const paths = { ...Global.Path }
     const text = Object.entries(paths)
       .map(([key, value]) => `${key.padEnd(10)} ${value}`)
       .join(os.EOL)
 
-    if (args.output) {
-      const resolved = path.resolve(args.output)
+    if (output) {
+      const resolved = path.resolve(output)
       yield* Effect.promise(async () => {
         const fs = await import("node:fs/promises")
         await fs.mkdir(path.dirname(resolved), { recursive: true })
-        if (args.json) {
+        if (isJson) {
           await fs.writeFile(resolved, JSON.stringify(paths, null, 2) + os.EOL, "utf-8")
         } else {
           await fs.writeFile(resolved, text + os.EOL, "utf-8")
@@ -159,7 +163,7 @@ export const PathsCommand = effectCmd({
       return
     }
 
-    if (args.json) {
+    if (isJson) {
       process.stdout.write(JSON.stringify(paths, null, 2) + os.EOL)
       return
     }

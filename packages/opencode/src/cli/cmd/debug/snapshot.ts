@@ -28,11 +28,12 @@ export const TrackCommand = effectCmd({
         describe: "output JSON",
         default: false,
       }),
-  handler: Effect.fn("Cli.debug.snapshot.track")(function* (args: { output?: string; json?: boolean }) {
+  handler: Effect.fn("Cli.debug.snapshot.track")(function* (args: { output?: string; o?: string; json?: boolean }) {
+    const output = args.output ?? args.o
     const out = yield* Snapshot.Service.use((svc) => svc.track())
     const jsonStr = JSON.stringify({ hash: out ?? null }, null, 2) + os.EOL
-    if (args.output) {
-      const resolved = path.resolve(args.output)
+    if (output) {
+      const resolved = path.resolve(output)
       yield* Effect.promise(async () => {
         const fs = await import("node:fs/promises")
         await fs.mkdir(path.dirname(resolved), { recursive: true })
@@ -73,11 +74,17 @@ export const PatchCommand = effectCmd({
         describe: "output JSON",
         default: false,
       }),
-  handler: Effect.fn("Cli.debug.snapshot.patch")(function* (args: { hash: string; output?: string; json?: boolean }) {
+  handler: Effect.fn("Cli.debug.snapshot.patch")(function* (args: {
+    hash: string
+    output?: string
+    o?: string
+    json?: boolean
+  }) {
+    const output = args.output ?? args.o
     const out = yield* Snapshot.Service.use((svc) => svc.patch(args.hash))
     const jsonStr = JSON.stringify(out, null, 2) + os.EOL
-    if (args.output) {
-      const resolved = path.resolve(args.output)
+    if (output) {
+      const resolved = path.resolve(output)
       yield* Effect.promise(async () => {
         const fs = await import("node:fs/promises")
         await fs.mkdir(path.dirname(resolved), { recursive: true })
@@ -114,11 +121,17 @@ export const DiffCommand = effectCmd({
         describe: "output JSON",
         default: false,
       }),
-  handler: Effect.fn("Cli.debug.snapshot.diff")(function* (args: { hash: string; output?: string; json?: boolean }) {
+  handler: Effect.fn("Cli.debug.snapshot.diff")(function* (args: {
+    hash: string
+    output?: string
+    o?: string
+    json?: boolean
+  }) {
+    const output = args.output ?? args.o
     const out = yield* Snapshot.Service.use((svc) => svc.diff(args.hash))
     const jsonStr = JSON.stringify({ hash: args.hash, diff: out }, null, 2) + os.EOL
-    if (args.output) {
-      const resolved = path.resolve(args.output)
+    if (output) {
+      const resolved = path.resolve(output)
       yield* Effect.promise(async () => {
         const fs = await import("node:fs/promises")
         await fs.mkdir(path.dirname(resolved), { recursive: true })
