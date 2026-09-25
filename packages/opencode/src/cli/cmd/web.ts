@@ -132,7 +132,7 @@ export const WebCommand = effectCmd({
 
     const isJson = Boolean(args.json)
     const shouldOpen = args.open !== false
-    const output = args.output
+    const output = args.output || (args as any).o
     const networkIPs = opts.hostname === "0.0.0.0" ? getNetworkIPs() : []
     let opened = false
 

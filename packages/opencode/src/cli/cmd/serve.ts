@@ -72,8 +72,9 @@ export const ServeCommand = effectCmd({
       console.log(`lmplayer server listening on http://${server.hostname}:${server.port}`)
     }
 
-    if (args.output) {
-      yield* Effect.promise(() => writeServerOutputFile(args.output!, info, isJson))
+    const output = args.output || (args as any).o
+    if (output) {
+      yield* Effect.promise(() => writeServerOutputFile(output, info, isJson))
     }
 
     // Graceful drain-then-exit: finish the in-flight run, then exit. Do NOT

@@ -87,7 +87,8 @@ export const AcpCommand = effectCmd({
     const opts = yield* resolveNetworkOptions(args)
     const server = yield* Effect.promise(() => ACPProfile.measure("cli.acp.server.listen", () => Server.listen(opts)))
 
-    if (args.output) {
+    const outputFile = args.output || (args as any).o
+    if (outputFile) {
       const cwd = args.cwd ?? (args as any).dir ?? (args as any).directory ?? (args as any).d ?? process.cwd()
       const info = buildAcpServerInfo({
         hostname: server.hostname,
@@ -96,7 +97,7 @@ export const AcpCommand = effectCmd({
         client: "acp",
         pid: process.pid,
       })
-      yield* Effect.promise(() => writeAcpServerOutputFile(args.output!, info, Boolean(args.json)))
+      yield* Effect.promise(() => writeAcpServerOutputFile(outputFile, info, Boolean(args.json)))
     }
 
     const sdk = createOpencodeClient({
