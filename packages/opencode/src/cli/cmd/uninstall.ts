@@ -18,11 +18,15 @@ async function writeOutputFile(filePath: string, content: string, label: string)
 }
 
 export interface UninstallArgs {
-  keepConfig: boolean
-  keepData: boolean
-  dryRun: boolean
-  force: boolean
+  keepConfig?: boolean
+  c?: boolean
+  keepData?: boolean
+  d?: boolean
+  dryRun?: boolean
+  force?: boolean
+  f?: boolean
   output?: string
+  o?: string
   json?: boolean
 }
 
@@ -51,7 +55,7 @@ export interface UninstallSummary {
 }
 
 export async function buildUninstallSummary(
-  args: { keepConfig: boolean; keepData: boolean; dryRun: boolean },
+  args: { keepConfig?: boolean; keepData?: boolean; dryRun?: boolean },
   method: Installation.Method,
   targets: RemovalTargets,
 ): Promise<UninstallSummary> {
@@ -84,7 +88,7 @@ export async function buildUninstallSummary(
 
   return {
     method,
-    dryRun: args.dryRun,
+    dryRun: Boolean(args.dryRun),
     directories,
     binary: targets.binary,
     shellConfig: targets.shellConfig,
@@ -153,21 +157,35 @@ export const UninstallCommand = {
       }),
 
   handler: async (args: UninstallArgs) => {
+    const keepConfig = Boolean(args.keepConfig || args.c || (args as any)["keep-config"])
+    const keepData = Boolean(args.keepData || args.d || (args as any)["keep-data"])
+    const dryRun = Boolean(args.dryRun || (args as any)["dry-run"])
+    const force = Boolean(args.force || args.f)
+    const output = args.output || args.o
+    const isJson = Boolean(args.json)
+    const normalizedArgs: UninstallArgs = {
+      keepConfig,
+      keepData,
+      dryRun,
+      force,
+      output,
+      json: isJson,
+    }
     const method = await Installation.method()
-    const targets = await collectRemovalTargets(args, method)
+    const targets = await collectRemovalTargets(normalizedArgs, method)
 
-    if (args.json || args.output) {
-      const summary = await buildUninstallSummary(args, method, targets)
+    if (isJson || output) {
+      const summary = await buildUninstallSummary(normalizedArgs, method, targets)
       const jsonStr = JSON.stringify(summary, null, 2) + EOL
       const textLines = formatUninstallSummaryText(summary)
       const textStr = textLines.join(EOL) + EOL
 
-      if (args.dryRun) {
-        if (args.output) {
-          await writeOutputFile(args.output, args.json ? jsonStr : textStr, "uninstall manifest")
+      if (dryRun) {
+        if (output) {
+          await writeOutputFile(output, isJson ? jsonStr : textStr, "uninstall manifest")
           return
         }
-        if (args.json) {
+        if (isJson) {
           process.stdout.write(jsonStr)
           return
         }
@@ -177,15 +195,15 @@ export const UninstallCommand = {
         return
       }
 
-      if (!args.force) {
+      if (!force) {
         const errResult = {
           executed: false,
           error: "Uninstallation requires --force when running with --json or --output without --dry-run",
           summary,
         }
         const errJsonStr = JSON.stringify(errResult, null, 2) + EOL
-        if (args.output) {
-          await writeOutputFile(args.output, errJsonStr, "uninstall result")
+        if (output) {
+          await writeOutputFile(output, errJsonStr, "uninstall result")
           return
         }
         process.stdout.write(errJsonStr)
@@ -205,8 +223,8 @@ export const UninstallCommand = {
           ? "Uninstallation complete" + EOL
           : `Uninstallation finished with errors: ${errors.join(", ")}` + EOL
 
-      if (args.output) {
-        await writeOutputFile(args.output, args.json ? resultJsonStr : resultTextStr, "uninstall result")
+      if (output) {
+        await writeOutputFile(output, isJson ? resultJsonStr : resultTextStr, "uninstall result")
         return
       }
       process.stdout.write(resultJsonStr)
@@ -222,7 +240,7 @@ export const UninstallCommand = {
 
     await showRemovalSummary(targets, method)
 
-    if (!args.force && !args.dryRun) {
+    if (!force && !dryRun) {
       const confirm = await prompts.confirm({
         message: "Are you sure you want to uninstall?",
         initialValue: false,
@@ -233,7 +251,7 @@ export const UninstallCommand = {
       }
     }
 
-    if (args.dryRun) {
+    if (dryRun) {
       prompts.log.warn("Dry run - no changes made")
       prompts.outro("Done")
       return
@@ -247,9 +265,9 @@ export const UninstallCommand = {
 
 async function collectRemovalTargets(args: UninstallArgs, method: Installation.Method): Promise<RemovalTargets> {
   const directories: RemovalTargets["directories"] = [
-    { path: Global.Path.data, label: "Data", keep: args.keepData },
+    { path: Global.Path.data, label: "Data", keep: Boolean(args.keepData) },
     { path: Global.Path.cache, label: "Cache", keep: false },
-    { path: Global.Path.config, label: "Config", keep: args.keepConfig },
+    { path: Global.Path.config, label: "Config", keep: Boolean(args.keepConfig) },
     { path: Global.Path.state, label: "State", keep: false },
   ]
 
