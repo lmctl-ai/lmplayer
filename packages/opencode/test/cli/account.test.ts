@@ -160,19 +160,23 @@ describe("console account display and data builders", () => {
 })
 
 describe("console command options and builders", () => {
-  test("LoginCommand registers output, o, and json options", () => {
+  test("LoginCommand registers url, u, output, o, and json options", () => {
     const builder = LoginCommand.builder as (y: Argv) => Argv<any>
     const parser = builder(yargs())
     const options = (parser as any).getOptions()
+    expect(options.key.url).toBeDefined()
+    expect(options.key.u).toBeDefined()
     expect(options.key.output).toBeDefined()
     expect(options.key.o).toBeDefined()
     expect(options.key.json).toBeDefined()
   })
 
-  test("LogoutCommand registers force, f, output, o, and json options", () => {
+  test("LogoutCommand registers email, e, force, f, output, o, and json options", () => {
     const builder = LogoutCommand.builder as (y: Argv) => Argv<any>
     const parser = builder(yargs())
     const options = (parser as any).getOptions()
+    expect(options.key.email).toBeDefined()
+    expect(options.key.e).toBeDefined()
     expect(options.key.force).toBeDefined()
     expect(options.key.f).toBeDefined()
     expect(options.key.output).toBeDefined()
@@ -180,13 +184,58 @@ describe("console command options and builders", () => {
     expect(options.key.json).toBeDefined()
   })
 
-  test("SwitchCommand registers output, o, and json options", () => {
+  test("SwitchCommand registers org, output, o, and json options", () => {
     const builder = SwitchCommand.builder as (y: Argv) => Argv<any>
+    const parser = builder(yargs())
+    const options = (parser as any).getOptions()
+    expect(options.key.org).toBeDefined()
+    expect(options.key.output).toBeDefined()
+    expect(options.key.o).toBeDefined()
+    expect(options.key.json).toBeDefined()
+  })
+
+  test("OrgsCommand registers output, o, and json options", () => {
+    const builder = OrgsCommand.builder as (y: Argv) => Argv<any>
     const parser = builder(yargs())
     const options = (parser as any).getOptions()
     expect(options.key.output).toBeDefined()
     expect(options.key.o).toBeDefined()
     expect(options.key.json).toBeDefined()
+  })
+
+  test("StatusCommand registers output, o, and json options", () => {
+    expect(StatusCommand.aliases).toEqual(["whoami"])
+    const builder = StatusCommand.builder as (y: Argv) => Argv<any>
+    const parser = builder(yargs())
+    const options = (parser as any).getOptions()
+    expect(options.key.output).toBeDefined()
+    expect(options.key.o).toBeDefined()
+    expect(options.key.json).toBeDefined()
+  })
+
+  test("OpenCommand registers print, p, output, o, and json options", () => {
+    const builder = OpenCommand.builder as (y: Argv) => Argv<any>
+    const parser = builder(yargs())
+    const options = (parser as any).getOptions()
+    expect(options.key.print).toBeDefined()
+    expect(options.key.p).toBeDefined()
+    expect(options.key.output).toBeDefined()
+    expect(options.key.o).toBeDefined()
+    expect(options.key.json).toBeDefined()
+  })
+
+  test("LoginCommand parses -u and -o options", async () => {
+    const builder = LoginCommand.builder as (y: Argv) => Argv<any>
+    const parsed = await builder(yargs()).parseAsync([
+      "-u",
+      "https://example.com/console",
+      "-o",
+      "login.json",
+      "--json",
+    ])
+    expect(parsed.u).toBe("https://example.com/console")
+    expect(parsed.o).toBe("login.json")
+    expect(parsed.json).toBe(true)
   })
 
   test("LogoutCommand parses options from arguments", async () => {
@@ -202,9 +251,10 @@ describe("console command options and builders", () => {
     expect(parsed.json).toBe(true)
   })
 
-  test("LogoutCommand parses -o and -f short aliases", async () => {
+  test("LogoutCommand parses -e, -o and -f short aliases", async () => {
     const builder = LogoutCommand.builder as (y: Argv) => Argv<any>
-    const parsed = await builder(yargs()).parseAsync(["-f", "-o", "logout.txt"])
+    const parsed = await builder(yargs()).parseAsync(["-e", "user@example.com", "-f", "-o", "logout.txt"])
+    expect(parsed.e).toBe("user@example.com")
     expect(parsed.force).toBe(true)
     expect(parsed.output).toBe("logout.txt")
   })
@@ -212,11 +262,36 @@ describe("console command options and builders", () => {
   test("SwitchCommand parses options from arguments", async () => {
     const builder = SwitchCommand.builder as (y: Argv) => Argv<any>
     const parsed = await builder(yargs()).parseAsync([
+      "--org",
+      "org-123",
       "--output",
       "switch.json",
       "--json",
     ])
+    expect(parsed.org).toBe("org-123")
     expect(parsed.output).toBe("switch.json")
+    expect(parsed.json).toBe(true)
+  })
+
+  test("OrgsCommand parses -o and --json options", async () => {
+    const builder = OrgsCommand.builder as (y: Argv) => Argv<any>
+    const parsed = await builder(yargs()).parseAsync(["-o", "orgs.json", "--json"])
+    expect(parsed.o).toBe("orgs.json")
+    expect(parsed.json).toBe(true)
+  })
+
+  test("StatusCommand parses -o and --json options", async () => {
+    const builder = StatusCommand.builder as (y: Argv) => Argv<any>
+    const parsed = await builder(yargs()).parseAsync(["-o", "status.json", "--json"])
+    expect(parsed.o).toBe("status.json")
+    expect(parsed.json).toBe(true)
+  })
+
+  test("OpenCommand parses -p, -o and --json options", async () => {
+    const builder = OpenCommand.builder as (y: Argv) => Argv<any>
+    const parsed = await builder(yargs()).parseAsync(["-p", "-o", "url.txt", "--json"])
+    expect(parsed.p).toBe(true)
+    expect(parsed.o).toBe("url.txt")
     expect(parsed.json).toBe(true)
   })
 })
