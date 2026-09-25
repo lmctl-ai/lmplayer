@@ -4,6 +4,7 @@ import { UI } from "../ui"
 
 type Args = {
   output?: string
+  o?: string
   json?: boolean
 }
 
@@ -60,8 +61,9 @@ export const GenerateCommand = {
       printWidth: 120,
     })
 
-    if (args.output) {
-      const resolved = path.resolve(args.output)
+    const output = args.output || args.o
+    if (output) {
+      const resolved = path.resolve(output)
       const fs = await import("node:fs/promises")
       await fs.mkdir(path.dirname(resolved), { recursive: true })
       await fs.writeFile(resolved, json, "utf-8")
