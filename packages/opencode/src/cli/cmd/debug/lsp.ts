@@ -30,7 +30,13 @@ export const DiagnosticsCommand = effectCmd({
         describe: "output JSON",
         default: false,
       }),
-  handler: Effect.fn("Cli.debug.lsp.diagnostics")(function* (args: { file: string; output?: string; json?: boolean }) {
+  handler: Effect.fn("Cli.debug.lsp.diagnostics")(function* (args: {
+    file: string
+    output?: string
+    o?: string
+    json?: boolean
+  }) {
+    const output = args.output ?? args.o
     const out = yield* LSP.Service.use((lsp) =>
       Effect.gen(function* () {
         yield* lsp.touchFile(args.file, "full")
@@ -38,8 +44,8 @@ export const DiagnosticsCommand = effectCmd({
       }),
     )
     const json = JSON.stringify(out, null, 2) + EOL
-    if (args.output) {
-      const resolved = path.resolve(args.output)
+    if (output) {
+      const resolved = path.resolve(output)
       yield* Effect.promise(async () => {
         const fs = await import("node:fs/promises")
         await fs.mkdir(path.dirname(resolved), { recursive: true })
@@ -68,12 +74,18 @@ export const SymbolsCommand = effectCmd({
         describe: "output JSON",
         default: false,
       }),
-  handler: Effect.fn("Cli.debug.lsp.symbols")(function* (args: { query: string; output?: string; json?: boolean }) {
+  handler: Effect.fn("Cli.debug.lsp.symbols")(function* (args: {
+    query: string
+    output?: string
+    o?: string
+    json?: boolean
+  }) {
+    const output = args.output ?? args.o
     yield* Effect.logInfo("symbols")
     const results = yield* LSP.Service.use((lsp) => lsp.workspaceSymbol(args.query))
     const json = JSON.stringify(results, null, 2) + EOL
-    if (args.output) {
-      const resolved = path.resolve(args.output)
+    if (output) {
+      const resolved = path.resolve(output)
       yield* Effect.promise(async () => {
         const fs = await import("node:fs/promises")
         await fs.mkdir(path.dirname(resolved), { recursive: true })
@@ -105,13 +117,15 @@ export const DocumentSymbolsCommand = effectCmd({
   handler: Effect.fn("Cli.debug.lsp.documentSymbols")(function* (args: {
     uri: string
     output?: string
+    o?: string
     json?: boolean
   }) {
+    const output = args.output ?? args.o
     yield* Effect.logInfo("document-symbols")
     const results = yield* LSP.Service.use((lsp) => lsp.documentSymbol(args.uri))
     const json = JSON.stringify(results, null, 2) + EOL
-    if (args.output) {
-      const resolved = path.resolve(args.output)
+    if (output) {
+      const resolved = path.resolve(output)
       yield* Effect.promise(async () => {
         const fs = await import("node:fs/promises")
         await fs.mkdir(path.dirname(resolved), { recursive: true })

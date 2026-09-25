@@ -34,17 +34,24 @@ export const FileSearchCommand = effectCmd({
         type: "boolean",
         describe: "output JSON",
       }),
-  handler: Effect.fn("Cli.debug.file.search")(function* (args: { query: string; output?: string; json?: boolean }) {
+  handler: Effect.fn("Cli.debug.file.search")(function* (args: {
+    query: string
+    output?: string
+    o?: string
+    json?: boolean
+  }) {
+    const output = args.output ?? args.o
+    const isJson = Boolean(args.json)
     const results = yield* Effect.orDie(filesystem(FileSystem.Service.use((svc) => svc.find({ query: args.query }))))
     const paths = results.map((item) => item.path)
     const text = paths.join(EOL) + EOL
 
-    if (args.output) {
-      const resolved = path.resolve(args.output)
+    if (output) {
+      const resolved = path.resolve(output)
       yield* Effect.promise(async () => {
         const fs = await import("node:fs/promises")
         await fs.mkdir(path.dirname(resolved), { recursive: true })
-        if (args.json) {
+        if (isJson) {
           await fs.writeFile(resolved, JSON.stringify(paths, null, 2) + EOL, "utf-8")
         } else {
           await fs.writeFile(resolved, text, "utf-8")
@@ -54,7 +61,7 @@ export const FileSearchCommand = effectCmd({
       return
     }
 
-    if (args.json) {
+    if (isJson) {
       process.stdout.write(JSON.stringify(paths, null, 2) + EOL)
       return
     }
@@ -83,13 +90,19 @@ export const FileReadCommand = effectCmd({
         describe: "output JSON",
         default: false,
       }),
-  handler: Effect.fn("Cli.debug.file.read")(function* (args: { path: string; output?: string; json?: boolean }) {
+  handler: Effect.fn("Cli.debug.file.read")(function* (args: {
+    path: string
+    output?: string
+    o?: string
+    json?: boolean
+  }) {
+    const output = args.output ?? args.o
     const file = yield* filesystem(FileSystem.Service.use((svc) => svc.read({ path: RelativePath.make(args.path) })))
     const payload = { content: Buffer.from(file.content).toString("base64"), encoding: "base64", mime: file.mime }
     const json = JSON.stringify(payload, null, 2) + EOL
 
-    if (args.output) {
-      const resolved = path.resolve(args.output)
+    if (output) {
+      const resolved = path.resolve(output)
       yield* Effect.promise(async () => {
         const fs = await import("node:fs/promises")
         await fs.mkdir(path.dirname(resolved), { recursive: true })
@@ -123,12 +136,18 @@ export const FileListCommand = effectCmd({
         describe: "output JSON",
         default: false,
       }),
-  handler: Effect.fn("Cli.debug.file.list")(function* (args: { path: string; output?: string; json?: boolean }) {
+  handler: Effect.fn("Cli.debug.file.list")(function* (args: {
+    path: string
+    output?: string
+    o?: string
+    json?: boolean
+  }) {
+    const output = args.output ?? args.o
     const files = yield* filesystem(FileSystem.Service.use((svc) => svc.list({ path: RelativePath.make(args.path) })))
     const json = JSON.stringify(files, null, 2) + EOL
 
-    if (args.output) {
-      const resolved = path.resolve(args.output)
+    if (output) {
+      const resolved = path.resolve(output)
       yield* Effect.promise(async () => {
         const fs = await import("node:fs/promises")
         await fs.mkdir(path.dirname(resolved), { recursive: true })

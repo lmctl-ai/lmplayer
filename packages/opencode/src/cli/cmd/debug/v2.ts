@@ -24,8 +24,9 @@ export const V2Command = effectCmd({
         describe: "output JSON",
         default: false,
       }),
-  handler: (args: { output?: string; json?: boolean }) =>
+  handler: (args: { output?: string; o?: string; json?: boolean }) =>
     Effect.gen(function* () {
+      const output = args.output ?? args.o
       const catalog = yield* Catalog.Service
       const providers = (yield* catalog.provider.available()).sort((a, b) => a.id.localeCompare(b.id))
       const all = (yield* catalog.provider.all()).sort((a, b) => a.id.localeCompare(b.id))
@@ -42,8 +43,8 @@ export const V2Command = effectCmd({
         ),
       }
       const json = JSON.stringify(result, null, 2) + EOL
-      if (args.output) {
-        const resolved = path.resolve(args.output)
+      if (output) {
+        const resolved = path.resolve(output)
         yield* Effect.promise(async () => {
           const fs = await import("node:fs/promises")
           await fs.mkdir(path.dirname(resolved), { recursive: true })

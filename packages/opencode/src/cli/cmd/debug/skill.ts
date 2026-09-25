@@ -20,12 +20,13 @@ export const SkillCommand = effectCmd({
         describe: "output JSON",
         default: false,
       }),
-  handler: Effect.fn("Cli.debug.skill")(function* (args: { output?: string; json?: boolean }) {
+  handler: Effect.fn("Cli.debug.skill")(function* (args: { output?: string; o?: string; json?: boolean }) {
+    const output = args.output ?? args.o
     const skill = yield* Skill.Service
     const skills = yield* skill.all()
     const json = JSON.stringify(skills, null, 2) + EOL
-    if (args.output) {
-      const resolved = path.resolve(args.output)
+    if (output) {
+      const resolved = path.resolve(output)
       yield* Effect.promise(async () => {
         const fs = await import("node:fs/promises")
         await fs.mkdir(path.dirname(resolved), { recursive: true })

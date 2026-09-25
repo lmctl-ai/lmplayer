@@ -18,15 +18,16 @@ export const ScrapCommand = cmd({
         describe: "output JSON",
         default: false,
       }),
-  async handler(args: { output?: string; json?: boolean }) {
+  async handler(args: { output?: string; o?: string; json?: boolean }) {
+    const output = args.output ?? args.o
     const { Project } = await import("@/project/project")
     const { AppNodeBuilder } = await import("@opencode-ai/core/effect/app-node-builder")
     const { makeRuntime } = await import("@opencode-ai/core/effect/runtime")
     const runtime = makeRuntime(Project.Service, AppNodeBuilder.build(Project.node))
     const list = await runtime.runPromise((project) => project.list())
     const json = JSON.stringify(list, null, 2) + EOL
-    if (args.output) {
-      const resolved = path.resolve(args.output)
+    if (output) {
+      const resolved = path.resolve(output)
       const fs = await import("node:fs/promises")
       await fs.mkdir(path.dirname(resolved), { recursive: true })
       await fs.writeFile(resolved, json, "utf-8")

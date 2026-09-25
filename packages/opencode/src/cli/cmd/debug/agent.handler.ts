@@ -19,8 +19,11 @@ import { UI } from "@/cli/ui"
 export const debugAgent = Effect.fn("Cli.debug.agent")(function* (args: {
   name: string
   tool?: string
+  t?: string
   params?: string
+  p?: string
   output?: string
+  o?: string
   json?: boolean
 }) {
   const ctx = yield* InstanceRef
@@ -29,7 +32,16 @@ export const debugAgent = Effect.fn("Cli.debug.agent")(function* (args: {
 })
 
 const run = Effect.fn("Cli.debug.agent.body")(function* (
-  args: { name: string; tool?: string; params?: string; output?: string; json?: boolean },
+  args: {
+    name: string
+    tool?: string
+    t?: string
+    params?: string
+    p?: string
+    output?: string
+    o?: string
+    json?: boolean
+  },
   ctx: InstanceContext,
 ) {
   const agentName = args.name
@@ -42,7 +54,9 @@ const run = Effect.fn("Cli.debug.agent.body")(function* (
   }
   const availableTools = yield* getAvailableTools(agent)
   const resolvedTools = resolveTools(agent, availableTools)
-  const toolID = args.tool
+  const toolID = args.tool ?? args.t
+  const toolParams = args.params ?? args.p
+  const output = args.output ?? args.o
   if (toolID) {
     const tool = availableTools.find((item) => item.id === toolID)
     if (!tool) {
@@ -53,12 +67,12 @@ const run = Effect.fn("Cli.debug.agent.body")(function* (
       process.stderr.write(`Tool ${toolID} is disabled for agent ${agentName}` + EOL)
       return yield* fail("", 1)
     }
-    const params = parseToolParams(args.params)
+    const params = parseToolParams(toolParams)
     const toolCtx = yield* createToolContext(agent, ctx)
     const result = yield* tool.execute(params, toolCtx)
     const jsonStr = JSON.stringify({ tool: toolID, input: params, result }, null, 2) + EOL
-    if (args.output) {
-      const resolved = path.resolve(args.output)
+    if (output) {
+      const resolved = path.resolve(output)
       yield* Effect.promise(async () => {
         const fs = await import("node:fs/promises")
         await fs.mkdir(path.dirname(resolved), { recursive: true })
@@ -71,13 +85,13 @@ const run = Effect.fn("Cli.debug.agent.body")(function* (
     return
   }
 
-  const output = {
+  const agentOutput = {
     ...agent,
     tools: resolvedTools,
   }
-  const jsonStr = JSON.stringify(output, null, 2) + EOL
-  if (args.output) {
-    const resolved = path.resolve(args.output)
+  const jsonStr = JSON.stringify(agentOutput, null, 2) + EOL
+  if (output) {
+    const resolved = path.resolve(output)
     yield* Effect.promise(async () => {
       const fs = await import("node:fs/promises")
       await fs.mkdir(path.dirname(resolved), { recursive: true })
