@@ -70,6 +70,14 @@ describe("GenerateCommand builder and options", () => {
     expect(options.key.o).toBeDefined()
     expect(options.key.json).toBeDefined()
   })
+
+  test("GenerateCommand parses -o short alias and --json", async () => {
+    const builder = GenerateCommand.builder as (y: Argv) => Argv<any>
+    const parsed = await builder(yargs()).parseAsync(["-o", "schema.json", "--json"])
+    expect(parsed.output).toBe("schema.json")
+    expect(parsed.o).toBe("schema.json")
+    expect(parsed.json).toBe(true)
+  })
 })
 
 describe("formatRunOutputText", () => {

@@ -35,16 +35,25 @@ describe("formatBytes", () => {
 // ─── Command definitions & builders ──────────────────────────────────────────
 
 describe("db command definitions & builders", () => {
-  test("PathCommand registers path, output, and json option", () => {
+  test("PathCommand registers path, output, o, and json option", () => {
     expect(PathCommand.command).toBe("path")
     const builder = PathCommand.builder as (y: Argv) => Argv<any>
     const parser = builder(yargs())
     const options = (parser as any).getOptions()
     expect(options.key.output).toBeDefined()
+    expect(options.key.o).toBeDefined()
     expect(options.key.json).toBeDefined()
   })
 
-  test("InfoCommand registers info, aliases, output, and json option", () => {
+  test("PathCommand parses -o short alias and --json", async () => {
+    const builder = PathCommand.builder as (y: Argv) => Argv<any>
+    const parsed = await builder(yargs()).parseAsync(["-o", "db-path.txt", "--json"])
+    expect(parsed.output).toBe("db-path.txt")
+    expect(parsed.o).toBe("db-path.txt")
+    expect(parsed.json).toBe(true)
+  })
+
+  test("InfoCommand registers info, aliases, output, o, and json option", () => {
     expect(InfoCommand.command).toBe("info")
     expect(InfoCommand.aliases).toContain("stats")
     expect(InfoCommand.aliases).toContain("status")
@@ -52,10 +61,19 @@ describe("db command definitions & builders", () => {
     const parser = builder(yargs())
     const options = (parser as any).getOptions()
     expect(options.key.output).toBeDefined()
+    expect(options.key.o).toBeDefined()
     expect(options.key.json).toBeDefined()
   })
 
-  test("CheckCommand registers check, aliases, output, and json option", () => {
+  test("InfoCommand parses -o short alias and --json", async () => {
+    const builder = InfoCommand.builder as (y: Argv) => Argv<any>
+    const parsed = await builder(yargs()).parseAsync(["-o", "db-info.json", "--json"])
+    expect(parsed.output).toBe("db-info.json")
+    expect(parsed.o).toBe("db-info.json")
+    expect(parsed.json).toBe(true)
+  })
+
+  test("CheckCommand registers check, aliases, output, o, and json option", () => {
     expect(CheckCommand.command).toBe("check")
     expect(CheckCommand.aliases).toContain("verify")
     expect(CheckCommand.aliases).toContain("integrity")
@@ -63,10 +81,19 @@ describe("db command definitions & builders", () => {
     const parser = builder(yargs())
     const options = (parser as any).getOptions()
     expect(options.key.output).toBeDefined()
+    expect(options.key.o).toBeDefined()
     expect(options.key.json).toBeDefined()
   })
 
-  test("VacuumCommand registers vacuum, aliases, and options", () => {
+  test("CheckCommand parses -o short alias and --json", async () => {
+    const builder = CheckCommand.builder as (y: Argv) => Argv<any>
+    const parsed = await builder(yargs()).parseAsync(["-o", "check-res.json", "--json"])
+    expect(parsed.output).toBe("check-res.json")
+    expect(parsed.o).toBe("check-res.json")
+    expect(parsed.json).toBe(true)
+  })
+
+  test("VacuumCommand registers vacuum, aliases, output, o, and options", () => {
     expect(VacuumCommand.command).toBe("vacuum")
     expect(VacuumCommand.aliases).toContain("optimize")
     expect(VacuumCommand.aliases).toContain("clean")
@@ -76,7 +103,16 @@ describe("db command definitions & builders", () => {
     expect(options.key.wal).toBeDefined()
     expect(options.key.analyze).toBeDefined()
     expect(options.key.output).toBeDefined()
+    expect(options.key.o).toBeDefined()
     expect(options.key.json).toBeDefined()
+  })
+
+  test("VacuumCommand parses -o short alias and --json", async () => {
+    const builder = VacuumCommand.builder as (y: Argv) => Argv<any>
+    const parsed = await builder(yargs()).parseAsync(["-o", "vacuum-res.json", "--json"])
+    expect(parsed.output).toBe("vacuum-res.json")
+    expect(parsed.o).toBe("vacuum-res.json")
+    expect(parsed.json).toBe(true)
   })
 
   test("QueryCommand registers $0 [query], format, output, o, and json options", () => {
@@ -211,7 +247,7 @@ describe("db in-process execution", () => {
     }
   })
 
-  test("dbInfo exports metadata to file with output option", async () => {
+  test("dbInfo exports metadata to file with output option and o alias", async () => {
     const tmp = await tmpdir()
     const jsonPath = path.join(tmp.path, "nested", "info.json")
     const textPath = path.join(tmp.path, "reports", "info.txt")
@@ -234,6 +270,15 @@ describe("db in-process execution", () => {
     expect(content).toContain("Database:")
     expect(content).toContain("SQLite Version:")
     expect(content).toContain("Tables:")
+
+    // Short alias -o export
+    const shortOutPath = path.join(tmp.path, "reports", "info-short.txt")
+    const infoShort = await AppRuntime.runPromise(dbInfo({ o: shortOutPath }))
+    expect(infoShort).toBeDefined()
+    const shortExists = await fs.stat(shortOutPath).then(() => true, () => false)
+    expect(shortExists).toBe(true)
+    const shortContent = await fs.readFile(shortOutPath, "utf-8")
+    expect(shortContent).toContain("Database:")
   })
 
   test("dbCheck exports results to file with output option", async () => {
