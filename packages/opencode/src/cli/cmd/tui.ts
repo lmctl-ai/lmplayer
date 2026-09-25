@@ -148,6 +148,9 @@ export const TuiThreadCommand = cmd({
       return
     }
     const noReplay = args.replay === false || args.noReplay === true
+    const continueSession = Boolean(args.continue || (args as any).c)
+    const sessionID = args.session || (args as any).s
+    const model = args.model || (args as any).m
 
     if (args.mini) {
       const network = ["--port", "--hostname", "--mdns", "--no-mdns", "--mdns-domain", "--cors"].find((option) =>
@@ -162,10 +165,10 @@ export const TuiThreadCommand = cmd({
       const { runMini } = await import("./run")
       await runMini({
         directory: resolveThreadDirectory(args.project),
-        continue: args.continue,
-        session: args.session,
+        continue: continueSession,
+        session: sessionID,
         fork: args.fork,
-        model: args.model,
+        model,
         agent: args.agent,
         prompt: args.prompt,
         replay: noReplay ? false : undefined,
@@ -189,7 +192,7 @@ export const TuiThreadCommand = cmd({
     const unguard = win32InstallCtrlCGuard()
     try {
       const { TuiConfig } = await import("@/config/tui")
-      if (args.fork && !args.continue && !args.session) {
+      if (args.fork && !continueSession && !sessionID) {
         UI.error("--fork requires --continue or --session")
         process.exitCode = 1
         return
@@ -251,7 +254,7 @@ export const TuiThreadCommand = cmd({
       try {
         await validateSession({
           url: transport.url,
-          sessionID: args.session,
+          sessionID,
           directory: cwd,
           fetch: transport.fetch,
           headers,
@@ -285,10 +288,10 @@ export const TuiThreadCommand = cmd({
             headers: transport.headers,
             events: transport.events,
             args: {
-              continue: args.continue,
-              sessionID: args.session,
+              continue: continueSession,
+              sessionID,
               agent: args.agent,
-              model: args.model,
+              model,
               prompt,
               fork: args.fork,
               auto: args.auto || args.yolo || args["dangerously-skip-permissions"],

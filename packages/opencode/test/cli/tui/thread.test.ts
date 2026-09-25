@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { Effect } from "effect"
 import fs from "fs/promises"
 import path from "path"
-import yargs from "yargs"
+import yargs, { type Argv } from "yargs"
 import { tmpdir } from "../../fixture/fixture"
 import { TuiThreadCommand, resolveThreadDirectory } from "../../../src/cli/cmd/tui"
 import { cliIt } from "../../lib/cli-process"
@@ -70,6 +70,29 @@ describe("tui thread", () => {
       .parse(["tui", "--mdns", "--no-mdns"])
 
     expect(args.mdns).toBe(false)
+  })
+
+  test("registers model, continue, session and parses short aliases -m, -c, -s", async () => {
+    const builder = TuiThreadCommand.builder as (y: Argv) => Argv<any>
+    const options = (builder(yargs()) as any).getOptions()
+    expect(options.key.model).toBeDefined()
+    expect(options.key.m).toBeDefined()
+    expect(options.key.continue).toBeDefined()
+    expect(options.key.c).toBeDefined()
+    expect(options.key.session).toBeDefined()
+    expect(options.key.s).toBeDefined()
+
+    const args = await yargs([])
+      .command({ ...TuiThreadCommand, handler: () => {} })
+      .exitProcess(false)
+      .parse(["tui", "-m", "anthropic/claude-3-5-sonnet", "-c", "-s", "ses_test123"])
+
+    expect(args.model).toBe("anthropic/claude-3-5-sonnet")
+    expect(args.m).toBe("anthropic/claude-3-5-sonnet")
+    expect(args.continue).toBe(true)
+    expect(args.c).toBe(true)
+    expect(args.session).toBe("ses_test123")
+    expect(args.s).toBe("ses_test123")
   })
 
   cliIt.live("rejects mini-only options without --mini", ({ opencode }) =>
