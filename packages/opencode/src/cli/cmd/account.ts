@@ -53,38 +53,40 @@ function* writeOutputFile(filePath: string, content: string, label: string) {
 
 export const loginEffect = Effect.fn("login")(function* (
   url: string,
-  args?: { output?: string; json?: boolean },
+  args?: { output?: string; o?: string; json?: boolean },
 ) {
   const service = yield* Account.Service
+  const output = args?.output ?? args?.o
+  const isJson = Boolean(args?.json)
 
   const writeLoginResult = (payload: { ok: boolean; email?: string; url?: string; error?: string }) =>
     Effect.gen(function* () {
-      if (args?.json) {
+      if (isJson) {
         const jsonStr = JSON.stringify(payload, null, 2) + EOL
-        if (args.output) {
-          yield* writeOutputFile(args.output, jsonStr, "console login")
+        if (output) {
+          yield* writeOutputFile(output, jsonStr, "console login")
         }
         process.stdout.write(jsonStr)
         if (!payload.ok) process.exitCode = 1
         return
       }
-      if (args?.output) {
+      if (output) {
         const text = payload.ok
           ? `Logged in as ${payload.email} (${payload.url})${EOL}`
           : `Login failed: ${payload.error ?? "error"}${EOL}`
-        yield* writeOutputFile(args.output, text, "console login")
+        yield* writeOutputFile(output, text, "console login")
       }
       if (!payload.ok) {
         process.exitCode = 1
       }
     })
 
-  if (!args?.json) {
+  if (!isJson) {
     yield* Prompt.intro("Log in")
   }
   const login = yield* service.login(url)
 
-  if (args?.json) {
+  if (isJson) {
     process.stderr.write(`Go to: ${login.url}${EOL}`)
     process.stderr.write(`Enter code: ${login.user}${EOL}`)
   } else {
@@ -94,7 +96,7 @@ export const loginEffect = Effect.fn("login")(function* (
   yield* openBrowser(login.url)
 
   const s = Prompt.spinner()
-  if (!args?.json) {
+  if (!isJson) {
     yield* s.start("Waiting for authorization...")
   }
 
@@ -115,7 +117,7 @@ export const loginEffect = Effect.fn("login")(function* (
   yield* Match.valueTags(result, {
     PollSuccess: (r) =>
       Effect.gen(function* () {
-        if (!args?.json) {
+        if (!isJson) {
           yield* s.stop("Logged in as " + r.email)
           yield* Prompt.outro("Done")
         }
@@ -123,27 +125,27 @@ export const loginEffect = Effect.fn("login")(function* (
       }),
     PollExpired: () =>
       Effect.gen(function* () {
-        if (!args?.json) yield* s.stop("Device code expired", 1)
+        if (!isJson) yield* s.stop("Device code expired", 1)
         yield* writeLoginResult({ ok: false, error: "Device code expired", url })
       }),
     PollDenied: () =>
       Effect.gen(function* () {
-        if (!args?.json) yield* s.stop("Authorization denied", 1)
+        if (!isJson) yield* s.stop("Authorization denied", 1)
         yield* writeLoginResult({ ok: false, error: "Authorization denied", url })
       }),
     PollError: (r) =>
       Effect.gen(function* () {
-        if (!args?.json) yield* s.stop("Error: " + String(r.cause), 1)
+        if (!isJson) yield* s.stop("Error: " + String(r.cause), 1)
         yield* writeLoginResult({ ok: false, error: String(r.cause), url })
       }),
     PollPending: () =>
       Effect.gen(function* () {
-        if (!args?.json) yield* s.stop("Unexpected state", 1)
+        if (!isJson) yield* s.stop("Unexpected state", 1)
         yield* writeLoginResult({ ok: false, error: "Unexpected state", url })
       }),
     PollSlow: () =>
       Effect.gen(function* () {
-        if (!args?.json) yield* s.stop("Unexpected state", 1)
+        if (!isJson) yield* s.stop("Unexpected state", 1)
         yield* writeLoginResult({ ok: false, error: "Unexpected state", url })
       }),
   })
@@ -151,12 +153,19 @@ export const loginEffect = Effect.fn("login")(function* (
 
 export const logoutEffect = Effect.fn("logout")(function* (args?: {
   email?: string
+  e?: string
   force?: boolean
+  f?: boolean
   json?: boolean
   output?: string
+  o?: string
 }) {
   const service = yield* Account.Service
   const accounts = yield* service.list()
+  const output = args?.output ?? args?.o
+  const force = Boolean(args?.force ?? args?.f)
+  const isJson = Boolean(args?.json)
+  const targetEmail = args?.email ?? args?.e
 
   const writeLogoutResult = (payload: {
     ok: boolean
@@ -167,44 +176,44 @@ export const logoutEffect = Effect.fn("logout")(function* (args?: {
     error?: string
   }) =>
     Effect.gen(function* () {
-      if (args?.json) {
+      if (isJson) {
         const jsonStr = JSON.stringify(payload, null, 2) + EOL
-        if (args.output) {
-          yield* writeOutputFile(args.output, jsonStr, "console logout")
+        if (output) {
+          yield* writeOutputFile(output, jsonStr, "console logout")
         }
         process.stdout.write(jsonStr)
-        if (!payload.ok && !args.force) process.exitCode = 1
+        if (!payload.ok && !force) process.exitCode = 1
         return
       }
-      if (args?.output) {
+      if (output) {
         const text = payload.ok
           ? `Logged out from ${payload.email ?? "account"}${payload.message ? ` (${payload.message})` : ""}${EOL}`
           : `Logout failed: ${payload.error ?? payload.message ?? "error"}${EOL}`
-        yield* writeOutputFile(args.output, text, "console logout")
+        yield* writeOutputFile(output, text, "console logout")
       }
       if (!payload.ok) {
-        if (!args?.force) process.exitCode = 1
+        if (!force) process.exitCode = 1
         yield* println(payload.error ?? payload.message ?? "Error")
         return
       }
-      if (!args?.output) {
+      if (!output) {
         yield* Prompt.outro(payload.message ?? `Logged out from ${payload.email}`)
       }
     })
 
   if (accounts.length === 0) {
-    if (args?.force) {
+    if (force) {
       return yield* writeLogoutResult({
         ok: true,
-        email: args.email,
+        email: targetEmail,
         removed: false,
         message: "Not logged in",
       })
     }
-    if (args?.json || args?.output) {
+    if (isJson || output) {
       return yield* writeLogoutResult({
         ok: false,
-        email: args.email,
+        email: targetEmail,
         removed: false,
         error: "Not logged in",
       })
@@ -212,26 +221,26 @@ export const logoutEffect = Effect.fn("logout")(function* (args?: {
     return yield* println("Not logged in")
   }
 
-  if (args?.email) {
-    const match = accounts.find((a) => a.email === args.email || a.id === args.email)
+  if (targetEmail) {
+    const match = accounts.find((a) => a.email === targetEmail || a.id === targetEmail)
     if (!match) {
-      if (args.force) {
+      if (force) {
         return yield* writeLogoutResult({
           ok: true,
-          email: args.email,
+          email: targetEmail,
           removed: false,
-          message: `Account not found: ${args.email}`,
+          message: `Account not found: ${targetEmail}`,
         })
       }
-      if (args.json || args.output) {
+      if (isJson || output) {
         return yield* writeLogoutResult({
           ok: false,
-          email: args.email,
+          email: targetEmail,
           removed: false,
-          error: `Account not found: ${args.email}`,
+          error: `Account not found: ${targetEmail}`,
         })
       }
-      return yield* println("Account not found: " + args.email)
+      return yield* println("Account not found: " + targetEmail)
     }
     yield* service.remove(match.id)
     return yield* writeLogoutResult({
@@ -244,7 +253,7 @@ export const logoutEffect = Effect.fn("logout")(function* (args?: {
   }
 
   const active = yield* service.active()
-  if (args?.json || !process.stdin.isTTY) {
+  if (isJson || !process.stdin.isTTY) {
     if (Option.isSome(active)) {
       yield* service.remove(active.value.id)
       return yield* writeLogoutResult({
@@ -255,7 +264,7 @@ export const logoutEffect = Effect.fn("logout")(function* (args?: {
         message: `Logged out from active account ${active.value.email}`,
       })
     }
-    if (args?.force) {
+    if (force) {
       return yield* writeLogoutResult({
         ok: true,
         removed: false,
@@ -303,9 +312,12 @@ interface OrgChoice {
 export const switchEffect = Effect.fn("switch")(function* (args?: {
   org?: string
   output?: string
+  o?: string
   json?: boolean
 }) {
   const service = yield* Account.Service
+  const output = args?.output ?? args?.o
+  const isJson = Boolean(args?.json)
 
   const groups = yield* service.orgsByAccount()
   const writeSwitchResult = (payload: {
@@ -315,33 +327,33 @@ export const switchEffect = Effect.fn("switch")(function* (args?: {
     error?: string
   }) =>
     Effect.gen(function* () {
-      if (args?.json) {
+      if (isJson) {
         const jsonStr = JSON.stringify(payload, null, 2) + EOL
-        if (args.output) {
-          yield* writeOutputFile(args.output, jsonStr, "console switch")
+        if (output) {
+          yield* writeOutputFile(output, jsonStr, "console switch")
         }
         process.stdout.write(jsonStr)
         if (!payload.ok) process.exitCode = 1
         return
       }
-      if (args?.output) {
+      if (output) {
         const text = payload.ok
           ? `Switched to ${payload.org?.name ?? payload.org?.id ?? "org"} (${payload.account?.email ?? ""})${EOL}`
           : `Switch failed: ${payload.error ?? "error"}${EOL}`
-        yield* writeOutputFile(args.output, text, "console switch")
+        yield* writeOutputFile(output, text, "console switch")
       }
       if (!payload.ok) {
         process.exitCode = 1
         yield* println(payload.error ?? "Error")
         return
       }
-      if (!args?.output) {
+      if (!output) {
         yield* Prompt.outro("Switched to " + (payload.org?.name ?? payload.org?.id))
       }
     })
 
   if (groups.length === 0) {
-    if (args?.json || args?.output) {
+    if (isJson || output) {
       return yield* writeSwitchResult({ ok: false, error: "Not logged in" })
     }
     return yield* println("Not logged in")
@@ -359,7 +371,7 @@ export const switchEffect = Effect.fn("switch")(function* (args?: {
     }),
   )
   if (allChoices.length === 0) {
-    if (args?.json || args?.output) {
+    if (isJson || output) {
       return yield* writeSwitchResult({ ok: false, error: "No orgs found" })
     }
     return yield* println("No orgs found")
@@ -370,7 +382,7 @@ export const switchEffect = Effect.fn("switch")(function* (args?: {
       (c) => c.orgID === args.org || c.label.toLowerCase() === args.org!.toLowerCase(),
     )
     if (!match) {
-      if (args.json || args.output) {
+      if (isJson || output) {
         return yield* writeSwitchResult({ ok: false, error: `Organization not found: ${args.org}` })
       }
       return yield* println(`Organization not found: ${args.org}`)
@@ -384,7 +396,7 @@ export const switchEffect = Effect.fn("switch")(function* (args?: {
     })
   }
 
-  if (args?.json || !process.stdin.isTTY) {
+  if (isJson || !process.stdin.isTTY) {
     return yield* writeSwitchResult({
       ok: false,
       error: "Organization ID or name is required in non-interactive mode",
@@ -519,8 +531,10 @@ export function formatConsoleStatusText(status: ConsoleStatusData): string[] {
   return lines
 }
 
-export const orgsEffect = Effect.fn("orgs")(function* (args?: { output?: string; json?: boolean }) {
+export const orgsEffect = Effect.fn("orgs")(function* (args?: { output?: string; o?: string; json?: boolean }) {
   const service = yield* Account.Service
+  const output = args?.output ?? args?.o
+  const isJson = Boolean(args?.json)
 
   const groups = yield* service.orgsByAccount()
   const active = yield* service.active()
@@ -528,18 +542,18 @@ export const orgsEffect = Effect.fn("orgs")(function* (args?: { output?: string;
   const data = buildAccountOrgsData(groups, active)
   const jsonStr = JSON.stringify(data, null, 2) + EOL
 
-  if (args?.output) {
-    if (args.json) {
-      yield* writeOutputFile(args.output, jsonStr, "console orgs")
+  if (output) {
+    if (isJson) {
+      yield* writeOutputFile(output, jsonStr, "console orgs")
       return
     }
 
     if (groups.length === 0) {
-      yield* writeOutputFile(args.output, "No accounts found" + EOL, "console orgs")
+      yield* writeOutputFile(output, "No accounts found" + EOL, "console orgs")
       return
     }
     if (!groups.some((group) => group.orgs.length > 0)) {
-      yield* writeOutputFile(args.output, "No orgs found" + EOL, "console orgs")
+      yield* writeOutputFile(output, "No orgs found" + EOL, "console orgs")
       return
     }
 
@@ -550,11 +564,11 @@ export const orgsEffect = Effect.fn("orgs")(function* (args?: { output?: string;
         lines.push(stripAnsi(formatOrgLine(group.account, org, isActive)))
       }
     }
-    yield* writeOutputFile(args.output, lines.join(EOL) + EOL, "console orgs")
+    yield* writeOutputFile(output, lines.join(EOL) + EOL, "console orgs")
     return
   }
 
-  if (args?.json) {
+  if (isJson) {
     process.stdout.write(jsonStr)
     return
   }
@@ -570,8 +584,10 @@ export const orgsEffect = Effect.fn("orgs")(function* (args?: { output?: string;
   }
 })
 
-export const statusEffect = Effect.fn("status")(function* (args?: { output?: string; json?: boolean }) {
+export const statusEffect = Effect.fn("status")(function* (args?: { output?: string; o?: string; json?: boolean }) {
   const service = yield* Account.Service
+  const output = args?.output ?? args?.o
+  const isJson = Boolean(args?.json)
   const activeAccount = yield* service.active()
   const activeOrgResult = yield* service.activeOrg().pipe(Effect.catch(() => Effect.succeed(Option.none())))
   const org = Option.map(activeOrgResult, (r) => ({ id: r.org.id, name: r.org.name }))
@@ -581,12 +597,12 @@ export const statusEffect = Effect.fn("status")(function* (args?: { output?: str
   const textLines = formatConsoleStatusText(data)
   const textStr = textLines.join(EOL) + EOL
 
-  if (args?.output) {
-    yield* writeOutputFile(args.output, args.json ? jsonStr : textStr, "console status")
+  if (output) {
+    yield* writeOutputFile(output, isJson ? jsonStr : textStr, "console status")
     return
   }
 
-  if (args?.json) {
+  if (isJson) {
     process.stdout.write(jsonStr)
     return
   }
@@ -596,37 +612,46 @@ export const statusEffect = Effect.fn("status")(function* (args?: { output?: str
   }
 })
 
-export const openEffect = Effect.fn("open")(function* (args?: { print?: boolean; output?: string; json?: boolean }) {
+export const openEffect = Effect.fn("open")(function* (args?: {
+  print?: boolean
+  p?: boolean
+  output?: string
+  o?: string
+  json?: boolean
+}) {
   const service = yield* Account.Service
+  const output = args?.output ?? args?.o
+  const isJson = Boolean(args?.json)
+  const isPrint = Boolean(args?.print ?? args?.p)
   const active = yield* service.active()
   if (Option.isNone(active)) {
-    if (args?.json) {
+    if (isJson) {
       const jsonStr = JSON.stringify({ url: null }, null, 2) + EOL
-      if (args.output) {
-        yield* writeOutputFile(args.output, jsonStr, "console url")
+      if (output) {
+        yield* writeOutputFile(output, jsonStr, "console url")
         return
       }
       process.stdout.write(jsonStr)
       return
     }
-    if (args?.output) {
-      yield* writeOutputFile(args.output, "No active account" + EOL, "console url")
+    if (output) {
+      yield* writeOutputFile(output, "No active account" + EOL, "console url")
       return
     }
     return yield* println("No active account")
   }
 
   const url = active.value.url
-  if (args?.output) {
-    const content = args.json ? JSON.stringify({ url }, null, 2) + EOL : url + EOL
-    yield* writeOutputFile(args.output, content, "console url")
+  if (output) {
+    const content = isJson ? JSON.stringify({ url }, null, 2) + EOL : url + EOL
+    yield* writeOutputFile(output, content, "console url")
     return
   }
-  if (args?.json) {
+  if (isJson) {
     process.stdout.write(JSON.stringify({ url }, null, 2) + EOL)
     return
   }
-  if (args?.print) {
+  if (isPrint) {
     process.stdout.write(url + EOL)
     return
   }
@@ -644,6 +669,11 @@ export const LoginCommand = effectCmd({
         describe: "server URL",
         type: "string",
       })
+      .option("url", {
+        alias: "u",
+        type: "string",
+        describe: "server URL",
+      })
       .option("output", {
         alias: "o",
         type: "string",
@@ -655,13 +685,17 @@ export const LoginCommand = effectCmd({
       }),
   handler: Effect.fn("Cli.account.login")(function* (args: {
     url?: string
+    u?: string
     output?: string
+    o?: string
     json?: boolean
   }) {
-    if (!args.json && !args.output) {
+    const targetUrl = args.url ?? args.u ?? defaultConsoleUrl
+    const output = args.output ?? args.o
+    if (!args.json && !output) {
       UI.empty()
     }
-    yield* Effect.orDie(loginEffect(args.url ?? defaultConsoleUrl, args))
+    yield* Effect.orDie(loginEffect(targetUrl, args))
   }),
 })
 
@@ -672,6 +706,11 @@ export const LogoutCommand = effectCmd({
   builder: (yargs) =>
     yargs
       .positional("email", {
+        describe: "account email to log out from",
+        type: "string",
+      })
+      .option("email", {
+        alias: "e",
         describe: "account email to log out from",
         type: "string",
       })
@@ -691,11 +730,15 @@ export const LogoutCommand = effectCmd({
       }),
   handler: Effect.fn("Cli.account.logout")(function* (args: {
     email?: string
+    e?: string
     force?: boolean
+    f?: boolean
     output?: string
+    o?: string
     json?: boolean
   }) {
-    if (!args.json && !args.output) {
+    const output = args.output ?? args.o
+    if (!args.json && !output) {
       UI.empty()
     }
     yield* Effect.orDie(logoutEffect(args))
@@ -712,6 +755,10 @@ export const SwitchCommand = effectCmd({
         describe: "organization ID or name to switch to",
         type: "string",
       })
+      .option("org", {
+        type: "string",
+        describe: "organization ID or name to switch to",
+      })
       .option("output", {
         alias: "o",
         type: "string",
@@ -724,9 +771,11 @@ export const SwitchCommand = effectCmd({
   handler: Effect.fn("Cli.account.switch")(function* (args: {
     org?: string
     output?: string
+    o?: string
     json?: boolean
   }) {
-    if (!args.json && !args.output) {
+    const output = args.output ?? args.o
+    if (!args.json && !output) {
       UI.empty()
     }
     yield* Effect.orDie(switchEffect(args))
@@ -748,8 +797,9 @@ export const OrgsCommand = effectCmd({
         type: "boolean",
         describe: "output as JSON",
       }),
-  handler: Effect.fn("Cli.account.orgs")(function* (args: { output?: string; json?: boolean }) {
-    if (!args.json && !args.output) {
+  handler: Effect.fn("Cli.account.orgs")(function* (args: { output?: string; o?: string; json?: boolean }) {
+    const output = args.output ?? args.o
+    if (!args.json && !output) {
       UI.empty()
     }
     yield* Effect.orDie(orgsEffect(args))
@@ -772,8 +822,9 @@ export const StatusCommand = effectCmd({
         type: "boolean",
         describe: "output as JSON",
       }),
-  handler: Effect.fn("Cli.account.status")(function* (args: { output?: string; json?: boolean }) {
-    if (!args.json && !args.output) {
+  handler: Effect.fn("Cli.account.status")(function* (args: { output?: string; o?: string; json?: boolean }) {
+    const output = args.output ?? args.o
+    if (!args.json && !output) {
       UI.empty()
     }
     yield* Effect.orDie(statusEffect(args))
@@ -800,8 +851,16 @@ export const OpenCommand = effectCmd({
         type: "boolean",
         describe: "output as JSON",
       }),
-  handler: Effect.fn("Cli.account.open")(function* (args: { print?: boolean; output?: string; json?: boolean }) {
-    if (!args.print && !args.json && !args.output) {
+  handler: Effect.fn("Cli.account.open")(function* (args: {
+    print?: boolean
+    p?: boolean
+    output?: string
+    o?: string
+    json?: boolean
+  }) {
+    const output = args.output ?? args.o
+    const isPrint = Boolean(args.print ?? args.p)
+    if (!isPrint && !args.json && !output) {
       UI.empty()
     }
     yield* Effect.orDie(openEffect(args))
