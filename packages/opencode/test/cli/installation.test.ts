@@ -161,6 +161,16 @@ describe("UpgradeCommand and UninstallCommand builders & options", () => {
     expect(parsed.force).toBe(true)
     expect(parsed.output).toBe("manifest.txt")
   })
+
+  test("UninstallCommand parses -c, -d, -f, and -o short aliases", async () => {
+    const builder = UninstallCommand.builder as (y: Argv) => Argv<any>
+    const parsed = await builder(yargs()).parseAsync(["-c", "-d", "-f", "-o", "manifest.json", "--json"])
+    expect(parsed.c).toBe(true)
+    expect(parsed.d).toBe(true)
+    expect(parsed.f).toBe(true)
+    expect(parsed.o).toBe("manifest.json")
+    expect(parsed.json).toBe(true)
+  })
 })
 
 describe("upgrade and uninstall CLI subprocess tests", () => {
