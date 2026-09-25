@@ -236,29 +236,36 @@ export const AttachCommand = cmd({
       }
     })()
 
-    const isCheck = Boolean(args.check || args.json || args.output)
+    const output = args.output || (args as any).o
+    const isJson = Boolean(args.json)
+    const isCheck = Boolean(args.check || isJson || output)
+    const continueSession = Boolean(args.continue || (args as any).c)
+    const session = args.session || (args as any).s
+    const password = args.password || (args as any).p
+    const username = args.username || (args as any).u
+
     if (isCheck) {
-      if (args.fork && !args.continue && !args.session) {
+      if (args.fork && !continueSession && !session) {
         UI.error("--fork requires --continue or --session")
         process.exitCode = 1
         return
       }
 
-      const headers = ServerAuth.headers({ password: args.password, username: args.username })
+      const headers = ServerAuth.headers({ password, username })
       const result = await checkAttach({
         url: args.url,
-        sessionID: args.session,
-        continueSession: args.continue,
+        sessionID: session,
+        continueSession,
         fork: args.fork,
         directory,
         headers,
       })
 
-      if (args.output) {
-        await writeAttachCheckOutputFile(args.output, result, Boolean(args.json))
+      if (output) {
+        await writeAttachCheckOutputFile(output, result, isJson)
       }
 
-      if (args.json) {
+      if (isJson) {
         UI.println(JSON.stringify(result, null, 2))
       } else {
         const lines = formatAttachCheckText(result)
