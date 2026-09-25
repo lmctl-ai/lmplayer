@@ -35,6 +35,46 @@ describe("debug command builders output and json options", () => {
     { name: "debug lsp document-symbols", cmd: DocumentSymbolsCommand },
   ]
 
+
+  test("FilesCommand and SearchCommand register and parse option aliases -q, -g, -n, -o", async () => {
+    const filesBuilder = FilesCommand.builder as (y: Argv) => Argv<any>
+    const filesParser = filesBuilder(yargs())
+    const filesOpts = (filesParser as any).getOptions()
+    expect(filesOpts.key.query).toBeDefined()
+    expect(filesOpts.key.q).toBeDefined()
+    expect(filesOpts.key.glob).toBeDefined()
+    expect(filesOpts.key.g).toBeDefined()
+    expect(filesOpts.key.limit).toBeDefined()
+    expect(filesOpts.key.n).toBeDefined()
+    expect(filesOpts.key.output).toBeDefined()
+    expect(filesOpts.key.o).toBeDefined()
+
+    const filesParsed = await filesParser.parseAsync(["-q", "test", "-g", "*.ts", "-n", "50", "-o", "out.txt", "--json"])
+    expect(filesParsed.q).toBe("test")
+    expect(filesParsed.g).toBe("*.ts")
+    expect(filesParsed.n).toBe(50)
+    expect(filesParsed.o).toBe("out.txt")
+    expect(filesParsed.json).toBe(true)
+
+    const searchBuilder = SearchCommand.builder as (y: Argv) => Argv<any>
+    const searchParser = searchBuilder(yargs())
+    const searchOpts = (searchParser as any).getOptions()
+    expect(searchOpts.key.glob).toBeDefined()
+    expect(searchOpts.key.g).toBeDefined()
+    expect(searchOpts.key.limit).toBeDefined()
+    expect(searchOpts.key.n).toBeDefined()
+    expect(searchOpts.key.output).toBeDefined()
+    expect(searchOpts.key.o).toBeDefined()
+
+    const searchParsed = await yargs()
+      .command({ ...SearchCommand, handler: () => {} })
+      .parseAsync(["search", "pattern", "-g", "*.ts", "-n", "10", "-o", "res.json"])
+    expect(searchParsed.pattern).toBe("pattern")
+    expect(searchParsed.g).toEqual(["*.ts"])
+    expect(searchParsed.n).toBe(10)
+    expect(searchParsed.o).toBe("res.json")
+  })
+
   for (const { name, cmd } of commands) {
     test(`${name} registers output and json options`, () => {
       const builder = cmd.builder as (y: Argv) => Argv<any>
