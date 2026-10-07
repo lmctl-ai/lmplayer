@@ -1,7 +1,7 @@
 # lmplayer npm releases
 
 The fork workflow is `.github/workflows/lmplayer-publish.yml`. Pushes to `dev`
-build all 12 CLI targets and publish to `staging`. Manual dispatch defaults to
+build all 12 CLI targets and publish directly to `latest`. Manual dispatch defaults to
 build-only (`dry_run: true`). Package name/channel are in `script/lmplayer-release.json`.
 This workflow never calls the inherited upstream publisher.
 
@@ -45,11 +45,12 @@ these different packages. Do not copy unrelated credentials or expose token valu
 Once publication is verified, install with:
 
 ```sh
-npm install -g @lmctl-ai/lmplayer@staging
+npm install -g @lmctl-ai/lmplayer
 lmplayer --version
 ```
 
-`latest` is not changed by staging releases. Promotion is a separate decision.
+There is no staging or promotion gate currently. The build embeds the same channel
+as the npm tag, both read from the release configuration. Staging can be added later.
 
 ## Local checks
 

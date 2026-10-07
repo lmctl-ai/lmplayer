@@ -64,7 +64,7 @@ async function plan() {
   await writeFile(path.join(output, "models.json"), models)
   await writeFile(path.join(output, "plan.json"), JSON.stringify({ version, ...config, packages: names, latestBefore: packages[0]?.["dist-tags"]?.latest, source: process.env.GITHUB_SHA }, null, 2))
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT,
-    `version=${version}\nmatrix=${JSON.stringify({ include: buildMatrix() })}\nwindows_matrix=${JSON.stringify({ include: buildMatrix().filter((item) => item.target.startsWith("windows-")) })}\n`)
+    `version=${version}\nchannel=${config.channel}\nmatrix=${JSON.stringify({ include: buildMatrix() })}\nwindows_matrix=${JSON.stringify({ include: buildMatrix().filter((item) => item.target.startsWith("windows-")) })}\n`)
   console.log(`Planned ${names.length} packages at ${version}, tag ${config.channel}`)
 }
 

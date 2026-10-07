@@ -26,6 +26,7 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.plan.outputs.version }}
+      channel: ${{ steps.plan.outputs.channel }}
       matrix: ${{ steps.plan.outputs.matrix }}
       windows_matrix: ${{ steps.plan.outputs.windows_matrix }}
     steps:
@@ -58,7 +59,7 @@ jobs:
         shell: bash
     env:
       OPENCODE_VERSION: ${{ needs.plan.outputs.version }}
-      OPENCODE_CHANNEL: staging
+      OPENCODE_CHANNEL: ${{ needs.plan.outputs.channel }}
       MODELS_DEV_API_JSON: ${{ github.workspace }}/.lmplayer-release/models.json
       RELEASE_TARGET: ${{ matrix.target }}
     steps:
