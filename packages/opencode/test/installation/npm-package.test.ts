@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { chmod, cp, mkdir, mkdtemp, readFile, rm } from "node:fs/promises"
+import { chmod, cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { createRequire } from "node:module"
@@ -52,15 +52,16 @@ describe("lmplayer npm packages", () => {
   test("launcher executes the exact host optional package", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "lmplayer-launcher-"))
     try {
+      const selected = launcher.packageNameFor()
       for (const target of allTargets) {
         const binary = path.join(root, targetName(target), "bin", target.os === "win32" ? "lmplayer.exe" : "lmplayer")
         await mkdir(path.dirname(binary), { recursive: true })
-        await cp(process.execPath, binary)
+        if (packageNameForTarget(target) === selected) await cp(process.execPath, binary)
+        else await writeFile(binary, "non-host fixture")
         await chmod(binary, 0o755)
         await assemblePlatform(target, "2.3.4", root)
       }
       const wrapper = await assembleWrapper("2.3.4", root)
-      const selected = launcher.packageNameFor()
       const packageDirectory = path.join(root, "node_modules", ...selected.split("/"))
       await cp(path.join(root, selected.split("/").at(-1)!), packageDirectory, { recursive: true })
       const passthrough = Bun.spawnSync(
@@ -82,7 +83,7 @@ describe("lmplayer npm packages", () => {
             process.execPath,
             path.join(wrapper.directory, "bin", "lmplayer"),
             "--eval",
-            'process.stdout.write("ready\\n"); process.on("SIGTERM", () => process.exit(17)); setInterval(() => {}, 1000)',
+            'process.on("SIGTERM", () => process.exit(17)); process.stdout.write("ready\\n"); setInterval(() => {}, 1000)',
           ],
           { cwd: root, env: { ...process.env, LMPLAYER_NPM_PACKAGE: NPM_PACKAGE_NAME }, stdout: "pipe", stderr: "pipe" },
         )

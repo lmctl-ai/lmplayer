@@ -1,0 +1,144 @@
+name: Build and publish lmplayer
+
+on:
+  push:
+    branches: [dev]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Build and test every package without publishing
+        type: boolean
+        default: true
+      version:
+        description: Optional exact x.y.z version (normally allocated from npm)
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lmplayer-npm-release
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    if: github.repository == 'lmctl-ai/lmplayer' && github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: package.json
+      - id: plan
+        run: bun script/lmplayer-release.ts plan
+        env:
+          LMPLAYER_VERSION: ${{ inputs.version }}
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: lmplayer-release-plan
+          path: .lmplayer-release/*.json
+          include-hidden-files: true
+          if-no-files-found: error
+
+  build:
+    needs: plan
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      OPENCODE_VERSION: ${{ needs.plan.outputs.version }}
+      OPENCODE_CHANNEL: staging
+      MODELS_DEV_API_JSON: ${{ github.workspace }}/.lmplayer-release/models.json
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: package.json
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: lmplayer-release-plan
+          path: .lmplayer-release
+      - name: Install locked build dependencies for all native variants
+        run: bun install --frozen-lockfile --os='*' --cpu='*'
+      - name: Package-scoped release tests
+        working-directory: packages/opencode
+        run: bun test test/installation/build-target.test.ts test/installation/npm-package.test.ts test/installation/npm-release.test.ts
+      - name: Typecheck the CLI package
+        if: matrix.target == 'linux-x64'
+        working-directory: packages/opencode
+        run: bun typecheck
+      - name: Compile lmplayer only
+        run: bun packages/opencode/script/build.ts --target=${{ matrix.target }} --lmplayer-release --skip-install
+      - name: Smoke test the target executable
+        run: bun script/lmplayer-release.ts smoke ${{ matrix.target }}
+      - name: Assemble and pack the native npm package
+        run: bun script/lmplayer-release.ts platform ${{ matrix.target }}
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: lmplayer-native-${{ matrix.target }}
+          path: .lmplayer-release/tarballs/*.tgz
+          include-hidden-files: true
+          if-no-files-found: error
+          compression-level: 0
+
+  publish:
+    needs: [plan, build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: package.json
+      - run: npm install --global npm@11
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: lmplayer-release-plan
+          path: .lmplayer-release
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: lmplayer-native-*
+          path: .lmplayer-release/tarballs
+          merge-multiple: true
+      - name: Validate the complete matrix and pack the wrapper
+        run: bun script/lmplayer-release.ts assemble
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: npm-release-packages
+          path: .lmplayer-release/tarballs/*.tgz
+          include-hidden-files: true
+          if-no-files-found: error
+          compression-level: 0
+      - name: Publish native packages first, wrapper last
+        if: github.event_name == 'push' || !inputs.dry_run
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_PUBLISH_TOKEN }}
+        run: bun script/lmplayer-release.ts publish
+      - name: Verify exact npm artifacts and installed wrapper
+        if: github.event_name == 'push' || !inputs.dry_run
+        run: bun script/lmplayer-release.ts verify

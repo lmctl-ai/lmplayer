@@ -119,7 +119,7 @@ for (const item of targets) {
       autoloadDotenv: false,
       autoloadTsconfig: true,
       autoloadPackageJson: true,
-      target: name.replace(pkg.name, "bun") as any,
+      target: name.replace(pkg.name, "bun") as Bun.Build.CompileTarget,
       outfile: `dist/${name}/bin/lmplayer${item.os === "win32" ? ".exe" : ""}`,
       execArgv: [`--user-agent=opencode/${Script.version}`, "--use-system-ca", "--"],
       windows: {},
