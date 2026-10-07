@@ -63,7 +63,8 @@ async function plan() {
   await mkdir(output, { recursive: true })
   await writeFile(path.join(output, "models.json"), models)
   await writeFile(path.join(output, "plan.json"), JSON.stringify({ version, ...config, packages: names, latestBefore: packages[0]?.["dist-tags"]?.latest, source: process.env.GITHUB_SHA }, null, 2))
-  if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `version=${version}\nmatrix=${JSON.stringify({ include: buildMatrix() })}\n`)
+  if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT,
+    `version=${version}\nmatrix=${JSON.stringify({ include: buildMatrix() })}\nwindows_matrix=${JSON.stringify({ include: buildMatrix().filter((item) => item.target.startsWith("windows-")) })}\n`)
   console.log(`Planned ${names.length} packages at ${version}, tag ${config.channel}`)
 }
 
@@ -85,15 +86,19 @@ async function platform(suffix: string) {
   await pack(result.directory)
 }
 
+async function unpack(suffix: string) {
+  const release = await Bun.file(path.join(output, "plan.json")).json()
+  const target = targetForSuffix(suffix)
+  assert.ok(target)
+  const filename = `${config.name.replace(/^@/, "").replaceAll("/", "-")}-${suffix}-${release.version}.tgz`
+  const destination = path.join(dist, targetName(target))
+  await mkdir(destination, { recursive: true })
+  await $`tar -xzf ${path.join(output, "tarballs", filename)} -C ${destination} --strip-components=1`
+}
+
 async function assemble() {
   const release = await Bun.file(path.join(output, "plan.json")).json()
-  // Each artifact is extracted to its own directory; metadata identifies the target.
-  for (const target of allTargets) {
-    const filename = `${config.name.replace(/^@/, "").replaceAll("/", "-")}-${targetSuffix(target)}-${release.version}.tgz`
-    const destination = path.join(dist, targetName(target))
-    await mkdir(destination, { recursive: true })
-    await $`tar -xzf ${path.join(output, "tarballs", filename)} -C ${destination} --strip-components=1`
-  }
+  for (const target of allTargets) await unpack(targetSuffix(target))
   const wrapper = await assembleWrapper(release.version, dist, config.name)
   await pack(wrapper.directory)
 }
@@ -180,6 +185,7 @@ if (import.meta.main) {
   if (action === "plan") await plan()
   else if (action === "platform") await platform(process.argv[3])
   else if (action === "assemble") await assemble()
+  else if (action === "unpack") await unpack(process.argv[3])
   else if (action === "publish") await publish()
   else if (action === "verify") await verify()
   else if (action === "smoke") await smoke(process.argv[3])

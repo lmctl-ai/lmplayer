@@ -14,6 +14,8 @@ OS, CPU capability, and libc. No postinstall hook is needed.
 Targets are Linux ARM64/x64, x64 baseline, and their musl variants; macOS and
 Windows ARM64/x64 and x64 baseline. All targets must pass before publication.
 Native runners execute version/help checks; musl binaries run in Alpine.
+Windows binaries are cross-compiled on Linux, then executed on Windows runners;
+this avoids Bun's Windows patch-cache installation failures for the dev workspace.
 One models.dev snapshot is shared across the matrix for a consistent release.
 Only the binary, manifest, and license are packed; the wrapper ships its launcher.
 
