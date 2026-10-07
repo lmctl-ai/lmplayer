@@ -3,7 +3,13 @@
 import { $ } from "bun"
 import path from "path"
 import { fileURLToPath } from "url"
-import { createSolidTransformPlugin } from "@opentui/solid/bun-plugin"
+import { allTargets, targetForSuffix, targetName, targetSuffix, type BuildTarget } from "./build-target"
+
+const listTargetsFlag = process.argv.includes("--list-targets")
+if (listTargetsFlag) {
+  console.log(JSON.stringify(allTargets.map((target) => ({ ...target, suffix: targetSuffix(target) }))))
+  process.exit(0)
+}
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -13,15 +19,22 @@ process.chdir(dir)
 
 const generated = await import("./generate.ts")
 
-import { Script } from "@opencode-ai/script"
-import pkg from "../package.json"
-
 const singleFlag = process.argv.includes("--single")
 const baselineFlag = process.argv.includes("--baseline")
+const lmplayerReleaseFlag = process.argv.includes("--lmplayer-release")
 const skipInstall = process.argv.includes("--skip-install")
 const sourcemapsFlag = process.argv.includes("--sourcemaps")
-const plugin = createSolidTransformPlugin()
+const targetArgument = process.argv.find((arg) => arg.startsWith("--target="))?.slice("--target=".length)
 const skipEmbedWebUi = process.argv.includes("--skip-embed-web-ui")
+
+if (targetArgument && singleFlag) throw new Error("--target cannot be combined with --single")
+const selectedTarget = targetArgument ? targetForSuffix(targetArgument) : undefined
+if (targetArgument && !selectedTarget) {
+  throw new Error(`Unknown target '${targetArgument}'. Valid targets: ${allTargets.map(targetSuffix).join(", ")}`)
+}
+const { Script } = await import("@opencode-ai/script")
+const pkg = (await import("../package.json")).default
+const plugin = (await import("@opentui/solid/bun-plugin")).createSolidTransformPlugin()
 
 const createEmbeddedWebUIBundle = async () => {
   console.log(`Building Web UI to embed in the binary`)
@@ -50,70 +63,9 @@ const createEmbeddedWebUIBundle = async () => {
 const embeddedFileMap = skipEmbedWebUi ? null : await createEmbeddedWebUIBundle()
 const treeSitterWorker = await Bun.file(fileURLToPath(import.meta.resolve("@opentui/core/parser.worker"))).text()
 
-const allTargets: {
-  os: string
-  arch: "arm64" | "x64"
-  abi?: "musl"
-  avx2?: false
-}[] = [
-  {
-    os: "linux",
-    arch: "arm64",
-  },
-  {
-    os: "linux",
-    arch: "x64",
-  },
-  {
-    os: "linux",
-    arch: "x64",
-    avx2: false,
-  },
-  {
-    os: "linux",
-    arch: "arm64",
-    abi: "musl",
-  },
-  {
-    os: "linux",
-    arch: "x64",
-    abi: "musl",
-  },
-  {
-    os: "linux",
-    arch: "x64",
-    abi: "musl",
-    avx2: false,
-  },
-  {
-    os: "darwin",
-    arch: "arm64",
-  },
-  {
-    os: "darwin",
-    arch: "x64",
-  },
-  {
-    os: "darwin",
-    arch: "x64",
-    avx2: false,
-  },
-  {
-    os: "win32",
-    arch: "arm64",
-  },
-  {
-    os: "win32",
-    arch: "x64",
-  },
-  {
-    os: "win32",
-    arch: "x64",
-    avx2: false,
-  },
-]
-
-const targets = singleFlag
+const targets: readonly BuildTarget[] = selectedTarget
+  ? [selectedTarget]
+  : singleFlag
   ? allTargets.filter((item) => {
       if (item.os !== process.platform || item.arch !== process.arch) {
         return false
@@ -143,16 +95,9 @@ if (!skipInstall) {
   await $`bun install --os="*" --cpu="*" @ff-labs/fff-bun@${pkg.dependencies["@ff-labs/fff-bun"]}`
 }
 for (const item of targets) {
-  const name = [
-    pkg.name,
-    // changing to win32 flags npm for some reason
-    item.os === "win32" ? "windows" : item.os,
-    item.arch,
-    item.avx2 === false ? "baseline" : undefined,
-    item.abi === undefined ? undefined : item.abi,
-  ]
-    .filter(Boolean)
-    .join("-")
+  const suffix = targetSuffix(item)
+  const name = `${pkg.name}-${suffix}`
+  const lmplayerName = targetName(item)
   console.log(`building ${name}`)
   await $`mkdir -p dist/${name}/bin`
 
@@ -160,7 +105,7 @@ for (const item of targets) {
   const treeSitterWorkerPath = "opentui-tree-sitter-worker.js"
   const bunfsRoot = item.os === "win32" ? "B:/~BUN/root/" : "/$bunfs/root/"
 
-  await Bun.build({
+  const buildResult = await Bun.build({
     conditions: ["bun", "node"],
     tsconfig: "./tsconfig.json",
     plugins: [plugin],
@@ -175,7 +120,7 @@ for (const item of targets) {
       autoloadTsconfig: true,
       autoloadPackageJson: true,
       target: name.replace(pkg.name, "bun") as any,
-      outfile: `dist/${name}/bin/lmplayer`,
+      outfile: `dist/${name}/bin/lmplayer${item.os === "win32" ? ".exe" : ""}`,
       execArgv: [`--user-agent=opencode/${Script.version}`, "--use-system-ca", "--"],
       windows: {},
     },
@@ -200,10 +145,15 @@ for (const item of targets) {
       ...(item.os === "linux" ? { "process.env.OPENTUI_LIBC": JSON.stringify(item.abi ?? "glibc") } : {}),
     },
   })
+  if (!buildResult.success) {
+    console.error(`Build failed for ${name}`)
+    for (const log of buildResult.logs) console.error(log)
+    throw new Error(`Bun.build failed for ${name}`)
+  }
 
   // Smoke test: only run if binary is for current platform
   if (item.os === process.platform && item.arch === process.arch && !item.abi) {
-    const binaryPath = `dist/${name}/bin/lmplayer`
+    const binaryPath = `dist/${name}/bin/lmplayer${item.os === "win32" ? ".exe" : ""}`
     console.log(`Running smoke test: ${binaryPath} --version`)
     try {
       const versionOutput = await $`${binaryPath} --version`.text()
@@ -217,10 +167,12 @@ for (const item of targets) {
   const binDir = `dist/${name}/bin`
   const ext = item.os === "win32" ? ".exe" : ""
   const primaryBin = `${binDir}/lmplayer${ext}`
-  for (const alias of ["lmcode", "opencode"]) {
-    const aliasBin = `${binDir}/${alias}${ext}`
-    if (await Bun.file(primaryBin).exists()) {
-      await $`cp ${primaryBin} ${aliasBin}`.nothrow()
+  if (!lmplayerReleaseFlag) {
+    for (const alias of ["lmcode", "opencode"]) {
+      const aliasBin = `${binDir}/${alias}${ext}`
+      if (await Bun.file(primaryBin).exists()) {
+        await $`cp ${primaryBin} ${aliasBin}`.nothrow()
+      }
     }
   }
 
@@ -239,12 +191,11 @@ for (const item of targets) {
       2,
     ),
   )
-  binaries[name] = Script.version
+  if (!lmplayerReleaseFlag) binaries[name] = Script.version
 
-  const lmplayerName = name.replace(new RegExp(`^${pkg.name}`), "lmplayer")
   const lmplayerBinDir = `dist/${lmplayerName}/bin`
   await $`mkdir -p ${lmplayerBinDir}`
-  for (const binName of ["lmplayer", "lmcode", "opencode"]) {
+  for (const binName of lmplayerReleaseFlag ? ["lmplayer"] : ["lmplayer", "lmcode", "opencode"]) {
     const src = `${binDir}/${binName}${ext}`
     const dest = `${lmplayerBinDir}/${binName}${ext}`
     if (await Bun.file(src).exists()) {
@@ -266,6 +217,7 @@ for (const item of targets) {
     ),
   )
   binaries[lmplayerName] = Script.version
+  if (lmplayerReleaseFlag) await $`rm -rf dist/${name}`
 }
 
 if (Script.release) {

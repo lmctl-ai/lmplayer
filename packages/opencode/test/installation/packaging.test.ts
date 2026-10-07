@@ -48,7 +48,7 @@ describe("packaging and postinstall", () => {
     const buildPath = path.resolve(import.meta.dir, "../../script/build.ts")
     const content = fs.readFileSync(buildPath, "utf8")
 
-    expect(content).toContain('outfile: `dist/${name}/bin/lmplayer`')
+    expect(content).toContain('outfile: `dist/${name}/bin/lmplayer${item.os === "win32" ? ".exe" : ""}`')
     expect(content).toContain('for (const alias of ["lmcode", "opencode"])')
     expect(content).toContain('await $`cp ${primaryBin} ${aliasBin}`.nothrow()')
   })
@@ -89,7 +89,7 @@ describe("packaging and postinstall", () => {
     const buildPath = path.resolve(import.meta.dir, "../../script/build.ts")
     const content = fs.readFileSync(buildPath, "utf8")
 
-    expect(content).toContain('const lmplayerName = name.replace(new RegExp(`^${pkg.name}`), "lmplayer")')
+    expect(content).toContain("const lmplayerName = targetName(item)")
     expect(content).toContain("binaries[lmplayerName] = Script.version")
   })
 
