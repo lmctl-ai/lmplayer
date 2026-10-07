@@ -26,23 +26,22 @@ plan/build artifacts. A full workflow rerun is a new build and allocates a fresh
 version; do not expect rebuilt executables to be byte-identical. Publishing accepts
 an existing version only when its integrity matches, and refuses to move the
 wrapper's channel backward.
-Registry visibility/install checks retry reads, never republish as a delay fix.
+Registry visibility/install checks retry reads for up to 30 minutes; never republish
+as a delay fix. npm processing of a large binary exceeded the original 10-minute limit.
 
 ## npm authorization
 
-These are new npm package names. The first real release must establish them with
-an authenticated npm maintainer; a dry run only produces downloadable artifacts.
-Use the complete `npm-release-packages` artifact plus its matching release plan.
-Do not create empty placeholder packages or run the upstream publishing scripts.
+Bootstrap is complete: all 13 packages have npm trusted publishers for repository
+`lmctl-ai/lmplayer`, workflow `lmplayer-publish.yml`, no environment, direct publishing
+allowed. GitHub OIDC publishes with provenance; no local npm login is needed for
+normal releases. All 13 packages at 1.18.27/latest passed the full Actions release
+and registry/install verification. See [setup and recovery](npmjs-publish-setup.md).
 
-For ongoing tokenless publishing, configure an npm trusted publisher on **each**
-of the 13 packages: repository `lmctl-ai/lmplayer`, workflow `lmplayer-publish.yml`,
-no environment, direct publishing allowed. This public repo publishes provenance.
 Alternatively, `NPM_PUBLISH_TOKEN` may be supplied as an Actions secret with access
 to this package family. A token restricted to `@lmctl-ai/lmctl` does not authorize
 these different packages. Do not copy unrelated credentials or expose token values.
 
-Once publication is verified, install with:
+Install with:
 
 ```sh
 npm install -g @lmctl-ai/lmplayer

@@ -31,7 +31,7 @@ system `tar.exe` because Git Bash tar misreads drive letters as remote hosts.
 All checks must pass before publication. Native packages publish first; the wrapper
 publishes last. Verification compares registry integrity against the exact tarballs,
 installs the wrapper from npm, and executes version/help. Registry delays trigger
-read/install retries, not repeated publication.
+read/install retries for up to 30 minutes, not repeated publication.
 
 ## Authentication and one-time bootstrap
 
@@ -78,19 +78,23 @@ lmplayer --version
 
 Code and routine checks are linked in [npm-release.md](npm-release.md).
 
-## Bootstrap checkpoint — 2026-10-07 UTC
+## Verified setup — 2026-10-07 UTC
 
-- All 12 builds and platform smoke checks passed in run `37565146129`.
-- `1.18.25` was published under the original `staging` tag for Linux ARM64 and x64
-  only. Both now have confirmed trusted-publisher configurations.
-- Commit `da9fd6848f` changed publishing to `latest`; release tests and all 30
-  repository typecheck tasks passed. Run `37568088523` passed its complete
-  build/smoke matrix and published `1.18.26` for Linux ARM64 and x64 through
-  GitHub OIDC with provenance, without browser intervention. It then stopped
-  at Linux x64 baseline with `ENEEDAUTH`, as that package is not bootstrapped.
-- The other 10 native packages and wrapper still need bootstrap/trust setup.
-  Their earlier browser-verification batch expired without success. The wrapper
-  has not been published; unattended publishing is **not yet fully verified**.
+Bootstrap is complete. All 13 packages have GitHub trusted publishers configured;
+no npm token secret was installed. The operator completed npm's one-time browser
+verifications for initial publications and trust settings.
 
-Update this checkpoint after completing bootstrap; do not mistake configured
-automation or successful builds for a completed npm release.
+Run [37569201643](https://github.com/lmctl-ai/lmplayer/actions/runs/37569201643)
+built all 12 targets, passed native smoke checks, and published all 13 packages at
+**1.18.27/latest** through GitHub OIDC with provenance. Its final successful retry
+verified exact tarball integrity for every package and installed and executed the
+npm wrapper (`--version` and `--help`). Normal pushes to `dev` now require no npm
+login or browser approval, provided the trust settings remain in place.
+
+The original 10-minute verification window expired while npm processed the last
+Windows package. Retrying the same job after registry visibility caught up passed;
+no new version or browser approval was needed. Verification now allows 30 minutes.
+Use read-only retries for this delay, and confirm the full workflow is green.
+
+The early 1.18.25 partial staging bootstrap is historical. Current releases go
+directly to latest. Consult npm and Actions for versions newer than this checkpoint.
