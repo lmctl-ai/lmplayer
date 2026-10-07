@@ -115,7 +115,11 @@ function main() {
   const child = childProcess.spawn(binary, process.argv.slice(2), { stdio: "inherit", windowsHide: false })
   for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
     process.on(signal, () => {
-      if (!child.killed) child.kill(signal)
+      try {
+        child.kill(signal)
+      } catch {
+        // The child may already have exited. Forward subsequent signals while it lives.
+      }
     })
   }
   child.on("error", (error) => {

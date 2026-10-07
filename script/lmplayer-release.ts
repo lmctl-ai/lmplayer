@@ -3,7 +3,7 @@ import { $ } from "bun"
 import assert from "node:assert/strict"
 import { createHash } from "node:crypto"
 import { appendFileSync } from "node:fs"
-import { chmod, mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { allTargets, targetForSuffix, targetName, targetSuffix } from "../packages/opencode/script/build-target"
@@ -146,16 +146,19 @@ async function verify() {
         assert.equal(published?.versions?.[release.version]?.dist.integrity, expected, `${name} registry bytes not ready or different`)
       }
       await $`npm install --prefix ${consumer} ${`${config.name}@${release.version}`} --ignore-scripts --no-audit --no-fund`.quiet()
+      // npm may exit successfully even when a not-yet-visible optional binary failed.
+      const binary = path.join(consumer, "node_modules/.bin/lmplayer")
+      assert.equal((await $`${binary} --version`.text()).trim(), release.version)
+      await $`${binary} --help`.quiet()
       break
     } catch (error) {
       if (Date.now() >= deadline) throw error
       console.log(`Registry/install not ready; read-only retry in 30 seconds: ${error instanceof Error ? error.message : String(error)}`)
+      await rm(path.join(consumer, "node_modules"), { recursive: true, force: true })
+      await rm(path.join(consumer, "package-lock.json"), { force: true })
       await Bun.sleep(30_000)
     }
   }
-  const binary = path.join(consumer, "node_modules/.bin/lmplayer")
-  assert.equal((await $`${binary} --version`.text()).trim(), release.version)
-  await $`${binary} --help`.quiet()
   const tags = (await metadata(config.name))?.["dist-tags"]
   assert.equal(tags?.[config.channel], release.version)
   if (config.channel !== "latest") assert.equal(tags?.latest, release.latestBefore, "latest changed during the staging release")
@@ -189,5 +192,5 @@ if (import.meta.main) {
   else if (action === "publish") await publish()
   else if (action === "verify") await verify()
   else if (action === "smoke") await smoke(process.argv[3])
-  else throw new Error("Usage: bun script/lmplayer-release.ts plan|platform <target>|assemble|publish|verify|smoke <target>")
+  else throw new Error("Usage: bun script/lmplayer-release.ts plan|platform <target>|unpack <target>|assemble|publish|verify|smoke <target>")
 }
