@@ -1,0 +1,6 @@
+{
+  "name": "@lmctl-ai/lmplayer",
+  "channel": "staging",
+  "repository": "lmctl-ai/lmplayer",
+  "branch": "dev"
+}
