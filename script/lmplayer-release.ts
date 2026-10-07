@@ -93,7 +93,11 @@ async function unpack(suffix: string) {
   const filename = `${config.name.replace(/^@/, "").replaceAll("/", "-")}-${suffix}-${release.version}.tgz`
   const destination = path.join(dist, targetName(target))
   await mkdir(destination, { recursive: true })
-  await $`tar -xzf ${path.join(output, "tarballs", filename)} -C ${destination} --strip-components=1`
+  // Git Bash's tar treats a Windows drive letter as a remote archive host.
+  const tar = process.platform === "win32"
+    ? path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe")
+    : "tar"
+  await $`${tar} -xzf ${path.join(output, "tarballs", filename)} -C ${destination} --strip-components=1`
 }
 
 async function assemble() {
