@@ -74,8 +74,16 @@ jobs:
         with:
           name: lmplayer-release-plan
           path: .lmplayer-release
-      - name: Install locked build dependencies for all native variants
-        run: bun install --frozen-lockfile --os='*' --cpu='*'
+      - name: Install locked build dependencies for the runner
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            # Linux jobs also compile musl: keep both libc variants available.
+            bun install --frozen-lockfile --os=linux --cpu="$(node -p 'process.arch')"
+          elif [ "$RUNNER_OS" = "Windows" ]; then
+            bun install --frozen-lockfile --linker hoisted
+          else
+            bun install --frozen-lockfile
+          fi
       - name: Package-scoped release tests
         working-directory: packages/opencode
         run: bun test test/installation/build-target.test.ts test/installation/npm-package.test.ts test/installation/npm-release.test.ts
