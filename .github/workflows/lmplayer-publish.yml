@@ -27,6 +27,7 @@ jobs:
     outputs:
       version: ${{ steps.plan.outputs.version }}
       matrix: ${{ steps.plan.outputs.matrix }}
+      windows_matrix: ${{ steps.plan.outputs.windows_matrix }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -51,7 +52,7 @@ jobs:
       fail-fast: false
       max-parallel: 4
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
-    runs-on: ${{ matrix.runner }}
+    runs-on: ${{ startsWith(matrix.target, 'windows-') && 'ubuntu-24.04' || matrix.runner }}
     defaults:
       run:
         shell: bash
@@ -59,6 +60,7 @@ jobs:
       OPENCODE_VERSION: ${{ needs.plan.outputs.version }}
       OPENCODE_CHANNEL: staging
       MODELS_DEV_API_JSON: ${{ github.workspace }}/.lmplayer-release/models.json
+      RELEASE_TARGET: ${{ matrix.target }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -76,11 +78,12 @@ jobs:
           path: .lmplayer-release
       - name: Install locked build dependencies for the runner
         run: |
-          if [ "$RUNNER_OS" = "Linux" ]; then
+          if [[ "$RELEASE_TARGET" == windows-* ]]; then
+            # Cross-compile on Linux; native Windows execution is checked below.
+            bun install --frozen-lockfile --os='*' --cpu='*'
+          elif [ "$RUNNER_OS" = "Linux" ]; then
             # Linux jobs also compile musl: keep both libc variants available.
             bun install --frozen-lockfile --os=linux --cpu="$(node -p 'process.arch')"
-          elif [ "$RUNNER_OS" = "Windows" ]; then
-            bun install --frozen-lockfile --linker hoisted
           else
             bun install --frozen-lockfile
           fi
@@ -94,6 +97,7 @@ jobs:
       - name: Compile lmplayer only
         run: bun packages/opencode/script/build.ts --target=${{ matrix.target }} --lmplayer-release --skip-install
       - name: Smoke test the target executable
+        if: "!startsWith(matrix.target, 'windows-')"
         run: bun script/lmplayer-release.ts smoke ${{ matrix.target }}
       - name: Assemble and pack the native npm package
         run: bun script/lmplayer-release.ts platform ${{ matrix.target }}
@@ -105,8 +109,39 @@ jobs:
           if-no-files-found: error
           compression-level: 0
 
-  publish:
+  smoke-windows:
     needs: [plan, build]
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.windows_matrix) }}
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: package.json
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: lmplayer-release-plan
+          path: .lmplayer-release
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: lmplayer-native-${{ matrix.target }}
+          path: .lmplayer-release/tarballs
+      - run: bun script/lmplayer-release.ts unpack ${{ matrix.target }}
+      - run: bun script/lmplayer-release.ts smoke ${{ matrix.target }}
+
+  publish:
+    needs: [plan, build, smoke-windows]
     runs-on: ubuntu-24.04
     permissions:
       contents: read
