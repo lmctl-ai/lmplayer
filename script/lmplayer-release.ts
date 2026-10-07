@@ -140,7 +140,8 @@ async function verify() {
   const release = await Bun.file(path.join(output, "plan.json")).json()
   const consumer = await mkdtemp(path.join(tmpdir(), "lmplayer-npm-"))
   await writeFile(path.join(consumer, "package.json"), JSON.stringify({ name: "lmplayer-consumer-smoke", private: true }))
-  const deadline = Date.now() + 600_000
+  // npm can accept a binary package but keep it out of registry reads for >10 minutes.
+  const deadline = Date.now() + 30 * 60_000
   for (;;) {
     try {
       for (const name of [config.name, ...allTargets.map((target) => packageNameForTarget(target, config.name))]) {
