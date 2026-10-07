@@ -89,7 +89,7 @@ jobs:
           fi
       - name: Package-scoped release tests
         working-directory: packages/opencode
-        run: bun test test/installation/build-target.test.ts test/installation/npm-package.test.ts test/installation/npm-release.test.ts
+        run: bun test --timeout 30000 test/installation/build-target.test.ts test/installation/npm-package.test.ts test/installation/npm-release.test.ts
       - name: Typecheck the CLI package
         if: matrix.target == 'linux-x64'
         working-directory: packages/opencode

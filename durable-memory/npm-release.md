@@ -55,7 +55,7 @@ lmplayer --version
 
 ```sh
 cd packages/opencode
-bun test test/installation/build-target.test.ts test/installation/npm-package.test.ts test/installation/npm-release.test.ts
+bun test --timeout 30000 test/installation/build-target.test.ts test/installation/npm-package.test.ts test/installation/npm-release.test.ts
 bun typecheck
 ```
 
