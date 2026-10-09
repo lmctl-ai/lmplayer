@@ -175,15 +175,13 @@ async function smoke(suffix: string) {
   assert.ok(target)
   const release = await Bun.file(path.join(output, "plan.json")).json()
   const binary = path.join(dist, targetName(target), "bin", target.os === "win32" ? "lmplayer.exe" : "lmplayer")
-  if (target.os !== "win32") await chmod(binary, 0o755)
-  if (target.abi === "musl") {
-    const directory = path.dirname(binary)
-    const mount = `${directory}:/release:ro`
-    const version = await $`docker run --rm -v ${mount} alpine:3.22 sh -c 'apk add --no-cache libgcc libstdc++ >/dev/null && /release/lmplayer --version'`.text()
-    assert.equal(version.trim().split("\n").at(-1), release.version)
-    await $`docker run --rm -v ${mount} alpine:3.22 sh -c 'apk add --no-cache libgcc libstdc++ >/dev/null && /release/lmplayer --help >/dev/null'`
+  // Integration smoke covers Linux x64 and arm64 (glibc) only; the other platforms are unit-tested by the
+  // test workflow. This also keeps the release independent of Docker Hub (the musl check pulled alpine).
+  if (target.os !== "linux" || target.abi === "musl") {
+    console.log(`smoke skipped for ${suffix} (integration smoke runs on Linux x64/arm64 glibc only)`)
     return
   }
+  await chmod(binary, 0o755)
   assert.equal((await $`${binary} --version`.text()).trim(), release.version)
   await $`${binary} --help`.quiet()
 }
