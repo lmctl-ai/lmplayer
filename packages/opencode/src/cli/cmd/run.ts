@@ -29,6 +29,13 @@ import { resolveRunCompletion } from "./run/completion"
 
 type ModelInput = Parameters<OpencodeClient["session"]["prompt"]>[0]["model"]
 
+// Several words are re-joined shell-style (an argument with spaces keeps its boundary by quoting);
+// a single argument is already the whole message and goes through untouched.
+export function joinRunMessage(parts: string[]): string {
+  if (parts.length === 1) return parts[0]
+  return parts.map((arg) => (arg.includes(" ") ? `"${arg.replace(/"/g, '\\"')}"` : arg)).join(" ")
+}
+
 export function formatRunOutputText(textParts: string[]): string {
   return textParts.join(EOL + EOL)
 }
@@ -362,9 +369,7 @@ export const RunCommand = effectCmd({
         throw error
       }
 
-      let message = [...args.message, ...(args["--"] || [])]
-        .map((arg) => (arg.includes(" ") ? `"${arg.replace(/"/g, '\\"')}"` : arg))
-        .join(" ")
+      let message = joinRunMessage([...args.message, ...(args["--"] || [])])
 
       if (interactive && args.command) {
         die("--mini cannot be used with --command")
