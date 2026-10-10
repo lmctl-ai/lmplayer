@@ -2,7 +2,7 @@ name: Build and publish lmplayer
 
 on:
   push:
-    branches: [dev]
+    branches: [main]
   workflow_dispatch:
     inputs:
       dry_run:
@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   plan:
-    if: github.repository == 'lmctl-ai/lmplayer' && github.ref == 'refs/heads/dev'
+    if: github.repository == 'lmctl-ai/lmplayer' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.plan.outputs.version }}
