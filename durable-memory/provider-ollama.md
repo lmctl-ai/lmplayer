@@ -2,8 +2,35 @@
 
 Three shipped slices (pushed to lmplayer dev): commit `108b8bfdf` (Slice 1+3)
 and `788cc54fc` (Slice 2). Coder = sonnet-5, Reviewer1 = gpt-5.5 (adversarial,
-APPROVE after a fix loop). All offline-tested; the LIVE ollama round-trip is
-BUILT-BUT-UNTESTED (no ollama on the build host) — see the handoff at the end.
+APPROVE after a fix loop). All offline-tested. The live ollama round-trip was
+initially BUILT-BUT-UNTESTED (no ollama on the build host) — it has since been
+done: see "Current state" below and the dated 2026-07-08 follow-up at the end.
+
+## Current state (verified live 2026-10-11)
+Working invocation from WSL against the Windows Ollama daemon
+(`http://172.18.32.1:11434`, has `qwen2.5:14b` 9GB, `llama3.2:3b`,
+`all-minilm`, `kimi-k2.6:cloud` pulled):
+
+```bash
+lmplayer run --model 'ollama/qwen2.5:14b@172.18.32.1:11434' "hello"
+```
+
+Verified 2026-10-11 with `--format json`: clean `step_start` → `text`
+(part.text = the reply) → `step_finish` stream with token usage reported, ~9s
+for a one-word reply. `OLLAMA_HOST=http://172.18.32.1:11434` + plain
+`ollama/qwen2.5:14b` is equivalent (host precedence per Slice 1).
+
+- Handoff gap "ollama `/v1` streaming shape vs ai-sdk openai-compatible":
+  RESOLVED for this path — the stream parses cleanly end to end.
+- Handoff gap "does `includeUsage` upset ollama": RESOLVED for this path —
+  usage tokens come back fine in `step_finish`.
+  (Both settled empirically for the qwen2.5:14b chat path only; not
+  exhaustively characterized for every model or edge case.)
+- `+tools` opt-in: STILL as flaky as the 2026-07-08 follow-up recorded —
+  re-verified 2026-10-11: qwen2.5:14b emitted a `bash` tool call with a
+  malformed argument shape. For real work use `--agent lean` (bash-only
+  provisioning) or rely on Phase 2 auto-selection for `qwen*`; do not expose
+  the full tool catalog.
 
 ## Slice 1 — config-free `ollama/<model>` (no opencode.json, no API key)
 Mirrors how `github-copilot/<id>` runs config-free. Ollama is NOT in the
@@ -87,6 +114,9 @@ provider + llm + models + runtime-flags suites pass; the 4 github-copilot models
 additive/isolated.
 
 ## HANDOFF: BUILT-BUT-UNTESTED — for the local agent that HAS ollama
+> RESOLVED 2026-07-08 by the follow-up below; re-verified 2026-10-11 (see
+> "Current state" above). Body kept unchanged as a dated historical record —
+> do not read it as the current status.
 No ollama on the build host, so the live path was never round-tripped. Pull
 lmplayer/dev, then:
 1. `ollama serve` + `ollama pull qwen2.5`.
