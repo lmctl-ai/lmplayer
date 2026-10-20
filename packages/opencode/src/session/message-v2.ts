@@ -83,7 +83,9 @@ export const cursor = {
 // Project it away at the SQL layer above this threshold so a resume never builds
 // that object graph; `summaryDiffs` below is the explicit loader for the two
 // consumers that still want the stored value (export, SessionSummary.diff).
-const STRIP_DIFFS_ABOVE_BYTES = 4_000_000
+// Exported so Session.ts can apply the same threshold to SessionTable's
+// schema-identical `summary_diffs` column instead of a second magic number.
+export const STRIP_DIFFS_ABOVE_BYTES = 4_000_000
 
 type MessageRow = {
   id: typeof MessageTable.$inferSelect["id"]

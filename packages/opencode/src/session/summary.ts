@@ -72,8 +72,9 @@ export const SUMMARY_DIFFS_MAX_BYTES = 1_000_000
 
 // Cheap size estimate so we never build the full serialized string (which would
 // itself allocate a copy of the payload we are trying to bound). Early-exits once
-// the cap is exceeded.
-function diffBytes(diffs: Snapshot.FileDiff[]) {
+// the cap is exceeded. Exported so other writers of a `diffs` array (e.g. session
+// import) can apply the same cap instead of inventing a second one.
+export function diffBytes(diffs: Snapshot.FileDiff[]) {
   let total = 0
   for (const diff of diffs) {
     total += (diff.file?.length ?? 0) + (diff.patch?.length ?? 0) + 64

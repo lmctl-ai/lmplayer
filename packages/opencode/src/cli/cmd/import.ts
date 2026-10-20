@@ -2,6 +2,7 @@ import type { Session as SDKSession, Message, Part } from "@opencode-ai/sdk/v2"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
 import { Session } from "@/session/session"
 import { MessageV2 } from "../../session/message-v2"
+import { SessionSummary } from "@/session/summary"
 import { CliError, effectCmd, fail } from "../effect-cmd"
 import { UI } from "../ui"
 import { Database } from "@opencode-ai/core/database/database"
@@ -220,7 +221,17 @@ export const runImport = Effect.fn("Cli.import.body")(function* (
     directory: ctx.directory,
     path: path.relative(path.resolve(ctx.worktree), ctx.directory).replaceAll("\\", "/"),
   }) as Session.Info
-  const row = Session.toRow(info)
+  // An imported file's session-level diffs are arbitrary (and may predate the
+  // cap SessionSummary.summarize now enforces), so apply the same cap here
+  // instead of trusting its size.
+  const importedDiffs = info.summary?.diffs ?? []
+  const row = Session.toRow({
+    ...info,
+    summary: info.summary && {
+      ...info.summary,
+      diffs: SessionSummary.diffBytes(importedDiffs) > SessionSummary.SUMMARY_DIFFS_MAX_BYTES ? [] : importedDiffs,
+    },
+  })
   yield* db
     .insert(SessionTable)
     .values(row)

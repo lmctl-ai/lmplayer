@@ -19,6 +19,7 @@ import { locationServiceMapLayer } from "@opencode-ai/core/location-services"
 
 import { NotFoundError } from "@/storage/storage"
 import { eq } from "drizzle-orm"
+import { getColumns } from "drizzle-orm"
 import { and } from "drizzle-orm"
 import { gte } from "drizzle-orm"
 import { isNull } from "drizzle-orm"
@@ -57,7 +58,16 @@ export function isDefaultTitle(title: string) {
   ).test(title)
 }
 
-type SessionRow = typeof SessionTable.$inferSelect
+// SessionTable.summary_diffs is a schema-identical sibling of MessageTable's
+// per-turn `summary.diffs` (same unbounded-against-tree-size payload, reachable
+// e.g. via session import). Project it away above the same threshold so
+// Session.get()/list()/children() never materialize a giant row;
+// `sessionSummaryDiffs` below is the explicit loader for callers that still
+// want the stored value.
+const sessionDiffsColumn = sql<string | null>`CASE WHEN length(${SessionTable.summary_diffs}) > ${MessageV2.STRIP_DIFFS_ABOVE_BYTES} THEN NULL ELSE ${SessionTable.summary_diffs} END`
+export const safeColumns = { ...getColumns(SessionTable), summary_diffs: sessionDiffsColumn }
+
+type SessionRow = Omit<typeof SessionTable.$inferSelect, "summary_diffs"> & { summary_diffs: string | null }
 
 export function fromRow(row: SessionRow): Info {
   const summary =
@@ -66,7 +76,7 @@ export function fromRow(row: SessionRow): Info {
           additions: row.summary_additions ?? 0,
           deletions: row.summary_deletions ?? 0,
           files: row.summary_files ?? 0,
-          diffs: row.summary_diffs ?? undefined,
+          diffs: row.summary_diffs ? (JSON.parse(row.summary_diffs) as Snapshot.FileDiff[]) : undefined,
         }
       : undefined
   const share = row.share_url ? { url: row.share_url } : undefined
@@ -467,6 +477,12 @@ export interface Interface {
     sessionID: SessionID
     messageID: MessageID
   }) => Effect.Effect<Snapshot.FileDiff[]>
+  /**
+   * Explicit read of the per-session diff stored on SessionTable.summary_diffs.
+   * The regular session read (get/list/children) omits it above the same
+   * threshold as `summaryDiffs` so it never materializes an oversized row.
+   */
+  readonly sessionSummaryDiffs: (sessionID: SessionID) => Effect.Effect<Snapshot.FileDiff[]>
   readonly children: (parentID: SessionID) => Effect.Effect<Info[]>
   readonly remove: (sessionID: SessionID) => Effect.Effect<void, NotFound>
   readonly updateMessage: <T extends SessionV1.Info>(msg: T) => Effect.Effect<T>
@@ -568,7 +584,7 @@ const layer: Layer.Layer<
     })
 
     const get = Effect.fn("Session.get")(function* (id: SessionID) {
-      const row = yield* db.select().from(SessionTable).where(eq(SessionTable.id, id)).get().pipe(Effect.orDie)
+      const row = yield* db.select(safeColumns).from(SessionTable).where(eq(SessionTable.id, id)).get().pipe(Effect.orDie)
       if (!row) return yield* Effect.fail(new NotFoundError({ message: `Session not found: ${id}` }))
       return fromRow(row)
     })
@@ -594,10 +610,10 @@ const layer: Layer.Layer<
       const query =
         conditions.length > 0
           ? db
-              .select()
+              .select(safeColumns)
               .from(SessionTable)
               .where(and(...conditions))
-          : db.select().from(SessionTable)
+          : db.select(safeColumns).from(SessionTable)
       const rows = yield* query
         .orderBy(desc(SessionTable.time_updated), desc(SessionTable.id))
         .limit(input?.limit ?? 100)
@@ -625,7 +641,7 @@ const layer: Layer.Layer<
 
     const children = Effect.fn("Session.children")(function* (parentID: SessionID) {
       const rows = yield* db
-        .select()
+        .select(safeColumns)
         .from(SessionTable)
         .where(and(eq(SessionTable.parent_id, parentID)))
         .all()
@@ -893,6 +909,18 @@ const layer: Layer.Layer<
       return yield* MessageV2.summaryDiffs(input).pipe(Effect.provideService(Database.Service, database))
     })
 
+    const sessionSummaryDiffs: Interface["sessionSummaryDiffs"] = Effect.fn("Session.sessionSummaryDiffs")(
+      function* (sessionID) {
+        const row = yield* db
+          .select({ diffs: SessionTable.summary_diffs })
+          .from(SessionTable)
+          .where(eq(SessionTable.id, sessionID))
+          .get()
+          .pipe(Effect.orDie)
+        return (row?.diffs ?? []) as Snapshot.FileDiff[]
+      },
+    )
+
     const messages: Interface["messages"] = Effect.fn("Session.messages")(function* (input) {
       if (input.limit) {
         return (yield* MessageV2.page({ sessionID: input.sessionID, limit: input.limit }).pipe(
@@ -993,6 +1021,7 @@ const layer: Layer.Layer<
       messages,
       children,
       summaryDiffs,
+      sessionSummaryDiffs,
       remove,
       updateMessage,
       removeMessage,
@@ -1065,7 +1094,7 @@ function listByProject(
   const limit = input.limit ?? 100
 
   return db
-    .select()
+    .select(safeColumns)
     .from(SessionTable)
     .where(and(...conditions))
     .orderBy(desc(SessionTable.time_updated))
