@@ -316,8 +316,20 @@ export const runExport = Effect.fn("Cli.export.body")(function* (args: ExportArg
   return yield* Effect.gen(function* () {
     const sessionInfo = yield* svc.get(sessionID!)
     const messages = yield* svc.messages({ sessionID: sessionInfo.id })
+    // The regular message read omits the stored per-turn diff, so re-attach it
+    // here: export is an explicit read where the diff is still wanted.
+    const withDiffs = yield* Effect.forEach(messages, (msg) => {
+      const info = msg.info
+      if (info.role !== "user" || !info.summary) return Effect.succeed(msg)
+      return svc.summaryDiffs({ sessionID: sessionInfo.id, messageID: info.id }).pipe(
+        Effect.map((diffs) => ({
+          ...msg,
+          info: { ...info, summary: { ...info.summary, diffs } },
+        })),
+      )
+    })
 
-    const rawData = { info: sessionInfo, messages }
+    const rawData = { info: sessionInfo, messages: withDiffs }
     const exportData = isSanitize ? sanitize(rawData) : rawData
     const jsonStr = JSON.stringify(exportData, null, 2) + EOL
 

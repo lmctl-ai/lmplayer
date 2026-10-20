@@ -63,6 +63,25 @@ function unquoteGitPath(input: string) {
   return Buffer.from(bytes).toString()
 }
 
+// A user message persists the per-turn file diff. That diff is unbounded in the
+// size of the tree it was computed against, and one production session reached a
+// single 301MB message row that every `run` resume then had to load. Cap what we
+// persist: the session counts stay on the session row, and the current turn still
+// sees the full diff in memory.
+export const SUMMARY_DIFFS_MAX_BYTES = 1_000_000
+
+// Cheap size estimate so we never build the full serialized string (which would
+// itself allocate a copy of the payload we are trying to bound). Early-exits once
+// the cap is exceeded.
+function diffBytes(diffs: Snapshot.FileDiff[]) {
+  let total = 0
+  for (const diff of diffs) {
+    total += (diff.file?.length ?? 0) + (diff.patch?.length ?? 0) + 64
+    if (total > SUMMARY_DIFFS_MAX_BYTES) return total
+  }
+  return total
+}
+
 export interface Interface {
   readonly summarize: (input: { sessionID: SessionID; messageID: MessageID }) => Effect.Effect<void>
   readonly diff: (input: { sessionID: SessionID; messageID?: MessageID }) => Effect.Effect<Snapshot.FileDiff[]>
@@ -122,17 +141,18 @@ const layer = Layer.effect(
       const target = messages.find((m) => m.info.id === input.messageID)
       if (!target || target.info.role !== "user") return
       const msgDiffs = yield* computeDiff({ messages })
-      target.info.summary = { ...target.info.summary, diffs: msgDiffs }
+      target.info.summary = {
+        ...target.info.summary,
+        diffs: diffBytes(msgDiffs) > SUMMARY_DIFFS_MAX_BYTES ? [] : msgDiffs,
+      }
       yield* sessions.updateMessage(target.info)
     })
 
     const diff = Effect.fn("SessionSummary.diff")(function* (input: { sessionID: SessionID; messageID?: MessageID }) {
       if (!input.messageID) return []
-      const message = (yield* sessions.messages({ sessionID: input.sessionID }).pipe(Effect.orDie)).find(
-        (item) => item.info.id === input.messageID,
-      )
-      if (!message || message.info.role !== "user") return []
-      const diffs = message.info.summary?.diffs ?? []
+      // Read the stored diff explicitly: the regular message read omits it so
+      // resume never materializes a potentially enormous payload.
+      const diffs = yield* sessions.summaryDiffs({ sessionID: input.sessionID, messageID: input.messageID })
       return diffs.map((item) => {
         if (item.file === undefined) return item
         const file = unquoteGitPath(item.file)

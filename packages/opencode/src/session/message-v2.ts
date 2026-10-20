@@ -27,6 +27,7 @@ import { eq } from "drizzle-orm"
 import { inArray } from "drizzle-orm"
 import { lt } from "drizzle-orm"
 import { or } from "drizzle-orm"
+import { sql } from "drizzle-orm"
 import { MessageTable, PartTable, SessionTable } from "@opencode-ai/core/session/sql"
 import { ProviderError } from "@/provider/error"
 import { iife } from "@/util/iife"
@@ -77,9 +78,24 @@ export const cursor = {
   },
 }
 
-const info = (row: typeof MessageTable.$inferSelect) =>
+// A message row can carry the per-turn `summary.diffs` payload, which is
+// unbounded against large generated trees (one production row reached 301MB).
+// Project it away at the SQL layer above this threshold so a resume never builds
+// that object graph; `summaryDiffs` below is the explicit loader for the two
+// consumers that still want the stored value (export, SessionSummary.diff).
+const STRIP_DIFFS_ABOVE_BYTES = 4_000_000
+
+type MessageRow = {
+  id: typeof MessageTable.$inferSelect["id"]
+  session_id: typeof MessageTable.$inferSelect["session_id"]
+  data: string
+}
+
+const messageData = sql<string>`CASE WHEN length(${MessageTable.data}) > ${STRIP_DIFFS_ABOVE_BYTES} THEN json_remove(${MessageTable.data}, '$.summary.diffs') ELSE ${MessageTable.data} END`
+
+const info = (row: MessageRow) =>
   ({
-    ...row.data,
+    ...(JSON.parse(row.data) as typeof MessageTable.$inferSelect["data"]),
     id: row.id,
     sessionID: row.session_id,
   }) as Info
@@ -95,7 +111,7 @@ const part = (row: typeof PartTable.$inferSelect) =>
 const older = (row: Cursor) =>
   or(lt(MessageTable.time_created, row.time), and(eq(MessageTable.time_created, row.time), lt(MessageTable.id, row.id)))
 
-function hydrate(db: Database.Interface["db"], rows: (typeof MessageTable.$inferSelect)[]) {
+function hydrate(db: Database.Interface["db"], rows: MessageRow[]) {
   const ids = rows.map((row) => row.id)
   const partByMessage = new Map<string, Part[]>()
   return Effect.gen(function* () {
@@ -439,7 +455,12 @@ export const page = Effect.fn("MessageV2.page")(function* (input: {
     ? and(eq(MessageTable.session_id, input.sessionID), older(before))
     : eq(MessageTable.session_id, input.sessionID)
   const rows = yield* db
-    .select()
+    .select({
+      id: MessageTable.id,
+      session_id: MessageTable.session_id,
+      time_created: MessageTable.time_created,
+      data: messageData,
+    })
     .from(MessageTable)
     .where(where)
     .orderBy(desc(MessageTable.time_created), desc(MessageTable.id))
@@ -512,7 +533,7 @@ export function parts(messageID: MessageID) {
 export const get = Effect.fn("MessageV2.get")(function* (input: { sessionID: SessionID; messageID: MessageID }) {
   const { db } = yield* Database.Service
   const row = yield* db
-    .select()
+    .select({ id: MessageTable.id, session_id: MessageTable.session_id, data: messageData })
     .from(MessageTable)
     .where(and(eq(MessageTable.id, input.messageID), eq(MessageTable.session_id, input.sessionID)))
     .get()
@@ -522,6 +543,21 @@ export const get = Effect.fn("MessageV2.get")(function* (input: { sessionID: Ses
     info: info(row),
     parts: yield* parts(input.messageID),
   }
+})
+
+export const summaryDiffs = Effect.fn("MessageV2.summaryDiffs")(function* (input: {
+  sessionID: SessionID
+  messageID: MessageID
+}) {
+  const { db } = yield* Database.Service
+  const row = yield* db
+    .select({ diffs: sql<string | null>`json_extract(${MessageTable.data}, '$.summary.diffs')` })
+    .from(MessageTable)
+    .where(and(eq(MessageTable.id, input.messageID), eq(MessageTable.session_id, input.sessionID)))
+    .get()
+    .pipe(Effect.orDie)
+  if (!row?.diffs) return [] as NonNullable<User["summary"]>["diffs"]
+  return JSON.parse(row.diffs) as NonNullable<User["summary"]>["diffs"]
 })
 
 type CompactionBoundaryState = { completed: Set<string>; retain: MessageID | undefined }

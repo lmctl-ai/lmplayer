@@ -459,6 +459,14 @@ export interface Interface {
   readonly setWorkspace: (input: { sessionID: SessionID; workspaceID: Info["workspaceID"] }) => Effect.Effect<void>
   readonly diff: (sessionID: SessionID) => Effect.Effect<Snapshot.FileDiff[]>
   readonly messages: (input: { sessionID: SessionID; limit?: number }) => Effect.Effect<SessionV1.WithParts[], NotFound>
+  /**
+   * Explicit read of the per-turn diff stored on a user message. The regular
+   * message read omits it so a resume never materializes an oversized row.
+   */
+  readonly summaryDiffs: (input: {
+    sessionID: SessionID
+    messageID: MessageID
+  }) => Effect.Effect<Snapshot.FileDiff[]>
   readonly children: (parentID: SessionID) => Effect.Effect<Info[]>
   readonly remove: (sessionID: SessionID) => Effect.Effect<void, NotFound>
   readonly updateMessage: <T extends SessionV1.Info>(msg: T) => Effect.Effect<T>
@@ -881,6 +889,10 @@ const layer: Layer.Layer<
       return [] as Snapshot.FileDiff[]
     })
 
+    const summaryDiffs: Interface["summaryDiffs"] = Effect.fn("Session.summaryDiffs")(function* (input) {
+      return yield* MessageV2.summaryDiffs(input).pipe(Effect.provideService(Database.Service, database))
+    })
+
     const messages: Interface["messages"] = Effect.fn("Session.messages")(function* (input) {
       if (input.limit) {
         return (yield* MessageV2.page({ sessionID: input.sessionID, limit: input.limit }).pipe(
@@ -980,6 +992,7 @@ const layer: Layer.Layer<
       diff,
       messages,
       children,
+      summaryDiffs,
       remove,
       updateMessage,
       removeMessage,
