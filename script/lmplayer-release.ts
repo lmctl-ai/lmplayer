@@ -52,9 +52,11 @@ async function metadata(name: string): Promise<RegistryPackage | null> {
 
 async function plan() {
   const names = [config.name, ...allTargets.map((target) => packageNameForTarget(target, config.name))]
-  const packages = await Promise.all(names.map(metadata))
+  // GitHub-only releases pass the existing release versions in; npm is consulted otherwise.
+  const existing = process.env.LMPLAYER_EXISTING_VERSIONS
+  const packages = existing === undefined ? await Promise.all(names.map(metadata)) : []
   const base = sourcePackage.version
-  const version = process.env.LMPLAYER_VERSION || nextVersion(base, packages.flatMap((item) => Object.keys(item?.versions ?? {})))
+  const version = process.env.LMPLAYER_VERSION || nextVersion(base, existing === undefined ? packages.flatMap((item) => Object.keys(item?.versions ?? {})) : existing.split(/\s+/).filter(Boolean))
   assert.match(version, /^\d+\.\d+\.\d+$/, "release version must be x.y.z")
   const modelResponse = await fetch("https://models.dev/api.json", { signal: AbortSignal.timeout(60_000) })
   if (!modelResponse.ok) throw new Error(`models.dev snapshot: HTTP ${modelResponse.status}`)

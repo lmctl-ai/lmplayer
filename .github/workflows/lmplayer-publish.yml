@@ -1,4 +1,4 @@
-name: Build and publish lmplayer
+name: Build and release lmplayer
 
 on:
   push:
@@ -6,11 +6,11 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: Build and test every package without publishing
+        description: Build and test every target without creating a GitHub Release
         type: boolean
         default: true
       version:
-        description: Optional exact x.y.z version (normally allocated from npm)
+        description: Optional exact x.y.z version (normally the next patch after the latest GitHub Release)
         type: string
 
 permissions:
@@ -37,8 +37,13 @@ jobs:
         with:
           bun-version-file: package.json
       - id: plan
-        run: bun script/lmplayer-release.ts plan
+        run: |
+          # Versions come from existing GitHub Release tags (v<x.y.z>); npm is not used yet.
+          export LMPLAYER_EXISTING_VERSIONS="$(gh release list --limit 500 --json tagName --jq '.[].tagName | ltrimstr("v")')"
+          bun script/lmplayer-release.ts plan
         env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           LMPLAYER_VERSION: ${{ inputs.version }}
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -141,8 +146,10 @@ jobs:
       - run: bun script/lmplayer-release.ts unpack ${{ matrix.target }}
       - run: bun script/lmplayer-release.ts smoke ${{ matrix.target }}
 
-  publish:
+  publish-npm:
+    # Disabled until npm publishing is wanted: set repository variable PUBLISH_NPM=true.
     needs: [plan, build, smoke-windows]
+    if: vars.PUBLISH_NPM == 'true' && (github.event_name == 'push' || !inputs.dry_run)
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -188,8 +195,8 @@ jobs:
         run: bun script/lmplayer-release.ts verify
 
   github-release:
-    # Standalone executables (no npm needed) attached to a GitHub Release.
-    needs: [plan, publish]
+    # Standalone executables for every OS/arch attached to a GitHub Release.
+    needs: [plan, build, smoke-windows]
     if: github.event_name == 'push' || !inputs.dry_run
     runs-on: ubuntu-24.04
     permissions:
