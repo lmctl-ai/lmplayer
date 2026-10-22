@@ -29,17 +29,19 @@ wrapper's channel backward.
 Registry visibility/install checks retry reads for up to 30 minutes; never republish
 as a delay fix. npm processing of a large binary exceeded the original 10-minute limit.
 
-## GitHub Release (standalone executables)
+## GitHub Release (current default; npm is off)
 
-After a successful npm publish, the `github-release` job in the same workflow
-repackages the 12 native tarballs as `lmplayer-<version>-<target>.tar.gz`
-(`.zip` for windows targets, each containing the binary and LICENSE), writes
-`SHA256SUMS`, and creates release `v<version>` with generated notes. It needs
-only `contents: write`, runs only on push / non-dry-run dispatch, and reuses the
-exact binaries that were smoke-tested and published to npm. The tag is created
-on the built commit. Users without npm can download the archive for their
-OS/arch (`linux-x64`, `linux-x64-baseline`, `linux-arm64`, `*-musl`,
-`darwin-arm64/x64`, `windows-arm64/x64`) and verify with `sha256sum -c`.
+Every push to `main` runs `.github/workflows/lmplayer-publish.yml`: it builds all 12
+targets, smoke-tests them, and the `github-release` job creates release `v<version>`
+with `lmplayer-<version>-<target>.tar.gz` (`.zip` for windows; binary + LICENSE) and
+`SHA256SUMS`. The version is the next patch after the latest GitHub Release tag
+(`LMPLAYER_EXISTING_VERSIONS` in `script/lmplayer-release.ts plan`); npm is not
+consulted. First release: v1.18.25 (all 12 targets, run 39838936183). A transient
+`bun install` registry failure on one runner can happen; use **Re-run failed jobs**.
+Manual dispatch with `dry_run: true` builds without releasing.
+
+npm publishing is kept as the `publish-npm` job but is disabled: set repository
+variable `PUBLISH_NPM=true` to enable it (the sections below then apply).
 
 ## npm authorization
 
