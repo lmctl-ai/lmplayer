@@ -6,10 +6,28 @@ Ollama Cloud (`ollama.com` hosted models) — the models.dev catalog provider
 Do NOT confuse the two: `ollama/<model>` = local daemon (custom seeded provider,
 no key, default `http://localhost:11434`); `ollama-cloud/<model>` = hosted API.
 
-## Auth
+## Auth / config: none required
+
+`ollama-cloud` needs **no config file and no `lmplayer auth login`**. It is a
+models.dev catalog provider (`env: ["OLLAMA_API_KEY"]`, npm
+`@ai-sdk/openai-compatible`, api `https://ollama.com/v1`), so lmplayer enables
+it automatically whenever `OLLAMA_API_KEY` is in the process environment.
+Verified 2026-10-21 on a fresh build with empty XDG dirs and no config:
+`lmplayer run --model ollama-cloud/gpt-oss:20b "..."` answered normally.
 
 - Set `OLLAMA_API_KEY` in the environment (the operator's shell already has it).
+  Under lmctl, the member inherits the shell env, so no teamfile change is needed.
 - Never commit or print the key value.
+- `lmplayer models ollama-cloud` lists the catalog even with no key set; a
+  listing is not proof that auth works.
+- Wrong key -> clear `Unauthorized` error. **Missing key -> opaque
+  "Unexpected server error" (ref err_...)**, not a "set OLLAMA_API_KEY" hint.
+  If you see that, check `echo ${OLLAMA_API_KEY:+set}` first.
+- Alternative to env: `lmplayer auth login` (stored in `auth.json`) or
+  `provider.ollama-cloud.options.apiKey` in config — only needed if the env var
+  can't be provided. Optional config is only for overrides (e.g. `baseURL`,
+  per-model `limit`/options); `max_tokens` >= 2048 for reasoning models, see
+  evaluation-ollama-cloud.md.
 
 ## How to specify a model
 

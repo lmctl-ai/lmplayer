@@ -29,6 +29,18 @@ wrapper's channel backward.
 Registry visibility/install checks retry reads for up to 30 minutes; never republish
 as a delay fix. npm processing of a large binary exceeded the original 10-minute limit.
 
+## GitHub Release (standalone executables)
+
+After a successful npm publish, the `github-release` job in the same workflow
+repackages the 12 native tarballs as `lmplayer-<version>-<target>.tar.gz`
+(`.zip` for windows targets, each containing the binary and LICENSE), writes
+`SHA256SUMS`, and creates release `v<version>` with generated notes. It needs
+only `contents: write`, runs only on push / non-dry-run dispatch, and reuses the
+exact binaries that were smoke-tested and published to npm. The tag is created
+on the built commit. Users without npm can download the archive for their
+OS/arch (`linux-x64`, `linux-x64-baseline`, `linux-arm64`, `*-musl`,
+`darwin-arm64/x64`, `windows-arm64/x64`) and verify with `sha256sum -c`.
+
 ## npm authorization
 
 Bootstrap is complete: all 13 packages have npm trusted publishers for repository

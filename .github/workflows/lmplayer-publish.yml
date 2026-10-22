@@ -186,3 +186,46 @@ jobs:
       - name: Verify exact npm artifacts and installed wrapper
         if: github.event_name == 'push' || !inputs.dry_run
         run: bun script/lmplayer-release.ts verify
+
+  github-release:
+    # Standalone executables (no npm needed) attached to a GitHub Release.
+    needs: [plan, publish]
+    if: github.event_name == 'push' || !inputs.dry_run
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.plan.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: lmplayer-native-*
+          path: native
+          merge-multiple: true
+      - name: Repackage each native tarball as tar.gz (zip on Windows) with checksums
+        run: |
+          set -euo pipefail
+          mkdir out
+          for tgz in native/*.tgz; do
+            target="$(basename "$tgz" .tgz)"
+            target="${target%-$VERSION}"
+            target="${target##*lmplayer-}"
+            stage="$(mktemp -d)"
+            tar -xzf "$tgz" -C "$stage" --strip-components=1
+            name="lmplayer-$VERSION-$target"
+            mkdir "$stage/$name"
+            cp "$stage"/bin/lmplayer* "$stage/LICENSE" "$stage/$name/"
+            if [[ "$target" == windows-* ]]; then
+              (cd "$stage" && zip -qr "$GITHUB_WORKSPACE/out/$name.zip" "$name")
+            else
+              tar -czf "out/$name.tar.gz" -C "$stage" "$name"
+            fi
+          done
+          (cd out && sha256sum * > SHA256SUMS)
+          ls -l out
+      - name: Create the GitHub Release
+        run: |
+          gh release create "v$VERSION" out/* \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "lmplayer v$VERSION" --generate-notes
