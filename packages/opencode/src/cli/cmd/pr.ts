@@ -146,7 +146,7 @@ export const PrCommand = effectCmd({
           "view",
           `${prNumber}`,
           "--json",
-          "headRepository,headRepositoryOwner,isCrossRepository,headRefName,body",
+          "headRepository,headRepositoryOwner,isCrossRepository,headRefName",
         ],
         { nothrow: true },
       ),

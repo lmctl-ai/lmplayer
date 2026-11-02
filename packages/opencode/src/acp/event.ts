@@ -138,7 +138,7 @@ export class Subscription {
         sessionId: message.info.sessionID,
         update: {
           sessionUpdate,
-          messageId: message.info.id,
+          messageId: part.type === "reasoning" ? part.id : message.info.id,
           ...chunk,
         },
       })
@@ -285,7 +285,7 @@ export class Subscription {
         sessionId: session.id,
         update: {
           sessionUpdate: "agent_thought_chunk",
-          messageId: props.messageID,
+          messageId: props.partID,
           content: {
             type: "text",
             text: props.delta,

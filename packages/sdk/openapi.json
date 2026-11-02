@@ -22083,7 +22083,7 @@
                     "enum": [false]
                   }
                 ],
-                "description": "Timeout in milliseconds to wait for response headers. Provider integrations may set defaults. Set to false to disable timeout."
+                "description": "Timeout in milliseconds to wait for response headers (default: 300000). Set to false to disable timeout."
               },
               "chunkTimeout": {
                 "anyOf": [
@@ -22123,6 +22123,59 @@
                 },
                 "reasoning": {
                   "type": "boolean"
+                },
+                "reasoning_options": {
+                  "type": "array",
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "type": {
+                            "type": "string",
+                            "enum": ["effort"]
+                          },
+                          "values": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "required": ["type", "values"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "type": {
+                            "type": "string",
+                            "enum": ["toggle"]
+                          }
+                        },
+                        "required": ["type"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "type": {
+                            "type": "string",
+                            "enum": ["budget_tokens"]
+                          },
+                          "min": {
+                            "type": "number"
+                          },
+                          "max": {
+                            "type": "number"
+                          }
+                        },
+                        "required": ["type"],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "description": "Reasoning controls the model accepts, used to build its variants"
                 },
                 "temperature": {
                   "type": "boolean"
@@ -22566,7 +22619,7 @@
                 "enum": ["notify"]
               }
             ],
-            "description": "Automatically update to the latest version. Set to true to auto-update, false to disable, or 'notify' to show update notifications"
+            "description": "Check for new versions and show an update notice. Updates are never installed automatically; run /update or `opencode upgrade`. Set to false to disable update checks. true and 'notify' behave the same"
           },
           "disabled_providers": {
             "type": "array",

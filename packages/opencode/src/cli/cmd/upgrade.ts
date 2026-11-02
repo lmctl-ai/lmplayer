@@ -270,6 +270,7 @@ export const UpgradeCommand = {
       return
     }
     spinner.stop("Upgrade complete")
+    prompts.log.info("OpenCode 2 is available. Upgrade with `opencode upgrade --major`")
     prompts.outro("Done")
   },
 }

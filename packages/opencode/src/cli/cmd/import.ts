@@ -8,7 +8,6 @@ import { UI } from "../ui"
 import { Database } from "@opencode-ai/core/database/database"
 import { SessionTable, MessageTable, PartTable } from "@opencode-ai/core/session/sql"
 import { InstanceRef } from "@/effect/instance-ref"
-import { ShareNext } from "@/share/share-next"
 import { EOL } from "os"
 import path from "path"
 import { FSUtil } from "@opencode-ai/core/fs-util"
@@ -17,28 +16,6 @@ import type { InstanceContext } from "@/project/instance-context"
 
 const decodeMessageInfo = Schema.decodeUnknownSync(SessionV1.Info)
 const decodePart = Schema.decodeUnknownSync(SessionV1.Part)
-
-/** Discriminated union returned by the ShareNext API (GET /api/shares/:id/data) */
-export type ShareData =
-  | { type: "session"; data: SDKSession }
-  | { type: "message"; data: Message }
-  | { type: "part"; data: Part }
-  | { type: "session_diff"; data: unknown }
-  | { type: "model"; data: unknown }
-
-/** Extract share ID from a share URL like https://opncd.ai/share/abc123 */
-export function parseShareUrl(url: string): string | null {
-  const match = url.match(/^https?:\/\/[^/]+\/share\/([a-zA-Z0-9_-]+)$/)
-  return match ? match[1] : null
-}
-
-export function shouldAttachShareAuthHeaders(shareUrl: string, accountBaseUrl: string): boolean {
-  try {
-    return new URL(shareUrl).origin === new URL(accountBaseUrl).origin
-  } catch {
-    return false
-  }
-}
 
 export function formatImportFileError(file: string, error: FSUtil.Error) {
   if (error._tag === "PlatformError") {
@@ -49,46 +26,6 @@ export function formatImportFileError(file: string, error: FSUtil.Error) {
 
   const detail = error.cause instanceof Error ? error.cause.message : error.message
   return `Invalid JSON in ${file}: ${detail}`
-}
-
-/**
- * Transform ShareNext API response (flat array) into the nested structure for local file storage.
- *
- * The API returns a flat array: [session, message, message, part, part, ...]
- * Local storage expects: { info: session, messages: [{ info: message, parts: [part, ...] }, ...] }
- *
- * This groups parts by their messageID to reconstruct the hierarchy before writing to disk.
- */
-export function transformShareData(shareData: ShareData[]): {
-  info: SDKSession
-  messages: Array<{ info: Message; parts: Part[] }>
-} | null {
-  const sessionItem = shareData.find((d) => d.type === "session")
-  if (!sessionItem) return null
-
-  const messageMap = new Map<string, Message>()
-  const partMap = new Map<string, Part[]>()
-
-  for (const item of shareData) {
-    if (item.type === "message") {
-      messageMap.set(item.data.id, item.data)
-    } else if (item.type === "part") {
-      if (!partMap.has(item.data.messageID)) {
-        partMap.set(item.data.messageID, [])
-      }
-      partMap.get(item.data.messageID)!.push(item.data)
-    }
-  }
-
-  if (messageMap.size === 0) return null
-
-  return {
-    info: sessionItem.data,
-    messages: Array.from(messageMap.values()).map((msg) => ({
-      info: msg,
-      parts: partMap.get(msg.id) ?? [],
-    })),
-  }
 }
 
 type ExportData = { info: SDKSession; messages: Array<{ info: Message; parts: Part[] }> }
@@ -113,7 +50,7 @@ export type ImportResultJson = {
 
 export const ImportCommand = effectCmd({
   command: "import <file>",
-  describe: "import session data from JSON file or URL",
+  describe: "import session data from JSON file",
   builder: (yargs) =>
     yargs
       .positional("file", {
@@ -155,7 +92,8 @@ export const runImport = Effect.fn("Cli.import.body")(function* (
   const fs = yield* FSUtil.Service
   const { db } = yield* Database.Service
 
-  let exportData: ExportData | undefined
+  if (file.startsWith("http://") || file.startsWith("https://"))
+    return yield* fail("Importing from share URLs is no longer supported: session sharing has been discontinued")
 
   const isUrl = file.startsWith("http://") || file.startsWith("https://")
 
