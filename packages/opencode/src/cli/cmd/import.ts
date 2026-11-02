@@ -88,62 +88,15 @@ export const runImport = Effect.fn("Cli.import.body")(function* (
   const title = options.title ?? options.t
   const output = options.output ?? options.o
   const isJson = Boolean(options.json)
-  const share = yield* ShareNext.Service
   const fs = yield* FSUtil.Service
   const { db } = yield* Database.Service
 
   if (file.startsWith("http://") || file.startsWith("https://"))
     return yield* fail("Importing from share URLs is no longer supported: session sharing has been discontinued")
 
-  const isUrl = file.startsWith("http://") || file.startsWith("https://")
-
-  if (isUrl) {
-    const slug = parseShareUrl(file)
-    if (!slug) {
-      const baseUrl = yield* Effect.orDie(share.url())
-      return yield* fail(`Invalid URL format. Expected: ${baseUrl}/share/<slug>`)
-    }
-
-    const baseUrl = new URL(file).origin
-    const req = yield* Effect.orDie(share.request())
-    const headers = shouldAttachShareAuthHeaders(file, req.baseUrl) ? req.headers : {}
-
-    const tryFetch = (url: string) =>
-      Effect.tryPromise({
-        try: () => fetch(url, { headers }),
-        catch: (e) =>
-          new CliError({
-            message: `Failed to fetch share data: ${e instanceof Error ? e.message : String(e)}`,
-          }),
-      })
-
-    const dataPath = req.api.data(slug)
-    let response = yield* tryFetch(`${baseUrl}${dataPath}`)
-
-    if (!response.ok && dataPath !== `/api/share/${slug}/data`) {
-      response = yield* tryFetch(`${baseUrl}/api/share/${slug}/data`)
-    }
-
-    if (!response.ok) {
-      return yield* fail(`Failed to fetch share data: ${response.statusText} (${response.status})`)
-    }
-
-    const shareData = yield* Effect.tryPromise({
-      try: () => response.json() as Promise<ShareData[]>,
-      catch: () => new CliError({ message: "Share data was not valid JSON" }),
-    })
-    const transformed = transformShareData(shareData)
-
-    if (!transformed) {
-      return yield* fail(`Share not found or empty: ${slug}`)
-    }
-
-    exportData = transformed
-  } else {
-    exportData = (yield* fs
-      .readJson(file)
-      .pipe(Effect.mapError((error) => new CliError({ message: formatImportFileError(file, error) })))) as ExportData
-  }
+  const exportData = (yield* fs
+    .readJson(file)
+    .pipe(Effect.mapError((error) => new CliError({ message: formatImportFileError(file, error) })))) as ExportData
 
   if (!exportData || !exportData.info) {
     return yield* fail(`Failed to read session data from ${file}`)
