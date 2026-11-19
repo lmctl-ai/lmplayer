@@ -1,5 +1,7 @@
 # lmplayer
 
+Documentation: [Quick reference](https://www.lmctl.com/tools/lmplayer/) · [LLM skill](https://www.lmctl.com/tools/lmplayer/skill.html) · [Guide](https://www.lmctl.com/tools/lmplayer/guide.html) · [Reference](https://www.lmctl.com/tools/lmplayer/reference.html)
+
 An open source AI coding agent built for agents, scripts, and unattended workflows. Send prompts from the command line, run a single-user REST service, or open the optional terminal UI.
 
 lmplayer is a fork of [anomalyco/opencode](https://github.com/anomalyco/opencode). It builds on OpenCode's provider support, coding tools, sessions, subagents, MCP integration, and client/server architecture. It is independently maintained and is not affiliated with or built by the OpenCode team.
